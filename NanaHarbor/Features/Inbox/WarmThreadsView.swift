@@ -5,7 +5,7 @@ import UIKit
 #endif
 
 struct WarmThreadsView: View {
-    @EnvironmentObject private var mockStore: NanaMockStore
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var selectedConversation: NanaConversation?
     @State private var showingCalls = false
     @State private var selectedProfile: NanaProfile?
@@ -14,19 +14,23 @@ struct WarmThreadsView: View {
         NavigationStack {
             ZStack {
                 NanaBackdrop()
-                ScrollView(showsIndicators: false) {
+                if contentStore.payload.conversations.isEmpty && contentStore.state(for: .conversations) == .loading {
+                    NanaScreenLoading(label: "Warming messages")
+                } else if contentStore.payload.conversations.isEmpty, case .failed(let error) = contentStore.state(for: .conversations) {
+                    NanaErrorState(title: "Messages are unavailable", detail: error.localizedDescription, actionTitle: "Retry") { Task { await contentStore.refresh(.conversations) } }
+                } else { ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
                         header
                         quickLinks
                         NanaSectionTitle(eyebrow: "Your conversations", title: "Keep the thread warm")
-                        if mockStore.payload.conversations.isEmpty {
+                        if contentStore.payload.conversations.isEmpty {
                             NanaEmptyState(title: "No messages yet", detail: "A good room is a good place to start.", actionTitle: nil, action: nil)
                         } else {
                             VStack(spacing: 0) {
-                                ForEach(mockStore.payload.conversations.filter { !mockStore.blockedProfileIDs.contains($0.profileID) }) { conversation in
+                                ForEach(contentStore.payload.conversations.filter { !contentStore.blockedProfileIDs.contains($0.profileID) }) { conversation in
                                     Button { selectedConversation = conversation } label: { conversationRow(conversation) }
                                         .buttonStyle(.plain)
-                                    if conversation.id != mockStore.payload.conversations.last?.id { Divider().overlay(NanaPalette.border) }
+                                    if conversation.id != contentStore.payload.conversations.last?.id { Divider().overlay(NanaPalette.border) }
                                 }
                             }
                             .padding(.horizontal, 15)
@@ -36,11 +40,15 @@ struct WarmThreadsView: View {
                     .padding(.horizontal, NanaPalette.screenPadding)
                     .padding(.top, 18)
                     .padding(.bottom, 110)
-                }
+                } }
             }
             .toolbar(.hidden, for: .navigationBar)
+            .task { await contentStore.refresh(.conversations) }
             .sheet(item: $selectedConversation) { conversation in NanaConversationView(conversation: conversation) }
-            .sheet(isPresented: $showingCalls) { NanaVideoCallView(profile: mockStore.payload.profiles[0]) }
+            .sheet(isPresented: $showingCalls) {
+                if let profile = contentStore.payload.profiles.first { NanaVideoCallView(profile: profile) }
+                else { NanaUnavailableSurface(title: "Video calls are not available", detail: "The account and call services are not part of the published A-side contract yet.") }
+            }
             .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
         }
     }
@@ -99,7 +107,7 @@ struct WarmThreadsView: View {
 
     private func conversationRow(_ conversation: NanaConversation) -> some View {
         HStack(spacing: 12) {
-            NanaPlaceholderPortrait(title: conversation.displayName, size: 52)
+            NanaAvatarView(title: conversation.displayName, assetKey: conversation.avatarAssetKey, size: 52)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     Text(conversation.displayName)
@@ -135,12 +143,12 @@ struct WarmThreadsView: View {
 struct NanaConversationView: View {
     let conversation: NanaConversation
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var mockStore: NanaMockStore
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var draft = ""
     @State private var showingCall = false
 
     private var messages: [NanaMessage] {
-        mockStore.payload.messages.filter { $0.conversationID == conversation.id }
+        contentStore.payload.messages.filter { $0.conversationID == conversation.id }
     }
 
     var body: some View {
@@ -150,7 +158,7 @@ struct NanaConversationView: View {
                 VStack(spacing: 0) {
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 13) {
-                            NanaPlaceholderPortrait(title: conversation.displayName, size: 72)
+                            NanaAvatarView(title: conversation.displayName, assetKey: conversation.avatarAssetKey, size: 72)
                             Text(conversation.displayName)
                                 .font(NanaType.section)
                                 .foregroundStyle(NanaPalette.warmWhite)
@@ -177,7 +185,7 @@ struct NanaConversationView: View {
                             .foregroundStyle(.white)
                             .nanaGlassField()
                         Button {
-                            mockStore.appendMessage(to: conversation.id, body: draft)
+                            contentStore.appendMessage(to: conversation.id, body: draft)
                             draft = ""
                         } label: {
                             Image(systemName: "paperplane.fill")
@@ -197,8 +205,11 @@ struct NanaConversationView: View {
                     Button { showingCall = true } label: { Image(systemName: "video.fill").foregroundStyle(NanaPalette.neonPink) }
                 }
             }
+            .task { if conversation.id == "conversation-ava" { await contentStore.refresh(.avaMessages) } }
+            .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
             .sheet(isPresented: $showingCall) {
-                NanaVideoCallView(profile: mockStore.profile(with: conversation.profileID) ?? NanaMockPayload.sample.profiles[0])
+                if let profile = contentStore.profile(with: conversation.profileID) { NanaVideoCallView(profile: profile) }
+                else { NanaUnavailableSurface(title: "Video calls are not available", detail: "This profile is not in the current A-side snapshot.") }
             }
         }
         .preferredColorScheme(.dark)
@@ -256,7 +267,7 @@ struct NanaVideoCallView: View {
                     CircleCallButton(icon: "speaker.wave.2", title: "Speaker") { }
                     CircleCallButton(icon: "phone.down.fill", title: "End", tint: NanaPalette.warning) { dismiss() }
                 }
-                Text("The local mock waits for an answer and keeps your preview visible.")
+                Text("The local preview waits for an answer. Real calling is not part of the published A-side contract.")
                     .font(NanaType.caption)
                     .foregroundStyle(NanaPalette.mutedWhite)
                     .multilineTextAlignment(.center)
@@ -269,6 +280,19 @@ struct NanaVideoCallView: View {
                 elapsed = tick
             }
             callPhase = "No answer"
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+private struct NanaUnavailableSurface: View {
+    let title: String
+    let detail: String
+    var body: some View {
+        ZStack {
+            NanaBackdrop()
+            NanaEmptyState(title: title, detail: detail, actionTitle: nil, action: nil)
+                .padding(22)
         }
         .preferredColorScheme(.dark)
     }

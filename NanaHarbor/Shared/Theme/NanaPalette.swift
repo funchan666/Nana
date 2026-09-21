@@ -67,9 +67,7 @@ struct NanaBackdrop: View {
         ZStack {
             LinearGradient(colors: [NanaPalette.deepSpace, NanaPalette.midnight], startPoint: .topLeading, endPoint: .bottomTrailing)
             if let imageName {
-                Image(imageName)
-                    .resizable()
-                    .scaledToFill()
+                NanaMediaPreview(assetKey: imageName)
                     .opacity(0.42)
                     .clipped()
             }

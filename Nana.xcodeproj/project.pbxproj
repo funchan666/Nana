@@ -16,44 +16,48 @@
 		111E140AAFE0D7CC811EAC66 /* AccountPolicyBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B691640B726CD039CFB5FD4A /* AccountPolicyBrowser.swift */; };
 		17DA8DAC3080B63D7658AB0C /* AgreementConsentRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27750F2BC51FE749506464D7 /* AgreementConsentRow.swift */; };
 		2522FC4C909ACEF68739798A /* AccountArtworkSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F413E4222BA6213AD488FAB /* AccountArtworkSurface.swift */; };
+		28EF4336B2F2BC663F0D8989 /* NanaAssetLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7169A4004E45169CAC3AF2 /* NanaAssetLibrary.swift */; };
 		3874F621E01250D20D7F7FFF /* NanaLaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = FCC7E9A604B8357C5D8173B8 /* NanaLaunchScreen.storyboard */; };
 		3EB5293C67C21013DA7952FA /* NanaDiscoveryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 493AD74E302A039E8BF3BB85 /* NanaDiscoveryViews.swift */; };
 		5072206C95C2288CC55E305C /* NanaCredentialAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7595FC1A6D3979EF407E8ED /* NanaCredentialAccessView.swift */; };
+		53E877B3E4983F356CD3556B /* NanaAuthenticationBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */; };
 		5E30B7B45A8F32FD239B88D0 /* NanaAccessLandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F48A0CDD1C137F08BD7AD78 /* NanaAccessLandingView.swift */; };
 		60939F615EAC72FA7CEF915F /* HarborGatheringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D4175B19C1856901C484C7 /* HarborGatheringView.swift */; };
-		648CDEB7EDF745820B06DB68 /* NanaMockStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6BE51260236B2D40B9E071 /* NanaMockStore.swift */; };
+		63BCAE5B1D0D4F56AB6D66BC /* NanaAServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8FAB44DCF531B86DFB9B131 /* NanaAServiceClient.swift */; };
 		64C52C89B533AEBDF5238B9E /* NanaEntryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EE88EF1ECDA612A8ABA18A /* NanaEntryCoordinator.swift */; };
 		6CB24382609B39CADC7D7636 /* NanaVoiceRoomDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3606A86940000A2D85506A4 /* NanaVoiceRoomDetailView.swift */; };
 		863DDAA1663382A09FE3B359 /* EntryLoadingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93A11B300E46AF384B5F1E33 /* EntryLoadingViews.swift */; };
 		903E1E5EA2A409E11839FD72 /* AppleSignInService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5D205BF99BD50B1C8FBA6F /* AppleSignInService.swift */; };
 		956CC2AEE9D4DBEC567937B0 /* AccountCredentialRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8BFF550EAEC135F636EFBF /* AccountCredentialRow.swift */; };
 		A93A353ABC0718F6A7A4643F /* NanaPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3526CEB4D845AF580025DE91 /* NanaPalette.swift */; };
+		AA45126663BD3BEDA595C7A2 /* NanaContentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5CBCF75507F8C28D10C868 /* NanaContentStore.swift */; };
 		AACA8C2956A3AE7524052368 /* WarmThreadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6494A6E3FEE0378AB906383A /* WarmThreadsView.swift */; };
+		AE8D2B8FA6F0DC0D814DED24 /* videos in Resources */ = {isa = PBXBuildFile; fileRef = 768EC854236C626754AF0D37 /* videos */; };
 		B9CE65DA430A5369D5141C03 /* AccountEntryDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E89FD14C95B5F89D3454CA /* AccountEntryDraft.swift */; };
 		C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */; };
 		DAABB175EDB9B33E1503972D /* NanaSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */; };
-		E32DC3888CE81FC943EAA193 /* NanaMockPayload.json in Resources */ = {isa = PBXBuildFile; fileRef = 4029DA03BB0BDDAB572FBB7F /* NanaMockPayload.json */; };
+		E6256002F1AFC3C830C55EE6 /* pics in Resources */ = {isa = PBXBuildFile; fileRef = 2B4500966D2E4847511F0487 /* pics */; };
 		F3C21557A0944C5C42E7D2F0 /* AccountConsentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */; };
 		F998C8A16E2F94892C6A7630 /* NanaProfileCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5440DF561E5939D352B50D2D /* NanaProfileCompletionView.swift */; };
 		F9B305C028D506362F65E11B /* NanaOnboardingFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE4C2AB25BB6EA82CC8F502 /* NanaOnboardingFlow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0E6BE51260236B2D40B9E071 /* NanaMockStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaMockStore.swift; sourceTree = "<group>"; };
 		17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaSessionStore.swift; sourceTree = "<group>"; };
 		1F48A0CDD1C137F08BD7AD78 /* NanaAccessLandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAccessLandingView.swift; sourceTree = "<group>"; };
 		26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourShoreView.swift; sourceTree = "<group>"; };
 		27750F2BC51FE749506464D7 /* AgreementConsentRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgreementConsentRow.swift; sourceTree = "<group>"; };
+		2B4500966D2E4847511F0487 /* pics */ = {isa = PBXFileReference; lastKnownFileType = folder; path = pics; sourceTree = SOURCE_ROOT; };
 		2DFD2A4ECB3DC9A235416614 /* NanaLiveModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveModels.swift; sourceTree = "<group>"; };
 		3526CEB4D845AF580025DE91 /* NanaPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaPalette.swift; sourceTree = "<group>"; };
 		36E89FD14C95B5F89D3454CA /* AccountEntryDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountEntryDraft.swift; sourceTree = "<group>"; };
-		4029DA03BB0BDDAB572FBB7F /* NanaMockPayload.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = NanaMockPayload.json; sourceTree = "<group>"; };
 		493AD74E302A039E8BF3BB85 /* NanaDiscoveryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaDiscoveryViews.swift; sourceTree = "<group>"; };
 		4C8BFF550EAEC135F636EFBF /* AccountCredentialRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCredentialRow.swift; sourceTree = "<group>"; };
 		5387E006AC6DA430C36A36A8 /* Nana.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Nana.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5440DF561E5939D352B50D2D /* NanaProfileCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaProfileCompletionView.swift; sourceTree = "<group>"; };
 		5CF0564D9D0BEB4944CB2702 /* NanaHarborShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaHarborShellView.swift; sourceTree = "<group>"; };
 		6494A6E3FEE0378AB906383A /* WarmThreadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarmThreadsView.swift; sourceTree = "<group>"; };
+		768EC854236C626754AF0D37 /* videos */ = {isa = PBXFileReference; lastKnownFileType = folder; path = videos; sourceTree = SOURCE_ROOT; };
 		8DE4C2AB25BB6EA82CC8F502 /* NanaOnboardingFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaOnboardingFlow.swift; sourceTree = "<group>"; };
 		8F413E4222BA6213AD488FAB /* AccountArtworkSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountArtworkSurface.swift; sourceTree = "<group>"; };
 		93A11B300E46AF384B5F1E33 /* EntryLoadingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryLoadingViews.swift; sourceTree = "<group>"; };
@@ -61,13 +65,17 @@
 		A26C7BEB00CEE7A012CEF6F8 /* WaterlineWelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterlineWelcomeView.swift; sourceTree = "<group>"; };
 		A3606A86940000A2D85506A4 /* NanaVoiceRoomDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVoiceRoomDetailView.swift; sourceTree = "<group>"; };
 		AA5D205BF99BD50B1C8FBA6F /* AppleSignInService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignInService.swift; sourceTree = "<group>"; };
+		AA7169A4004E45169CAC3AF2 /* NanaAssetLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAssetLibrary.swift; sourceTree = "<group>"; };
 		B60A8D604151F941C1B3189C /* Nana.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Nana.entitlements; sourceTree = "<group>"; };
 		B691640B726CD039CFB5FD4A /* AccountPolicyBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountPolicyBrowser.swift; sourceTree = "<group>"; };
 		BCB3DE978120188D83EC8E8F /* NanaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaApp.swift; sourceTree = "<group>"; };
 		D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveComponents.swift; sourceTree = "<group>"; };
 		E3EE88EF1ECDA612A8ABA18A /* NanaEntryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaEntryCoordinator.swift; sourceTree = "<group>"; };
 		E7595FC1A6D3979EF407E8ED /* NanaCredentialAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaCredentialAccessView.swift; sourceTree = "<group>"; };
+		F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAuthenticationBoundary.swift; sourceTree = "<group>"; };
 		F3D4175B19C1856901C484C7 /* HarborGatheringView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborGatheringView.swift; sourceTree = "<group>"; };
+		F8FAB44DCF531B86DFB9B131 /* NanaAServiceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAServiceClient.swift; sourceTree = "<group>"; };
+		FB5CBCF75507F8C28D10C868 /* NanaContentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaContentStore.swift; sourceTree = "<group>"; };
 		FCC7E9A604B8357C5D8173B8 /* NanaLaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = NanaLaunchScreen.storyboard; sourceTree = "<group>"; };
 		FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConsentNotice.swift; sourceTree = "<group>"; };
 		FF9AA2FFDD04CEE810E50A2C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -119,9 +127,18 @@
 		22B71BA11D4017814396B852 /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				AA7169A4004E45169CAC3AF2 /* NanaAssetLibrary.swift */,
 				D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */,
 			);
 			path = Components;
+			sourceTree = "<group>";
+		};
+		26F2DE9C70E9CA233F555003 /* Content */ = {
+			isa = PBXGroup;
+			children = (
+				FB5CBCF75507F8C28D10C868 /* NanaContentStore.swift */,
+			);
+			path = Content;
 			sourceTree = "<group>";
 		};
 		2AE03AD786ED6ED6E36592E7 /* Profile */ = {
@@ -149,6 +166,15 @@
 			path = Home;
 			sourceTree = "<group>";
 		};
+		530C08682C92E13CBEB927BD /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				F8FAB44DCF531B86DFB9B131 /* NanaAServiceClient.swift */,
+				F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
 		8DDBDB867DD70394ABE3B076 /* Gather */ = {
 			isa = PBXGroup;
 			children = (
@@ -161,6 +187,8 @@
 		91A37A184D7DC03E612F4896 = {
 			isa = PBXGroup;
 			children = (
+				2B4500966D2E4847511F0487 /* pics */,
+				768EC854236C626754AF0D37 /* videos */,
 				9D65BFAF2CD8E7601233C4B8 /* NanaHarbor */,
 				1BB270F30E603CE3C94112C6 /* Products */,
 			);
@@ -170,8 +198,9 @@
 			isa = PBXGroup;
 			children = (
 				22B71BA11D4017814396B852 /* Components */,
-				CC7B075D3FBE332F85AA9694 /* MockData */,
+				26F2DE9C70E9CA233F555003 /* Content */,
 				06900BEB91B1CABCCE4A2674 /* Models */,
+				530C08682C92E13CBEB927BD /* Networking */,
 				DF4FB78CAC25C0769A94AAA6 /* Theme */,
 			);
 			path = Shared;
@@ -221,15 +250,6 @@
 				17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */,
 			);
 			path = AccountAccess;
-			sourceTree = "<group>";
-		};
-		CC7B075D3FBE332F85AA9694 /* MockData */ = {
-			isa = PBXGroup;
-			children = (
-				4029DA03BB0BDDAB572FBB7F /* NanaMockPayload.json */,
-				0E6BE51260236B2D40B9E071 /* NanaMockStore.swift */,
-			);
-			path = MockData;
 			sourceTree = "<group>";
 		};
 		DF4FB78CAC25C0769A94AAA6 /* Theme */ = {
@@ -296,7 +316,8 @@
 			files = (
 				0D0BE7943DFEAE1F22816716 /* Assets.xcassets in Resources */,
 				3874F621E01250D20D7F7FFF /* NanaLaunchScreen.storyboard in Resources */,
-				E32DC3888CE81FC943EAA193 /* NanaMockPayload.json in Resources */,
+				E6256002F1AFC3C830C55EE6 /* pics in Resources */,
+				AE8D2B8FA6F0DC0D814DED24 /* videos in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -316,15 +337,18 @@
 				903E1E5EA2A409E11839FD72 /* AppleSignInService.swift in Sources */,
 				863DDAA1663382A09FE3B359 /* EntryLoadingViews.swift in Sources */,
 				60939F615EAC72FA7CEF915F /* HarborGatheringView.swift in Sources */,
+				63BCAE5B1D0D4F56AB6D66BC /* NanaAServiceClient.swift in Sources */,
 				5E30B7B45A8F32FD239B88D0 /* NanaAccessLandingView.swift in Sources */,
 				0FEF682DBD4832FE7C0E50D8 /* NanaApp.swift in Sources */,
+				28EF4336B2F2BC663F0D8989 /* NanaAssetLibrary.swift in Sources */,
+				53E877B3E4983F356CD3556B /* NanaAuthenticationBoundary.swift in Sources */,
+				AA45126663BD3BEDA595C7A2 /* NanaContentStore.swift in Sources */,
 				5072206C95C2288CC55E305C /* NanaCredentialAccessView.swift in Sources */,
 				3EB5293C67C21013DA7952FA /* NanaDiscoveryViews.swift in Sources */,
 				64C52C89B533AEBDF5238B9E /* NanaEntryCoordinator.swift in Sources */,
 				0673C9DFF604D2881E64DD08 /* NanaHarborShellView.swift in Sources */,
 				059DC4BD98310B88212328D5 /* NanaLiveComponents.swift in Sources */,
 				022ECD668282A5AEC45B4C2F /* NanaLiveModels.swift in Sources */,
-				648CDEB7EDF745820B06DB68 /* NanaMockStore.swift in Sources */,
 				F9B305C028D506362F65E11B /* NanaOnboardingFlow.swift in Sources */,
 				A93A353ABC0718F6A7A4643F /* NanaPalette.swift in Sources */,
 				F998C8A16E2F94892C6A7630 /* NanaProfileCompletionView.swift in Sources */,
@@ -412,7 +436,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nana.harbor;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -434,7 +458,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nana.harbor;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;

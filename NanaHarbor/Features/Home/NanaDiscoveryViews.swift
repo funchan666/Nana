@@ -2,7 +2,7 @@ import SwiftUI
 
 struct NanaDiscoverySearchView: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var mockStore: NanaMockStore
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var query = ""
     @State private var filter = NanaSearchFilter()
     @State private var showingFilters = false
@@ -11,13 +11,13 @@ struct NanaDiscoverySearchView: View {
     @State private var selectedPost: NanaPost?
 
     private var matchingProfiles: [NanaProfile] {
-        mockStore.filteredProfiles(for: filter).filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) || $0.handle.localizedCaseInsensitiveContains(query) }
+        contentStore.filteredProfiles(for: filter).filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) || $0.handle.localizedCaseInsensitiveContains(query) }
     }
     private var matchingRooms: [NanaLiveRoom] {
-        mockStore.filteredRooms(for: filter).filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.hostName.localizedCaseInsensitiveContains(query) }
+        contentStore.filteredRooms(for: filter).filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.hostName.localizedCaseInsensitiveContains(query) }
     }
     private var matchingPosts: [NanaPost] {
-        mockStore.posts(for: filter).filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.body.localizedCaseInsensitiveContains(query) }
+        contentStore.posts(for: filter).filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.body.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
@@ -46,6 +46,7 @@ struct NanaDiscoverySearchView: View {
             .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
             .sheet(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
             .sheet(item: $selectedPost) { post in NanaPostDetailView(post: post) }
+            .task { await contentStore.refresh(.search) }
         }
         .preferredColorScheme(.dark)
     }
@@ -55,7 +56,7 @@ struct NanaDiscoverySearchView: View {
             NanaSectionTitle(eyebrow: "Search", title: title)
             if profiles.isEmpty { Text("No people match these filters.").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite) }
             ForEach(profiles) { profile in
-                Button { selectedProfile = profile } label: { NanaPersonRow(profile: profile, trailingTitle: profile.isConnected ? "Connected" : "Connect") { mockStore.toggleConnection(for: profile.id) } }
+                Button { selectedProfile = profile } label: { NanaPersonRow(profile: profile, trailingTitle: profile.isConnected ? "Connected" : "Connect") { contentStore.toggleConnection(for: profile.id) } }
                     .buttonStyle(.plain)
             }
         }
@@ -116,8 +117,8 @@ private struct NanaSearchFilterView: View {
 struct NanaPostDetailView: View {
     let post: NanaPost
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var comment = ""
-    @State private var comments: [String] = ["This is exactly what I needed to hear.", "Leaving space changes the whole room."]
 
     var body: some View {
         NavigationStack {
@@ -132,18 +133,20 @@ struct NanaPostDetailView: View {
                             Text(post.body).font(NanaType.body).foregroundStyle(.white.opacity(0.82)).lineSpacing(5)
                             Divider().overlay(NanaPalette.border).padding(.vertical, 8)
                             NanaSectionTitle(eyebrow: "Community", title: "Responses")
-                            ForEach(Array(comments.enumerated()), id: \.offset) { _, value in Text(value).font(NanaType.body).foregroundStyle(NanaPalette.mutedWhite).padding(13).frame(maxWidth: .infinity, alignment: .leading).nanaCard() }
+                            NanaEmptyState(title: "Responses unavailable", detail: "The published A-side contract provides post content only; no comment read or write endpoint is connected.", actionTitle: nil, action: nil)
                         }
                         .padding(20)
                     }
                     HStack(spacing: 8) {
                         TextField("Add a response…", text: $comment).foregroundStyle(.white).nanaGlassField()
-                        Button { let value = comment.trimmingCharacters(in: .whitespacesAndNewlines); if !value.isEmpty { comments.append(value); comment = "" } } label: { Image(systemName: "paperplane.fill").foregroundStyle(.white).frame(width: 44, height: 44).background(NanaPalette.violet, in: Circle()) }.buttonStyle(.plain)
+                        Button { contentStore.explainUnavailable("Post responses") } label: { Image(systemName: "paperplane.fill").foregroundStyle(.white).frame(width: 44, height: 44).background(NanaPalette.violet, in: Circle()) }.buttonStyle(.plain)
                     }
                     .padding(12).background(NanaPalette.deepSpace.opacity(0.96))
                 }
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
+            .task { if post.id == "post-echoes" { await contentStore.refresh(.echoesPost) } }
         }
         .preferredColorScheme(.dark)
     }

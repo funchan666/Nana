@@ -189,7 +189,11 @@ struct NanaProfileCompletionView: View {
             notice = AccountEntryNotice(title: "A little more to fill in", explanation: "Add your name, gender, country, and at least one tag before entering Nana.")
             return
         }
-        sessionStore.completeProfile(displayName: trimmedName, gender: gender, country: country, birthDate: birthDate, interests: Array(selectedInterests).sorted(), avatarData: avatarData)
+        do {
+            try sessionStore.completeProfile(displayName: trimmedName, gender: gender, country: country, birthDate: birthDate, interests: Array(selectedInterests).sorted(), avatarData: avatarData)
+        } catch {
+            notice = AccountEntryNotice(title: "Couldn't save your profile", explanation: error.localizedDescription)
+        }
     }
 }
 

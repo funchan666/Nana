@@ -3,7 +3,7 @@ import SwiftUI
 struct NanaVoiceRoomDetailView: View {
     let room: NanaLiveRoom
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var mockStore: NanaMockStore
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var isLocalMuted = false
     @State private var showingGiftShelf = false
     @State private var showingExitConfirmation = false
@@ -11,11 +11,11 @@ struct NanaVoiceRoomDetailView: View {
     @State private var selectedProfile: NanaProfile?
 
     private var roomSeats: [NanaRoomSeat] {
-        mockStore.payload.roomSeats.filter { $0.roomID == room.id }.sorted { $0.position < $1.position }
+        contentStore.payload.roomSeats.filter { $0.roomID == room.id }.sorted { $0.position < $1.position }
     }
 
     private var roomMessages: [NanaRoomChatMessage] {
-        mockStore.payload.roomMessages.filter { $0.roomID == room.id }
+        contentStore.payload.roomMessages.filter { $0.roomID == room.id }
     }
 
     var body: some View {
@@ -37,12 +37,16 @@ struct NanaVoiceRoomDetailView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task {
+            if room.id == "room-aurora" { await contentStore.refresh(.auroraRoom) }
+        }
         .confirmationDialog("Leave this room?", isPresented: $showingExitConfirmation, titleVisibility: .visible) {
             Button("Leave room", role: .destructive) { dismiss() }
             Button("Stay", role: .cancel) { }
         }
         .sheet(isPresented: $showingGiftShelf) { NanaGiftShelfView(roomID: room.id) }
         .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
+        .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         .preferredColorScheme(.dark)
     }
 
@@ -82,9 +86,7 @@ struct NanaVoiceRoomDetailView: View {
     private var streamPreview: some View {
         ZStack(alignment: .bottomLeading) {
             if let stream = room.streamAssetKey {
-                Image(stream)
-                    .resizable()
-                    .scaledToFill()
+                NanaMediaPreview(assetKey: stream)
                     .frame(maxWidth: .infinity)
                     .frame(height: 198)
                     .clipped()
@@ -107,7 +109,7 @@ struct NanaVoiceRoomDetailView: View {
 
     private var roomHeader: some View {
         HStack(alignment: .top, spacing: 11) {
-            NanaPlaceholderPortrait(title: room.hostName, size: 48)
+            NanaAvatarView(title: room.hostName, assetKey: room.hostAvatarAssetKey, size: 48)
             VStack(alignment: .leading, spacing: 5) {
                 Text(room.title)
                     .font(NanaType.section)
@@ -121,7 +123,7 @@ struct NanaVoiceRoomDetailView: View {
                     .lineLimit(2)
             }
             Spacer()
-            Button { mockStore.toggleConnection(for: room.hostID) } label: {
+            Button { contentStore.toggleConnection(for: room.hostID) } label: {
                 Text(room.isFollowingHost ? "Following" : "Follow")
                     .font(NanaType.caption.weight(.bold))
                     .foregroundStyle(.white)
@@ -139,7 +141,7 @@ struct NanaVoiceRoomDetailView: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 13) {
                 ForEach(roomSeats) { seat in
                     Button {
-                        if let profileID = seat.profileID, let profile = mockStore.profile(with: profileID) { selectedProfile = profile }
+                        if let profileID = seat.profileID, let profile = contentStore.profile(with: profileID) { selectedProfile = profile }
                     } label: {
                         VStack(spacing: 7) {
                             ZStack(alignment: .bottomTrailing) {
@@ -167,8 +169,8 @@ struct NanaVoiceRoomDetailView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         if seat.profileID != nil {
-                            Button(seat.isMuted ? "Unmute" : "Mute") { mockStore.toggleMute(roomID: room.id, seatID: seat.id) }
-                            Button("Remove from room", role: .destructive) { mockStore.kick(roomID: room.id, seatID: seat.id) }
+                            Button(seat.isMuted ? "Unmute" : "Mute") { contentStore.toggleMute(roomID: room.id, seatID: seat.id) }
+                            Button("Remove from room", role: .destructive) { contentStore.kick(roomID: room.id, seatID: seat.id) }
                         }
                     }
                 }
@@ -223,7 +225,7 @@ struct NanaVoiceRoomDetailView: View {
                 .font(NanaType.body)
                 .nanaGlassField()
             Button {
-                mockStore.appendRoomMessage(roomID: room.id, body: messageDraft)
+                contentStore.appendRoomMessage(roomID: room.id, body: messageDraft)
                 messageDraft = ""
             } label: {
                 Image(systemName: "paperplane.fill")
@@ -239,8 +241,7 @@ struct NanaVoiceRoomDetailView: View {
 private struct NanaGiftShelfView: View {
     let roomID: String
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var mockStore: NanaMockStore
-    @State private var showInsufficient = false
+    @EnvironmentObject private var contentStore: NanaContentStore
 
     var body: some View {
         NavigationStack {
@@ -252,7 +253,7 @@ private struct NanaGiftShelfView: View {
                             Text("Send a gift")
                                 .font(NanaType.hero)
                                 .foregroundStyle(NanaPalette.warmWhite)
-                            Text("Balance \(mockStore.payload.wallet.coinBalance) coins")
+                            Text("Balance \(contentStore.payload.wallet.coinBalance) coins")
                                 .font(NanaType.caption)
                                 .foregroundStyle(NanaPalette.mutedWhite)
                         }
@@ -263,14 +264,12 @@ private struct NanaGiftShelfView: View {
                             .frame(width: 76, height: 50)
                     }
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        ForEach(mockStore.payload.gifts) { gift in
+                        ForEach(contentStore.payload.gifts) { gift in
                             Button {
-                                if mockStore.sendGift(gift, to: roomID) { dismiss() } else { showInsufficient = true }
+                                contentStore.sendGift(gift, to: roomID)
                             } label: {
                                 VStack(spacing: 9) {
-                                    Image(gift.assetKey ?? "NanaGiftArtwork")
-                                        .resizable()
-                                        .scaledToFit()
+                                    NanaAssetImage(assetKey: gift.assetKey ?? "nana.asset.NanaGiftArtwork", contentMode: .fit)
                                         .frame(width: 78, height: 58)
                                     Text(gift.title)
                                         .font(NanaType.bodyMedium)
@@ -290,7 +289,8 @@ private struct NanaGiftShelfView: View {
                 .padding(20)
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
-            .alert("Not enough coins", isPresented: $showInsufficient) { Button("OK", role: .cancel) { } } message: { Text("The local mock wallet does not have enough coins for this gift.") }
+            .task { await contentStore.refresh(.gifts) }
+            .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)
     }

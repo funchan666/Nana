@@ -17,11 +17,15 @@ targets:
     platform: iOS
     sources:
       - path: NanaHarbor
-    resources:
-      - path: NanaHarbor/Shared/MockData/NanaMockPayload.json
+      - path: pics
+        type: folder
+        buildPhase: resources
+      - path: videos
+        type: folder
+        buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nana.harbor
+        PRODUCT_BUNDLE_IDENTIFIER: com.nanalantern.harbortide
         INFOPLIST_KEY_CFBundleDisplayName: Nana
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true

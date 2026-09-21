@@ -9,7 +9,7 @@ enum NanaHarbor: Hashable {
 
 struct NanaHarborShellView: View {
     @Binding var selectedHarbor: NanaHarbor
-    @EnvironmentObject private var mockStore: NanaMockStore
+    @EnvironmentObject private var contentStore: NanaContentStore
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -27,6 +27,12 @@ struct NanaHarborShellView: View {
         }
         .background(NanaPalette.midnight)
         .preferredColorScheme(.dark)
+        .overlay {
+            if let notice = contentStore.actionNotice {
+                AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
+            }
+        }
+        .disabled(contentStore.actionNotice != nil)
     }
 }
 

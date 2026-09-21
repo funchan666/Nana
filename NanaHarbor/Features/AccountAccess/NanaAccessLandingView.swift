@@ -90,11 +90,15 @@ struct NanaAccessLandingView: View {
             isAppleLoading = false
             switch result {
             case .success(let identity):
-                sessionStore.prepareAppleRegistration(emailAddress: identity.emailAddress, displayName: identity.displayName, stableIdentity: identity.stableIdentity)
-                openProfile()
+                do {
+                    let hasCompletedProfile = try sessionStore.acceptAppleAuthorization(identity)
+                    if !hasCompletedProfile { openProfile() }
+                } catch {
+                    entryNotice = AccountEntryNotice(title: "Couldn't save your Apple profile", explanation: error.localizedDescription)
+                }
             case .failure(let error):
-                guard (error as NSError).code != ASAuthorizationError.canceled.rawValue else { return }
-                entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: error.localizedDescription)
+                if let authorizationError = error as? ASAuthorizationError, authorizationError.code == .canceled { return }
+                entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: "Please try Sign in with Apple again. No local session was started.")
             }
         }
     }

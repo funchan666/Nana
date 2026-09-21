@@ -1,8 +1,10 @@
+import AuthenticationServices
 import SwiftUI
 
 struct NanaEntryCoordinator: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var sessionStore = NanaSessionStore()
-    @StateObject private var mockStore = NanaMockStore()
+    @StateObject private var contentStore = NanaContentStore()
     @State private var hasPresentedLaunchArtwork = false
     @State private var selectedHarbor: NanaHarbor = .home
     @State private var entryRoute: AccountRoute = .landing
@@ -15,7 +17,7 @@ struct NanaEntryCoordinator: View {
             } else if sessionStore.activeProfile != nil {
                 NanaHarborShellView(selectedHarbor: $selectedHarbor)
                     .environmentObject(sessionStore)
-                    .environmentObject(mockStore)
+                    .environmentObject(contentStore)
             } else if !sessionStore.onboardingFinished {
                 NanaOnboardingFlow { sessionStore.finishOnboarding() }
             } else if sessionStore.pendingIdentity != nil {
@@ -25,13 +27,42 @@ struct NanaEntryCoordinator: View {
             }
         }
         .environmentObject(sessionStore)
-        .environmentObject(mockStore)
+        .environmentObject(contentStore)
         .task {
             guard !hasPresentedLaunchArtwork else { return }
+            await sessionStore.restoreLocalSession()
             do {
                 try await Task.sleep(for: .milliseconds(1500))
                 hasPresentedLaunchArtwork = true
             } catch { }
+        }
+        .task(id: sessionStore.activeProfile?.localAccountScope) {
+            contentStore.beginSession(accountID: sessionStore.activeProfile?.localAccountScope)
+            guard sessionStore.activeProfile != nil else { return }
+            await contentStore.refresh(.bootstrap)
+            await contentStore.refresh(.assetManifest)
+        }
+        .onChange(of: sessionStore.activeProfile?.localAccountScope) { _, scope in
+            if scope == nil {
+                entryRoute = .landing
+                selectedHarbor = .home
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, hasPresentedLaunchArtwork else { return }
+            Task {
+                await sessionStore.validateAppleSession()
+                guard sessionStore.activeProfile != nil else { return }
+                await contentStore.refresh(.bootstrap)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
+            sessionStore.handleAppleCredentialRevocation()
+        }
+        .overlay {
+            if let notice = sessionStore.sessionNotice {
+                AccountConsentNotice(notice: notice) { sessionStore.sessionNotice = nil }
+            }
         }
     }
 

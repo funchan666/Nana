@@ -77,9 +77,7 @@ struct NanaRoomArtwork: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if let asset = room.streamAssetKey {
-                Image(asset)
-                    .resizable()
-                    .scaledToFill()
+                NanaMediaPreview(assetKey: asset)
                     .frame(maxWidth: .infinity)
                     .frame(height: height)
                     .clipped()
@@ -120,7 +118,7 @@ struct NanaPersonRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            NanaPlaceholderPortrait(title: profile.displayName, size: 48)
+            NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 48)
             VStack(alignment: .leading, spacing: 4) {
                 Text(profile.displayName)
                     .font(NanaType.bodyMedium)

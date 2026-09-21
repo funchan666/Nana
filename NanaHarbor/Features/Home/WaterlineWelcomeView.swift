@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct WaterlineWelcomeView: View {
-    @EnvironmentObject private var mockStore: NanaMockStore
+    @EnvironmentObject private var contentStore: NanaContentStore
     @EnvironmentObject private var sessionStore: NanaSessionStore
     @State private var isLoading = true
     @State private var showingSearch = false
@@ -10,11 +10,11 @@ struct WaterlineWelcomeView: View {
     @State private var selectedProfile: NanaProfile?
 
     private var visibleRooms: [NanaLiveRoom] {
-        mockStore.filteredRooms(for: mockStore.searchFilter).filter { room in
-            switch mockStore.selectedCategory {
+        contentStore.filteredRooms(for: contentStore.searchFilter).filter { room in
+            switch contentStore.selectedCategory {
             case "Following": return room.isFollowingHost
             case "For you": return true
-            default: return room.category == mockStore.selectedCategory
+            default: return room.category == contentStore.selectedCategory
             }
         }
     }
@@ -23,8 +23,12 @@ struct WaterlineWelcomeView: View {
         NavigationStack {
             ZStack {
                 NanaBackdrop(imageName: "NanaLiveBackdrop")
-                if isLoading {
+                if isLoading || contentStore.state(for: .homeFeed) == .loading || contentStore.state(for: .bootstrap) == .loading {
                     NanaScreenLoading(label: "Tuning the room")
+                } else if case .failed(let error) = contentStore.state(for: .homeFeed), !contentStore.hasContent(for: .homeFeed) {
+                    NanaErrorState(title: "The room feed is unavailable", detail: error.localizedDescription, actionTitle: "Retry") {
+                        Task { await contentStore.refresh(.homeFeed) }
+                    }
                 } else {
                     ScrollView(showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 23) {
@@ -34,13 +38,13 @@ struct WaterlineWelcomeView: View {
                                 featureRoom(feature)
                             }
                             NanaSectionTitle(eyebrow: "Live feeds", title: "Find a room that fits")
-                            if mockStore.payload.rooms.isEmpty {
-                                NanaErrorState(title: "The room feed is unavailable", detail: "The local source could not provide the starting rooms.", actionTitle: "Retry") {
-                                    mockStore.resetLocalMock()
+                            if contentStore.payload.rooms.isEmpty {
+                                    NanaErrorState(title: "The room feed is unavailable", detail: "Saved content is unavailable. Try the published A-side service again.", actionTitle: "Retry") {
+                                    Task { await contentStore.refresh(.homeFeed) }
                                 }
                             } else if visibleRooms.isEmpty {
                                 NanaEmptyState(title: "No rooms in this rhythm", detail: "Try another category or search for a room.", actionTitle: "Show all") {
-                                    mockStore.selectedCategory = "For you"
+                                    contentStore.selectedCategory = "For you"
                                 }
                             } else {
                                 ForEach(visibleRooms.dropFirst()) { room in
@@ -51,7 +55,7 @@ struct WaterlineWelcomeView: View {
                                 }
                             }
                             NanaSectionTitle(eyebrow: "The community", title: "A question worth opening")
-                            ForEach(mockStore.payload.posts) { post in
+                ForEach(contentStore.payload.posts) { post in
                                 Button { selectedPost = post } label: { postCard(post) }
                                     .buttonStyle(.plain)
                             }
@@ -64,6 +68,7 @@ struct WaterlineWelcomeView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .task {
+                await contentStore.refresh(.homeFeed)
                 guard isLoading else { return }
                 try? await Task.sleep(for: .milliseconds(350))
                 isLoading = false
@@ -105,9 +110,9 @@ struct WaterlineWelcomeView: View {
     private var categoryRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(mockStore.categories, id: \.self) { category in
-                    NanaChip(title: category, isSelected: mockStore.selectedCategory == category) {
-                        mockStore.selectedCategory = category
+                ForEach(contentStore.categories, id: \.self) { category in
+                    NanaChip(title: category, isSelected: contentStore.selectedCategory == category) {
+                        contentStore.selectedCategory = category
                     }
                 }
             }
@@ -119,7 +124,7 @@ struct WaterlineWelcomeView: View {
             VStack(alignment: .leading, spacing: 0) {
                 NanaRoomArtwork(room: room, height: 220)
                 HStack(spacing: 11) {
-                    NanaPlaceholderPortrait(title: room.hostName, size: 38)
+            NanaAvatarView(title: room.hostName, assetKey: room.hostAvatarAssetKey, size: 38)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(room.hostName)
                             .font(NanaType.bodyMedium)

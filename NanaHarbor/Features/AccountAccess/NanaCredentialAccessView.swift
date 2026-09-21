@@ -52,7 +52,7 @@ struct NanaCredentialAccessView: View {
                             Text(mode.title)
                                 .font(.system(size: 31, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white)
-                            Text("Use one email address to keep your Nana circle in one place.")
+                            Text("Your profile stays on this device. Email and password are checked for format only.")
                                 .font(.system(size: 14))
                                 .foregroundStyle(AccountEntryAppearance.mutedText)
                                 .lineSpacing(3)
@@ -183,15 +183,17 @@ struct NanaCredentialAccessView: View {
                 try await Task.sleep(for: .seconds(3.4))
                 try Task.checkCancellation()
                 if mode == .login {
-                    guard sessionStore.signIn(emailAddress: email, password: secret) else {
-                        entryNotice = AccountEntryNotice(title: "We couldn't find that account", explanation: "Check your email and password, then try again. New here? Use Sign up to create an account.")
-                        return
-                    }
+                    try sessionStore.signIn(emailAddress: email, password: secret)
                 } else {
-                    sessionStore.preparePasswordRegistration(emailAddress: email, password: secret)
+                    try sessionStore.preparePasswordRegistration(emailAddress: email, password: secret)
                     openProfile()
                 }
-            } catch { }
+                password = ""
+            } catch is CancellationError {
+                return
+            } catch {
+                entryNotice = AccountEntryNotice(title: "Couldn't finish on this device", explanation: error.localizedDescription)
+            }
         }
     }
 }

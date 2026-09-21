@@ -1,21 +1,25 @@
 import SwiftUI
 
 struct HarborGatheringView: View {
-    @EnvironmentObject private var mockStore: NanaMockStore
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var showingCreateRoom = false
     @State private var selectedRoom: NanaLiveRoom?
     @State private var selectedCategory = "All rooms"
 
     private var rooms: [NanaLiveRoom] {
-        if selectedCategory == "All rooms" { return mockStore.payload.rooms }
-        return mockStore.payload.rooms.filter { $0.category == selectedCategory }
+        if selectedCategory == "All rooms" { return contentStore.payload.rooms }
+        return contentStore.payload.rooms.filter { $0.category == selectedCategory }
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 NanaBackdrop(imageName: "NanaLiveBackdrop")
-                ScrollView(showsIndicators: false) {
+                if contentStore.payload.rooms.isEmpty && contentStore.state(for: .rooms) == .loading {
+                    NanaScreenLoading(label: "Opening rooms")
+                } else if contentStore.payload.rooms.isEmpty, case .failed(let error) = contentStore.state(for: .rooms) {
+                    NanaErrorState(title: "Rooms are unavailable", detail: error.localizedDescription, actionTitle: "Retry") { Task { await contentStore.refresh(.rooms) } }
+                } else { ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
                         header
                         roomFilters
@@ -33,9 +37,10 @@ struct HarborGatheringView: View {
                     .padding(.horizontal, NanaPalette.screenPadding)
                     .padding(.top, 18)
                     .padding(.bottom, 110)
-                }
+                } }
             }
             .toolbar(.hidden, for: .navigationBar)
+            .task { await contentStore.refresh(.rooms) }
             .sheet(isPresented: $showingCreateRoom) { NanaCreateRoomView() }
             .sheet(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
         }
@@ -105,11 +110,11 @@ struct HarborGatheringView: View {
 
 private struct NanaCreateRoomView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var roomName = ""
     @State private var roomTopic = ""
     @State private var seatCapacity = 6
     @State private var selectedCategory = "Open talk"
-    @State private var showingSaved = false
 
     var body: some View {
         NavigationStack {
@@ -148,7 +153,7 @@ private struct NanaCreateRoomView: View {
                         }
                         Button {
                             guard !roomName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                            showingSaved = true
+                            contentStore.explainUnavailable("Creating rooms")
                         } label: { Text("Create a room").frame(maxWidth: .infinity) }
                         .buttonStyle(NanaPrimaryButtonStyle())
                         .padding(.top, 8)
@@ -159,11 +164,7 @@ private struct NanaCreateRoomView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) }
             }
-            .alert("Room ready", isPresented: $showingSaved) {
-                Button("Done") { dismiss() }
-            } message: {
-                Text("This local mock room will be added when the room creation service is connected.")
-            }
+            .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)
     }

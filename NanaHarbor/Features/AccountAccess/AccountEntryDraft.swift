@@ -6,7 +6,7 @@ struct AccountEntryDraft {
     var accountPassword = ""
 
     var normalizedEmailAddress: String {
-        emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        emailAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     func validationMessage(for purpose: AccountEntryPurpose) -> String? {
@@ -16,14 +16,21 @@ struct AccountEntryDraft {
               !mailbox.contains(where: { $0.isWhitespace }),
               pieces.count == 2,
               !pieces[0].isEmpty,
-              pieces[1].split(separator: ".").count >= 2,
-              !pieces[1].hasPrefix("."), !pieces[1].hasSuffix(".") else {
+              pieces[0].count <= 64,
+              !pieces[0].hasPrefix("."), !pieces[0].hasSuffix("."),
+              !pieces[0].contains(".."),
+              pieces[0].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || ".!#$%&'*+-/=?^_`{|}~".contains($0)) }),
+              pieces[1].split(separator: ".", omittingEmptySubsequences: false).count >= 2,
+              pieces[1].split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ label in
+                  !label.isEmpty && label.count <= 63 && !label.hasPrefix("-") && !label.hasSuffix("-") &&
+                  label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+              }) else {
             return "Please enter a valid email address."
         }
         guard !accountPassword.isEmpty else {
             return "Please enter your password."
         }
-        if purpose == .createAccount && accountPassword.count < 8 {
+        if accountPassword.count < 8 || accountPassword.allSatisfy({ $0.isWhitespace }) {
             return "Use at least 8 characters for your password."
         }
         guard accountPassword.count <= 128 else {
