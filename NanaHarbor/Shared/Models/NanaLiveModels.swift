@@ -1,0 +1,218 @@
+import Foundation
+
+struct NanaProfile: Identifiable, Codable, Hashable {
+    let id: String
+    var displayName: String
+    var handle: String
+    var region: String
+    var language: String
+    var gender: String
+    var age: Int
+    var introduction: String
+    var avatarAssetKey: String?
+    var isConnected: Bool
+    var followerCount: Int
+    var followingCount: Int
+    var level: Int
+}
+
+struct NanaLiveRoom: Identifiable, Codable, Hashable {
+    let id: String
+    var title: String
+    var subtitle: String
+    var category: String
+    var hostID: String
+    var hostName: String
+    var hostAvatarAssetKey: String?
+    var viewerCount: Int
+    var seatCapacity: Int
+    var streamAssetKey: String?
+    var streamSourceType: String?
+    var roomState: String
+    var isFollowingHost: Bool
+}
+
+enum NanaRoomRole: String, Codable, Hashable {
+    case host = "Host"
+    case administrator = "Administrator"
+    case listener = "Listener"
+}
+
+struct NanaRoomSeat: Identifiable, Codable, Hashable {
+    let id: String
+    let roomID: String
+    let position: Int
+    var profileID: String?
+    var displayName: String?
+    var role: String
+    var isMuted: Bool
+    var isInvited: Bool
+}
+
+struct NanaPost: Identifiable, Codable, Hashable {
+    let id: String
+    var authorID: String
+    var authorName: String
+    var title: String
+    var body: String
+    var category: String
+    var coverAssetKey: String?
+    var commentCount: Int
+    var publishedLabel: String
+}
+
+struct NanaConversation: Identifiable, Codable, Hashable {
+    let id: String
+    var profileID: String
+    var displayName: String
+    var preview: String
+    var sentAtLabel: String
+    var unreadCount: Int
+    var avatarAssetKey: String?
+}
+
+struct NanaMessage: Identifiable, Codable, Hashable {
+    let id: String
+    let conversationID: String
+    let senderID: String
+    let senderName: String
+    let body: String
+    let sentAtLabel: String
+    let isFromCurrentUser: Bool
+}
+
+struct NanaVideoCallSession: Identifiable, Codable, Hashable {
+    let id: String
+    let callerID: String
+    let recipientID: String
+    var phase: String
+    var startedAtLabel: String
+    var localPreviewEnabled: Bool
+}
+
+struct NanaGift: Identifiable, Codable, Hashable {
+    let id: String
+    var title: String
+    var coinCost: Int
+    var assetKey: String?
+}
+
+struct NanaRoomChatMessage: Identifiable, Codable, Hashable {
+    let id: String
+    let roomID: String
+    let senderName: String
+    let body: String
+    let sentAtLabel: String
+}
+
+struct NanaSearchFilter: Codable, Hashable {
+    var kind: SearchKind = .all
+    var minimumAge: Int = 18
+    var maximumAge: Int = 45
+    var region: String = "All regions"
+    var language: String = "All languages"
+    var gender: String = "Any"
+
+    enum SearchKind: String, Codable, CaseIterable, Hashable {
+        case all = "All"
+        case people = "People"
+        case rooms = "Rooms"
+        case posts = "Posts"
+    }
+}
+
+struct NanaWalletSnapshot: Codable, Hashable {
+    var coinBalance: Int
+    var totalSpent: Int
+    var roomContribution: Int
+    var activityPoints: Int
+    var level: Int
+    var nextLevelPoints: Int
+}
+
+struct NanaModerationAction: Identifiable, Codable, Hashable {
+    let id: String
+    let actorID: String
+    let targetID: String
+    let roomID: String?
+    var actionKind: String
+    var reason: String
+    var createdAtLabel: String
+}
+
+struct NanaCheckInRecord: Identifiable, Codable, Hashable {
+    let id: String
+    let accountID: String
+    let checkInDateLabel: String
+    var rewardPoints: Int
+    var streakLength: Int
+}
+
+struct NanaInventoryAsset: Identifiable, Codable, Hashable {
+    let id: String
+    let accountID: String
+    let assetKind: String
+    let title: String
+    var quantity: Int
+    var expiresAtLabel: String?
+}
+
+struct NanaMockPayload: Codable {
+    var profiles: [NanaProfile]
+    var rooms: [NanaLiveRoom]
+    var roomSeats: [NanaRoomSeat]
+    var posts: [NanaPost]
+    var conversations: [NanaConversation]
+    var messages: [NanaMessage]
+    var gifts: [NanaGift]
+    var roomMessages: [NanaRoomChatMessage]
+    var wallet: NanaWalletSnapshot
+}
+
+extension NanaMockPayload {
+    static let sample: NanaMockPayload = {
+        let profiles = [
+            NanaProfile(id: "profile-ava", displayName: "Ava Monroe", handle: "ava.m", region: "Toronto", language: "English", gender: "Female", age: 27, introduction: "Music, late-night conversations, and small rooms with good energy.", avatarAssetKey: nil, isConnected: true, followerCount: 1280, followingCount: 86, level: 7),
+            NanaProfile(id: "profile-jules", displayName: "Jules Harper", handle: "jules.h", region: "London", language: "English", gender: "Non-binary", age: 29, introduction: "A quiet corner for creative people and curious listeners.", avatarAssetKey: nil, isConnected: false, followerCount: 920, followingCount: 145, level: 5),
+            NanaProfile(id: "profile-mira", displayName: "Mira Laurent", handle: "mira.l", region: "Paris", language: "French", gender: "Female", age: 25, introduction: "Sharing stories, studio notes, and a little daylight.", avatarAssetKey: nil, isConnected: false, followerCount: 640, followingCount: 72, level: 4),
+            NanaProfile(id: "profile-noah", displayName: "Noah Reed", handle: "noah.r", region: "New York", language: "English", gender: "Male", age: 31, introduction: "Live sessions, headphones, and the occasional good question.", avatarAssetKey: nil, isConnected: false, followerCount: 740, followingCount: 104, level: 6),
+            NanaProfile(id: "profile-lin", displayName: "Lin Wei", handle: "lin.w", region: "Singapore", language: "Mandarin", gender: "Female", age: 26, introduction: "I host gentle rooms for people who like to stay awhile.", avatarAssetKey: nil, isConnected: false, followerCount: 510, followingCount: 52, level: 3)
+        ]
+        let rooms = [
+            NanaLiveRoom(id: "room-aurora", title: "Afterglow conversations", subtitle: "A soft place for unfinished thoughts", category: "Late night", hostID: "profile-ava", hostName: "Ava Monroe", hostAvatarAssetKey: nil, viewerCount: 186, seatCapacity: 6, streamAssetKey: "NanaLiveBackdrop", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: true),
+            NanaLiveRoom(id: "room-studio", title: "Studio notes", subtitle: "Playlists, process, and quiet work", category: "Creative", hostID: "profile-jules", hostName: "Jules Harper", hostAvatarAssetKey: nil, viewerCount: 93, seatCapacity: 9, streamAssetKey: "NanaLiveBackdrop", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false),
+            NanaLiveRoom(id: "room-lantern", title: "The lantern table", subtitle: "Come in, listen for a while", category: "Open talk", hostID: "profile-mira", hostName: "Mira Laurent", hostAvatarAssetKey: nil, viewerCount: 68, seatCapacity: 3, streamAssetKey: "NanaLiveBackdrop", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false),
+            NanaLiveRoom(id: "room-midnight", title: "Midnight radio", subtitle: "One song, one story, one new voice", category: "Music", hostID: "profile-noah", hostName: "Noah Reed", hostAvatarAssetKey: nil, viewerCount: 242, seatCapacity: 12, streamAssetKey: "NanaLiveBackdrop", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false)
+        ]
+        let seats = rooms.flatMap { room in
+            (0..<room.seatCapacity).map { index in
+                NanaRoomSeat(id: "\(room.id)-seat-\(index)", roomID: room.id, position: index, profileID: index == 0 ? room.hostID : nil, displayName: index == 0 ? room.hostName : nil, role: index == 0 ? "Host" : "Listener", isMuted: false, isInvited: false)
+            }
+        }
+        let posts = [
+            NanaPost(id: "post-echoes", authorID: "profile-ava", authorName: "Ava Monroe", title: "What makes a room feel safe?", body: "I keep thinking it is not the number of people. It is the way someone leaves a little space for the next voice.", category: "Room culture", coverAssetKey: nil, commentCount: 28, publishedLabel: "12 min ago"),
+            NanaPost(id: "post-studio", authorID: "profile-jules", authorName: "Jules Harper", title: "Three songs for a slow afternoon", body: "A small listening list for when you want the day to move at a different pace.", category: "Music", coverAssetKey: nil, commentCount: 14, publishedLabel: "1 hr ago"),
+            NanaPost(id: "post-question", authorID: "profile-lin", authorName: "Lin Wei", title: "A question for the next room", body: "What is something you learned from a stranger that stayed with you?", category: "Community", coverAssetKey: nil, commentCount: 42, publishedLabel: "Yesterday"),
+        ]
+        let conversations = [
+            NanaConversation(id: "conversation-ava", profileID: "profile-ava", displayName: "Ava Monroe", preview: "I saved you a seat in the afterglow room.", sentAtLabel: "8 min", unreadCount: 2, avatarAssetKey: nil),
+            NanaConversation(id: "conversation-jules", profileID: "profile-jules", displayName: "Jules Harper", preview: "That playlist made the room feel warmer.", sentAtLabel: "Yesterday", unreadCount: 0, avatarAssetKey: nil),
+            NanaConversation(id: "conversation-lin", profileID: "profile-lin", displayName: "Lin Wei", preview: "See you in the next conversation.", sentAtLabel: "Mon", unreadCount: 0, avatarAssetKey: nil)
+        ]
+        let messages = [
+            NanaMessage(id: "message-1", conversationID: "conversation-ava", senderID: "profile-ava", senderName: "Ava Monroe", body: "I saved you a seat in the afterglow room.", sentAtLabel: "8 min", isFromCurrentUser: false),
+            NanaMessage(id: "message-2", conversationID: "conversation-ava", senderID: "local", senderName: "You", body: "I will be there soon.", sentAtLabel: "6 min", isFromCurrentUser: true)
+        ]
+        let gifts = [
+            NanaGift(id: "gift-star", title: "Star note", coinCost: 18, assetKey: "NanaGiftArtwork"),
+            NanaGift(id: "gift-lumen", title: "Lumen", coinCost: 66, assetKey: "NanaLevelGem"),
+            NanaGift(id: "gift-trophy", title: "Trophy", coinCost: 128, assetKey: "NanaGiftArtwork"),
+            NanaGift(id: "gift-heart", title: "Warm signal", coinCost: 36, assetKey: "NanaGiftArtwork")
+        ]
+        let roomMessages = [
+            NanaRoomChatMessage(id: "room-message-1", roomID: "room-aurora", senderName: "Mira", body: "This question is staying with me.", sentAtLabel: "now"),
+            NanaRoomChatMessage(id: "room-message-2", roomID: "room-aurora", senderName: "Jules", body: "Same here. I like how slow this room feels.", sentAtLabel: "now")
+        ]
+        return NanaMockPayload(profiles: profiles, rooms: rooms, roomSeats: seats, posts: posts, conversations: conversations, messages: messages, gifts: gifts, roomMessages: roomMessages, wallet: NanaWalletSnapshot(coinBalance: 1231, totalSpent: 3840, roomContribution: 820, activityPoints: 1320, level: 7, nextLevelPoints: 2200))
+    }()
+}

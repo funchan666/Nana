@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23094" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="nana-launch-controller">
+    <device id="retina6_12" orientation="portrait" appearance="dark"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23084"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="nana-launch-scene">
+            <objects>
+                <viewController id="nana-launch-controller" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="nana-launch-root">
+                        <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" image="NanaLaunchArtwork" translatesAutoresizingMaskIntoConstraints="NO" id="nana-launch-artwork">
+                                <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
+                            </imageView>
+                        </subviews>
+                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                        <constraints>
+                            <constraint firstItem="nana-launch-artwork" firstAttribute="top" secondItem="nana-launch-root" secondAttribute="top" id="nana-launch-top"/>
+                            <constraint firstItem="nana-launch-artwork" firstAttribute="bottom" secondItem="nana-launch-root" secondAttribute="bottom" id="nana-launch-bottom"/>
+                            <constraint firstItem="nana-launch-artwork" firstAttribute="leading" secondItem="nana-launch-root" secondAttribute="leading" id="nana-launch-leading"/>
+                            <constraint firstItem="nana-launch-artwork" firstAttribute="trailing" secondItem="nana-launch-root" secondAttribute="trailing" id="nana-launch-trailing"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="nana-launch-responder" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="NanaLaunchArtwork" width="390" height="844"/>
+    </resources>
+</document>
