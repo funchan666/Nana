@@ -5,7 +5,7 @@ struct NanaCredentialAccessView: View {
         case login
         case registration
 
-        var title: String { self == .login ? "Welcome back." : "Make your way in." }
+        var title: String { self == .login ? "Welcome back." : "Create your account." }
         var eyebrow: String { self == .login ? "ACCOUNT LOGIN" : "NEW ACCOUNT" }
         var buttonTitle: String { self == .login ? "Start" : "Sign up" }
         var prompt: String { self == .login ? "Don't have an account yet?" : "Already have an account?" }
@@ -36,14 +36,6 @@ struct NanaCredentialAccessView: View {
             ScrollViewReader { scrollReader in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Button(action: goBack) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(AccountEntryAppearance.linkLilac)
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, 52)
                         VStack(alignment: .leading, spacing: 8) {
                             Text(mode.eyebrow)
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -52,10 +44,6 @@ struct NanaCredentialAccessView: View {
                             Text(mode.title)
                                 .font(.system(size: 31, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white)
-                            Text("Your profile stays on this device. Email and password are checked for format only.")
-                                .font(.system(size: 14))
-                                .foregroundStyle(AccountEntryAppearance.mutedText)
-                                .lineSpacing(3)
                         }
                         .padding(.bottom, 32)
                         fields
@@ -99,6 +87,19 @@ struct NanaCredentialAccessView: View {
             }
         }
         .ignoresSafeArea(.container)
+        .overlay(alignment: .topLeading) {
+            Button(action: goBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(AccountEntryAppearance.linkLilac)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 18)
+            .padding(.top, 46)
+            .accessibilityLabel("Back")
+        }
         .background { AccountArtworkSurface(artworkName: "NanaAccountArtwork") }
         .background(.black)
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
@@ -168,7 +169,7 @@ struct NanaCredentialAccessView: View {
     private func submit() {
         focusedField = nil
         guard hasAcceptedAgreements else {
-            entryNotice = AccountEntryNotice(title: "Your agreement comes first", explanation: "Please accept the User Agreement and Privacy Policy before continuing.")
+            entryNotice = AccountEntryNotice(title: "Your agreement comes first", explanation: "Please review both agreements and tick the box before continuing.")
             return
         }
         let draft = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
@@ -192,7 +193,7 @@ struct NanaCredentialAccessView: View {
             } catch is CancellationError {
                 return
             } catch {
-                entryNotice = AccountEntryNotice(title: "Couldn't finish on this device", explanation: error.localizedDescription)
+                entryNotice = AccountEntryNotice(title: "Couldn't finish", explanation: error.localizedDescription)
             }
         }
     }

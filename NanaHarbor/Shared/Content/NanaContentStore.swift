@@ -218,7 +218,7 @@ final class NanaContentStore: ObservableObject {
     func block(profileID: String) {
         blockedProfileIDs.insert(profileID)
         persist()
-        actionNotice = AccountEntryNotice(title: "Hidden on this device", explanation: "This profile and its rooms, posts and conversations are hidden here. No report has been submitted.")
+        actionNotice = AccountEntryNotice(title: "Profile hidden", explanation: "This profile and its rooms, posts and conversations are hidden from your view.")
     }
     func draft(for key: String) -> String { drafts[key] ?? "" }
     func saveDraft(_ value: String, for key: String) { drafts[key] = value; persist() }

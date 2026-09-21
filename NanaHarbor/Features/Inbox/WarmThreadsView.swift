@@ -7,136 +7,455 @@ import UIKit
 struct WarmThreadsView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var selectedConversation: NanaConversation?
-    @State private var showingCalls = false
     @State private var selectedProfile: NanaProfile?
+    @State private var showingNoticeCenter = false
+    @State private var showingFriends = false
+    @State private var showingRanking = false
+    @State private var showingSearch = false
+
+    private var visibleConversations: [NanaConversation] {
+        contentStore.visibleConversations
+    }
+
+    private var friendProfiles: [NanaProfile] {
+        Array(contentStore.payload.profiles.filter { !contentStore.blockedProfileIDs.contains($0.id) }.prefix(6))
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                NanaBackdrop()
+                NanaBackdrop(imageName: "NanaLiveBackdrop")
                 if contentStore.payload.conversations.isEmpty && contentStore.state(for: .conversations) == .loading {
                     NanaScreenLoading(label: "Warming messages")
                 } else if contentStore.payload.conversations.isEmpty, case .failed(let error) = contentStore.state(for: .conversations) {
-                    NanaErrorState(title: "Messages are unavailable", detail: error.localizedDescription, actionTitle: "Retry") { Task { await contentStore.refresh(.conversations) } }
-                } else { ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
-                        header
-                        quickLinks
-                        NanaSectionTitle(eyebrow: "Your conversations", title: "Keep the thread warm")
-                        if contentStore.payload.conversations.isEmpty {
-                            NanaEmptyState(title: "No messages yet", detail: "A good room is a good place to start.", actionTitle: nil, action: nil)
-                        } else {
-                            VStack(spacing: 0) {
-                                ForEach(contentStore.payload.conversations.filter { !contentStore.blockedProfileIDs.contains($0.profileID) }) { conversation in
-                                    Button { selectedConversation = conversation } label: { conversationRow(conversation) }
-                                        .buttonStyle(.plain)
-                                    if conversation.id != contentStore.payload.conversations.last?.id { Divider().overlay(NanaPalette.border) }
-                                }
-                            }
-                            .padding(.horizontal, 15)
-                            .nanaCard()
-                        }
+                    NanaErrorState(title: "Messages are unavailable", detail: error.localizedDescription, actionTitle: "Retry") {
+                        Task { await contentStore.refresh(.conversations) }
                     }
                     .padding(.horizontal, NanaPalette.screenPadding)
-                    .padding(.top, 18)
-                    .padding(.bottom, 110)
-                } }
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 17) {
+                            messagesHeader
+                            messageSearch
+                            shortcutRail
+                            friendRoom
+                            chatList
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 9)
+                        .padding(.bottom, 116)
+                    }
+                    .refreshable { await contentStore.refresh(.conversations) }
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .task { await contentStore.refresh(.conversations) }
             .sheet(item: $selectedConversation) { conversation in NanaConversationView(conversation: conversation) }
-            .sheet(isPresented: $showingCalls) {
-                if let profile = contentStore.payload.profiles.first { NanaVideoCallView(profile: profile) }
-                else { NanaUnavailableSurface(title: "Video calls are not available", detail: "The account and call services are not part of the published A-side contract yet.") }
-            }
             .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
+            .sheet(isPresented: $showingNoticeCenter) { NanaNotificationCenterView() }
+            .sheet(isPresented: $showingFriends) { NanaFriendsListView() }
+            .sheet(isPresented: $showingRanking) { NanaUnavailableSurface(title: "Ranking is unavailable", detail: "The published A-side service does not include ranking data yet.") }
+            .sheet(isPresented: $showingSearch) { NanaDiscoverySearchView() }
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("MESSAGES")
-                    .font(NanaType.stamp)
-                    .tracking(1.4)
-                    .foregroundStyle(NanaPalette.softPink)
-                Text("People you can reach.")
-                    .font(NanaType.hero)
-                    .foregroundStyle(NanaPalette.warmWhite)
-                Text("Keep the useful conversations close.")
-                    .font(NanaType.body)
-                    .foregroundStyle(NanaPalette.mutedWhite)
-            }
+    private var messagesHeader: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("Messages")
+                .font(.system(size: 20, weight: .bold, design: .serif).italic())
+                .foregroundStyle(NanaPalette.warmWhite)
             Spacer()
-            Button { showingCalls = true } label: {
-                Image(systemName: "video.fill")
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(NanaPalette.neonPink, in: Circle())
+            Button { showingNoticeCenter = true } label: {
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(NanaPalette.warmWhite)
+                    .frame(width: 33, height: 32)
+                    .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            Button { contentStore.explainUnavailable("Clearing messages") } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(NanaPalette.softPink)
+                    .frame(width: 33, height: 32)
+                    .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             }
             .buttonStyle(.plain)
         }
     }
 
-    private var quickLinks: some View {
-        HStack(spacing: 10) {
-            messageShortcut(title: "New friends", icon: "person.2.fill", tint: NanaPalette.violet) { }
-            messageShortcut(title: "System", icon: "bell.fill", tint: NanaPalette.neonPink) { }
-            messageShortcut(title: "Calls", icon: "video.fill", tint: NanaPalette.deepSpace) { showingCalls = true }
-        }
-    }
-
-    private func messageShortcut(title: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 9) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(tint, in: Circle())
-                Text(title)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+    private var messageSearch: some View {
+        Button { showingSearch = true } label: {
+            HStack(spacing: 9) {
+                Text("Please enter search content")
+                    .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(NanaPalette.mutedWhite)
-                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
             }
-            .frame(maxWidth: .infinity, minHeight: 78)
-            .nanaCard()
+            .padding(.horizontal, 14)
+            .frame(height: 37)
+            .background(NanaPalette.deepSpace.opacity(0.72), in: Capsule())
+            .overlay(Capsule().stroke(NanaPalette.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
 
+    private var shortcutRail: some View {
+        HStack(spacing: 9) {
+            messageShortcut(title: "Notice", assetKey: "nana.voice.message_notice", action: { showingNoticeCenter = true })
+            messageShortcut(title: "Friend List", assetKey: "nana.voice.message_friends", action: { showingFriends = true })
+            messageShortcut(title: "Ranking", assetKey: "nana.voice.message_ranking", action: { showingRanking = true })
+        }
+    }
+
+    private func messageShortcut(title: String, assetKey: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 7) {
+                NanaAssetImage(assetKey: assetKey, contentMode: .fit)
+                    .frame(width: 58, height: 42)
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(NanaPalette.warmWhite)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 76)
+            .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var friendRoom: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("Friend Room")
+                    .font(.system(size: 14, weight: .bold, design: .serif).italic())
+                    .foregroundStyle(NanaPalette.warmWhite)
+                Spacer()
+                Button("View all") { showingFriends = true }
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(NanaPalette.electricLilac)
+            }
+            if friendProfiles.isEmpty {
+                Text("Your friend room is waiting for its first hello.")
+                    .font(NanaType.caption)
+                    .foregroundStyle(NanaPalette.mutedWhite)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(friendProfiles) { profile in
+                            Button { selectedProfile = profile } label: {
+                                VStack(spacing: 5) {
+                                    ZStack(alignment: .bottomTrailing) {
+                                        NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 53)
+                                        Circle().fill(Color.green).frame(width: 10, height: 10).overlay(Circle().stroke(NanaPalette.midnight, lineWidth: 2))
+                                    }
+                                    Text(profile.displayName.split(separator: " ").first.map(String.init) ?? profile.displayName)
+                                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                                        .foregroundStyle(NanaPalette.mutedWhite)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var chatList: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("Chat List")
+                .font(.system(size: 14, weight: .bold, design: .serif).italic())
+                .foregroundStyle(NanaPalette.warmWhite)
+            if visibleConversations.isEmpty {
+                NanaEmptyState(title: "No messages yet", detail: "A good room is a good place to start.", actionTitle: nil, action: nil)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(visibleConversations) { conversation in
+                        Button { selectedConversation = conversation } label: { conversationRow(conversation) }
+                            .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
     private func conversationRow(_ conversation: NanaConversation) -> some View {
-        HStack(spacing: 12) {
-            NanaAvatarView(title: conversation.displayName, assetKey: conversation.avatarAssetKey, size: 52)
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            ZStack(alignment: .bottomTrailing) {
+                NanaAvatarView(title: conversation.displayName, assetKey: conversation.avatarAssetKey, size: 49)
+                Circle().fill(Color.green).frame(width: 9, height: 9).overlay(Circle().stroke(NanaPalette.cardStrong, lineWidth: 2))
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
                     Text(conversation.displayName)
-                        .font(NanaType.bodyMedium)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(NanaPalette.warmWhite)
                     if conversation.unreadCount > 0 {
                         Text("\(conversation.unreadCount)")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.white)
-                            .padding(5)
-                            .background(NanaPalette.neonPink, in: Circle())
+                            .frame(width: 17, height: 17)
+                            .background(NanaPalette.warning, in: Circle())
                     }
                 }
                 Text(conversation.preview)
-                    .font(NanaType.caption)
+                    .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(NanaPalette.mutedWhite)
                     .lineLimit(1)
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 7) {
-                Text(conversation.sentAtLabel)
-                    .font(NanaType.caption)
-                    .foregroundStyle(NanaPalette.mutedWhite)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(NanaPalette.electricLilac)
+            Text(conversation.sentAtLabel)
+                .font(.system(size: 9, design: .rounded))
+                .foregroundStyle(NanaPalette.mutedWhite)
+        }
+        .padding(12)
+        .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+struct NanaNotificationCenterView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingDetail = false
+    private let notices = [
+        ("Platform Notification", "The community guidance has been updated.", "02:11"),
+        ("Platform Notification", "Please keep rooms welcoming and respectful.", "Yesterday")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                NanaBackdrop()
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(notices.enumerated()), id: \.offset) { notice in
+                            Button { showingDetail = true } label: {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    HStack {
+                                        Text(notice.element.0).font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite)
+                                        Spacer()
+                                        Text(notice.element.2).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+                                    }
+                                    Text(notice.element.1).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite).lineLimit(1)
+                                }
+                                .padding(15)
+                                .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("System Notification")
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .sheet(isPresented: $showingDetail) { NanaNotificationDetailView() }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+struct NanaNotificationDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                NanaBackdrop()
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Platform Notification").font(NanaType.section).foregroundStyle(NanaPalette.warmWhite)
+                        Text("Community reminders help maintain respect for rooms and messages. When you see harassment, impersonation, spam, unsafe requests, or other policy violations, please use Report or Block from the relevant profile. Keep personal information private and leave conversations that no longer feel comfortable.")
+                            .font(NanaType.body)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineSpacing(5)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("Notification details")
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+struct NanaFriendsListView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var selectedProfile: NanaProfile?
+    @State private var selectedConversation: NanaConversation?
+    @State private var showingNew = false
+    @State private var callProfile: NanaProfile?
+
+    private var profiles: [NanaProfile] {
+        contentStore.payload.profiles.filter { !contentStore.blockedProfileIDs.contains($0.id) }
+    }
+
+    private var visibleProfiles: [NanaProfile] {
+        showingNew ? profiles.filter { !$0.isConnected } : profiles
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                NanaBackdrop()
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 13) {
+                        HStack(spacing: 8) {
+                            friendStat("Friend", "\(profiles.count)")
+                            friendStat("Call duration", "45:45:12")
+                            friendStat("Missed", "256")
+                        }
+                        HStack(spacing: 24) {
+                            friendTab("Friends", isSelected: !showingNew) { showingNew = false }
+                            friendTab("New", isSelected: showingNew) { showingNew = true }
+                            Spacer()
+                        }
+                        if visibleProfiles.isEmpty {
+                            NanaEmptyState(
+                                title: showingNew ? "No new friends" : "No friends yet",
+                                detail: "Your circle will appear here when there is something to show.",
+                                actionTitle: nil,
+                                action: nil
+                            )
+                        } else {
+                            ForEach(visibleProfiles) { profile in
+                                friendRow(profile)
+                            }
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("Friends")
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
+            .sheet(item: $callProfile) { profile in NanaVideoCallView(profile: profile) }
+            .sheet(item: $selectedConversation) { conversation in NanaConversationView(conversation: conversation) }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func friendStat(_ title: String, _ value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundStyle(NanaPalette.softPink)
+            Text(title).font(.system(size: 9, design: .rounded)).foregroundStyle(NanaPalette.mutedWhite)
+        }
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+
+    private func friendTab(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Text(title).font(.system(size: 13, weight: .bold, design: .serif).italic()).foregroundStyle(isSelected ? NanaPalette.warmWhite : NanaPalette.mutedWhite)
+                Capsule().fill(isSelected ? NanaPalette.neonPink : .clear).frame(width: 28, height: 2)
             }
         }
-        .padding(.vertical, 14)
+        .buttonStyle(.plain)
+    }
+
+    private func friendRow(_ profile: NanaProfile) -> some View {
+        HStack(spacing: 10) {
+            Button { selectedProfile = profile } label: { NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 50) }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(profile.displayName).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(NanaPalette.warmWhite)
+                Text("\(profile.region) · Lv.\(profile.level)").font(.system(size: 10, design: .rounded)).foregroundStyle(NanaPalette.mutedWhite)
+                Text(profile.isConnected ? "Call completed" : "No answer").font(.system(size: 9, design: .rounded)).foregroundStyle(profile.isConnected ? Color.green : NanaPalette.softPink)
+            }
+            Spacer()
+            Button { callProfile = profile } label: { Image(systemName: "video.fill").foregroundStyle(.white).frame(width: 32, height: 32).background(NanaPalette.violet, in: Circle()) }.buttonStyle(.plain)
+            Button {
+                selectedConversation = contentStore.visibleConversations.first { $0.profileID == profile.id }
+            } label: {
+                Image(systemName: "envelope.fill")
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(NanaPalette.neonPink, in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(11)
+        .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+}
+
+struct NanaAlbumGalleryView: View {
+    let profile: NanaProfile
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var isSelecting = false
+    @State private var selectedAssets: Set<String> = []
+    private let albumAssets = ["nana.pic.Dc0SA4UiUy3", "nana.pic.Dc1CvDfCCHN", "nana.pic.Dc1Ii5HACCq", "nana.pic.Dc1UKGTDL1J", "nana.pic.DdTmQsaCOiK", "nana.pic.DdV5vxnEs3N"]
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                NanaBackdrop()
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Personal Album").font(.system(size: 20, weight: .bold, design: .serif).italic()).foregroundStyle(NanaPalette.warmWhite)
+                        Text("All the shared moments are here.").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+                        Text("2005/10/25  23:13:25").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                            ForEach(albumAssets, id: \.self) { asset in
+                                Button {
+                                    guard isSelecting else { return }
+                                    if selectedAssets.contains(asset) { selectedAssets.remove(asset) }
+                                    else { selectedAssets.insert(asset) }
+                                } label: {
+                                    ZStack(alignment: .topTrailing) {
+                                        NanaAssetImage(assetKey: asset)
+                                            .frame(height: 102)
+                                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                        if isSelecting {
+                                            Image(systemName: selectedAssets.contains(asset) ? "checkmark.square.fill" : "square")
+                                                .font(.system(size: 17, weight: .bold))
+                                                .foregroundStyle(selectedAssets.contains(asset) ? NanaPalette.softPink : .white)
+                                                .shadow(color: .black.opacity(0.6), radius: 3)
+                                                .padding(7)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        if isSelecting {
+                            HStack(spacing: 10) {
+                                Text("\(selectedAssets.count) selected")
+                                    .font(NanaType.caption)
+                                    .foregroundStyle(NanaPalette.mutedWhite)
+                                Spacer()
+                                Button("Delete selected") { contentStore.explainUnavailable("Deleting photos") }
+                                    .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.violet))
+                                    .disabled(selectedAssets.isEmpty)
+                                    .opacity(selectedAssets.isEmpty ? 0.45 : 1)
+                            }
+                        } else {
+                            Button { contentStore.explainUnavailable("Uploading photos") } label: { Text("Upload photo").frame(maxWidth: .infinity) }.buttonStyle(NanaPrimaryButtonStyle())
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle(profile.displayName)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSelecting ? "Done" : "Choice") {
+                        isSelecting.toggle()
+                        if !isSelecting { selectedAssets.removeAll() }
+                    }
+                    .foregroundStyle(NanaPalette.electricLilac)
+                }
+            }
+            .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -267,7 +586,7 @@ struct NanaVideoCallView: View {
                     CircleCallButton(icon: "speaker.wave.2", title: "Speaker") { }
                     CircleCallButton(icon: "phone.down.fill", title: "End", tint: NanaPalette.warning) { dismiss() }
                 }
-                Text("The local preview waits for an answer. Real calling is not part of the published A-side contract.")
+                Text("Waiting for an answer. You can keep your camera preview ready here.")
                     .font(NanaType.caption)
                     .foregroundStyle(NanaPalette.mutedWhite)
                     .multilineTextAlignment(.center)

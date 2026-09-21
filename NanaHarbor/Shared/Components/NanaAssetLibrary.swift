@@ -5,9 +5,19 @@ import UIKit
 enum NanaAssetLibrary {
     private static let bundledPictures = resourceMap(extension: "jpg", directory: "pics", prefix: "nana.pic.")
     private static let bundledVideos = resourceMap(extension: "mp4", directory: "videos", prefix: "nana.video.")
+    private static let bundledPhotoSlices = resourceMap(extension: "png", directory: "photos", prefix: "nana.photo.")
+        .merging(resourceMap(extension: "png", directory: "assets/photos", prefix: "nana.photo."), uniquingKeysWith: { first, _ in first })
+    private static let bundledVoiceSlices = resourceMap(extension: "png", directory: "voice-room-slices", prefix: "nana.voice.")
 
     private static func resourceMap(extension fileExtension: String, directory: String, prefix: String) -> [String: URL] {
-        let files = Bundle.main.urls(forResourcesWithExtension: fileExtension, subdirectory: directory) ?? []
+        var files = Bundle.main.urls(forResourcesWithExtension: fileExtension, subdirectory: directory) ?? []
+        if files.isEmpty {
+            let allFiles = Bundle.main.urls(forResourcesWithExtension: fileExtension, subdirectory: nil) ?? []
+            files = allFiles.filter { url in
+                let path = url.path
+                return path.contains("/\(directory)/") || (directory == "photos" && path.contains("/assets/photos/"))
+            }
+        }
         return Dictionary(files.map { (prefix + $0.deletingPathExtension().lastPathComponent, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
@@ -18,6 +28,12 @@ enum NanaAssetLibrary {
         }
         if assetKey.hasPrefix("nana.asset.") {
             return UIImage(named: String(assetKey.dropFirst("nana.asset.".count)))
+        }
+        if assetKey.hasPrefix("nana.photo."), let url = bundledPhotoSlices[assetKey] {
+            return UIImage(contentsOfFile: url.path)
+        }
+        if assetKey.hasPrefix("nana.voice."), let url = bundledVoiceSlices[assetKey] {
+            return UIImage(contentsOfFile: url.path)
         }
         return UIImage(named: assetKey)
     }

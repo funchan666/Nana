@@ -5,7 +5,7 @@ struct AgreementConsentRow: View {
     let openPolicy: (AccountPolicyDocument) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 2) {
+        HStack(alignment: .top, spacing: 8) {
             Button { isAccepted.toggle() } label: {
                 ZStack {
                     RoundedRectangle(cornerRadius: 6)
@@ -26,10 +26,10 @@ struct AgreementConsentRow: View {
             .accessibilityValue(isAccepted ? "Agreed" : "Not agreed")
 
             VStack(alignment: .leading, spacing: 0) {
-                Text("I have read and agree to the")
+                Text("By continuing, you agree to Nana's")
                     .font(.system(size: 12))
                     .foregroundStyle(AccountEntryAppearance.mutedText)
-                    .padding(.top, 14)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 4) {
                     policyLink(.userAgreement)
                     Text("and")
@@ -37,10 +37,12 @@ struct AgreementConsentRow: View {
                         .foregroundStyle(AccountEntryAppearance.mutedText)
                     policyLink(.privacyPolicy)
                 }
-                Text("Required before continuing")
+                Text("Both agreements are required to continue")
                     .font(.system(size: 11))
                     .foregroundStyle(AccountEntryAppearance.mutedText)
+                    .padding(.top, 2)
             }
+            .padding(.top, 8)
         }
     }
 
@@ -50,7 +52,7 @@ struct AgreementConsentRow: View {
                 .font(.system(size: 12))
                 .underline()
                 .foregroundStyle(AccountEntryAppearance.linkLilac)
-                .frame(minHeight: 44)
+                .frame(minHeight: 38)
         }
         .buttonStyle(.plain)
     }

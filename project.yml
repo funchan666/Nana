@@ -23,6 +23,12 @@ targets:
       - path: videos
         type: folder
         buildPhase: resources
+      - path: assets/photos
+        type: folder
+        buildPhase: resources
+      - path: assets/voice-room-slices
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nanalantern.harbortide

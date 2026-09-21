@@ -42,8 +42,8 @@ private struct NanaTabRail: View {
     var body: some View {
         HStack(spacing: 0) {
             tab(.home, title: "Live", icon: "play.tv")
-            tab(.gather, title: "Rooms", icon: "mic.2")
-            tab(.inbox, title: "Messages", icon: "bubble.left.and.bubble.right")
+            tab(.gather, title: "Voice", icon: "mic.2")
+            tab(.inbox, title: "Message", icon: "bubble.left.and.bubble.right")
             tab(.me, title: "Me", icon: "person.crop.circle")
         }
         .padding(.horizontal, 8)

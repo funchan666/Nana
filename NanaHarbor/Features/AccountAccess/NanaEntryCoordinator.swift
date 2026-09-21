@@ -18,8 +18,6 @@ struct NanaEntryCoordinator: View {
                 NanaHarborShellView(selectedHarbor: $selectedHarbor)
                     .environmentObject(sessionStore)
                     .environmentObject(contentStore)
-            } else if !sessionStore.onboardingFinished {
-                NanaOnboardingFlow { sessionStore.finishOnboarding() }
             } else if sessionStore.pendingIdentity != nil {
                 NanaProfileCompletionView(goBack: { sessionStore.discardPendingIdentity(); entryRoute = .landing })
             } else {

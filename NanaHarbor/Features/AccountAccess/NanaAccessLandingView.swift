@@ -19,16 +19,6 @@ struct NanaAccessLandingView: View {
                 VStack(spacing: 0) {
                     Color.clear.frame(height: max(320, viewport.size.height * 0.54))
                     VStack(spacing: 0) {
-                        AccountArtworkButton(artworkName: "NanaAppleAction", spokenTitle: "Sign in with Apple", action: beginAppleSignIn)
-                            .padding(.horizontal, 17)
-                        HStack(spacing: 5) {
-                            Rectangle().frame(width: 24, height: 0.5)
-                            Text("or use your email")
-                                .font(.system(size: 12))
-                            Rectangle().frame(width: 24, height: 0.5)
-                        }
-                        .foregroundStyle(AccountEntryAppearance.mutedText)
-                        .padding(.vertical, 18)
                         AccountArtworkButton(artworkName: "NanaLoginAction", spokenTitle: "Log in with email", action: {
                             openLogin()
                         })
@@ -37,9 +27,9 @@ struct NanaAccessLandingView: View {
                             openRegistration()
                         } label: {
                             HStack(spacing: 5) {
-                                Text("Don't have an account?")
+                                Text("New to Nana?")
                                     .foregroundStyle(AccountEntryAppearance.mutedText)
-                                Text("Sign up")
+                                Text("Create an account")
                                     .underline()
                                     .foregroundStyle(AccountEntryAppearance.linkLilac)
                             }
@@ -47,8 +37,18 @@ struct NanaAccessLandingView: View {
                             .frame(minHeight: 48)
                         }
                         .buttonStyle(.plain)
+                        HStack(spacing: 5) {
+                            Rectangle().frame(width: 24, height: 0.5)
+                            Text("or continue with Apple")
+                                .font(.system(size: 12))
+                            Rectangle().frame(width: 24, height: 0.5)
+                        }
+                        .foregroundStyle(AccountEntryAppearance.mutedText)
+                        .padding(.vertical, 18)
+                        AccountArtworkButton(artworkName: "NanaAppleAction", spokenTitle: "Sign in with Apple", action: beginAppleSignIn)
+                            .padding(.horizontal, 17)
                         AgreementConsentRow(isAccepted: $hasAcceptedAgreements) { selectedPolicy = $0 }
-                            .padding(.top, 15)
+                            .padding(.top, 20)
                     }
                     .padding(.horizontal, 30)
                     .padding(.bottom, 32)
@@ -76,7 +76,7 @@ struct NanaAccessLandingView: View {
         guard hasAcceptedAgreements else {
             entryNotice = AccountEntryNotice(
                 title: "Your agreement comes first",
-                explanation: "Please read the User Agreement and Privacy Policy, then select the checkbox before continuing."
+                explanation: "Please review both agreements and tick the box before continuing."
             )
             return false
         }
@@ -98,7 +98,7 @@ struct NanaAccessLandingView: View {
                 }
             case .failure(let error):
                 if let authorizationError = error as? ASAuthorizationError, authorizationError.code == .canceled { return }
-                entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: "Please try Sign in with Apple again. No local session was started.")
+                entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: "Please try Sign in with Apple again.")
             }
         }
     }

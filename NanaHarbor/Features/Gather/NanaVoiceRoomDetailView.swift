@@ -11,7 +11,22 @@ struct NanaVoiceRoomDetailView: View {
     @State private var selectedProfile: NanaProfile?
 
     private var roomSeats: [NanaRoomSeat] {
-        contentStore.payload.roomSeats.filter { $0.roomID == room.id }.sorted { $0.position < $1.position }
+        let loadedSeats = contentStore.payload.roomSeats.filter { $0.roomID == room.id }.sorted { $0.position < $1.position }
+        guard !loadedSeats.isEmpty else {
+            return (0..<room.seatCapacity).map { position in
+                NanaRoomSeat(
+                    id: "\(room.id)-stage-\(position)",
+                    roomID: room.id,
+                    position: position,
+                    profileID: position == 0 ? room.hostID : nil,
+                    displayName: position == 0 ? room.hostName : nil,
+                    role: position == 0 ? "Host" : "Open seat",
+                    isMuted: false,
+                    isInvited: false
+                )
+            }
+        }
+        return loadedSeats
     }
 
     private var roomMessages: [NanaRoomChatMessage] {
@@ -20,7 +35,7 @@ struct NanaVoiceRoomDetailView: View {
 
     var body: some View {
         ZStack {
-            NanaBackdrop(imageName: room.streamAssetKey)
+            NanaBackdrop(imageName: "nana.voice.room_backdrop_01")
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 18) {
                     topBar
@@ -85,19 +100,61 @@ struct NanaVoiceRoomDetailView: View {
 
     private var streamPreview: some View {
         ZStack(alignment: .bottomLeading) {
-            if let stream = room.streamAssetKey {
-                NanaMediaPreview(assetKey: stream)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 198)
-                    .clipped()
+            NanaAssetImage(assetKey: "nana.voice.room_backdrop_01")
+                .frame(maxWidth: .infinity)
+                .frame(height: 278)
+                .clipped()
+            LinearGradient(colors: [.black.opacity(0.08), .clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
+            VStack(spacing: 14) {
+                HStack {
+                    HStack(spacing: 7) {
+                        NanaAvatarView(title: room.hostName, assetKey: room.hostAvatarAssetKey, size: 30)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(room.hostName)
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                            Text("Lv.\(max(room.seatCapacity, 1) + 22) · \(room.viewerCount) listening")
+                                .font(.system(size: 9, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.72))
+                        }
+                    }
+                    Spacer()
+                    Text("\(room.viewerCount)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(.black.opacity(0.3), in: Capsule())
+                }
+                .padding(.horizontal, 12)
+                Spacer()
+                HStack(spacing: -10) {
+                    ForEach(roomSeats.prefix(6)) { seat in
+                        NanaAvatarView(title: seat.displayName ?? "Open seat", assetKey: seat.profileID == room.hostID ? room.hostAvatarAssetKey : nil, size: 39)
+                    }
+                }
+                Text(room.title)
+                    .font(.system(size: 18, weight: .bold, design: .serif).italic())
+                    .foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Text("LIVE")
+                        .font(.system(size: 9, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .frame(height: 19)
+                        .background(NanaPalette.neonPink, in: Capsule())
+                    Text(room.category)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.78))
+                }
+                .padding(.bottom, 12)
             }
-            LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 5) {
-                Text("SIMULATED LIVE")
+                Text("VOICE ROOM")
                     .font(NanaType.stamp)
                     .tracking(1.2)
                     .foregroundStyle(NanaPalette.softPink)
-                Text("A local video is standing in for the live stream.")
+                Text("The stage is ready for the next voice.")
                     .font(NanaType.caption)
                     .foregroundStyle(.white.opacity(0.76))
             }
@@ -210,9 +267,9 @@ struct NanaVoiceRoomDetailView: View {
     private var actionRail: some View {
         HStack(spacing: 8) {
             NanaRoundAction(icon: isLocalMuted ? "mic.slash" : "mic", title: isLocalMuted ? "Muted" : "Mic", tint: isLocalMuted ? NanaPalette.warning : NanaPalette.violet) { isLocalMuted.toggle() }
-            NanaRoundAction(icon: "music.note", title: "Music", tint: NanaPalette.deepSpace) { }
+            NanaRoundAction(icon: "music.note", title: "Music", tint: NanaPalette.deepSpace) { contentStore.explainUnavailable("Room music") }
             NanaRoundAction(icon: "gift", title: "Gift", tint: NanaPalette.neonPink) { showingGiftShelf = true }
-            NanaRoundAction(icon: "person.badge.plus", title: "Invite", tint: NanaPalette.deepSpace) { }
+            NanaRoundAction(icon: "person.badge.plus", title: "Invite", tint: NanaPalette.deepSpace) { contentStore.explainUnavailable("Room invitations") }
         }
         .padding(12)
         .nanaCard()

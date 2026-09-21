@@ -49,7 +49,7 @@ enum NanaLocalAccountError: LocalizedError {
         case .invalidEntry: return "Enter a valid email address and a password of 8–128 characters."
         case .missingIdentity: return "Please return to sign-in and start again."
         case .incompleteProfile: return "Add your name, gender, country, date of birth and at least one tag."
-        case .storageUnavailable: return "Nana couldn't save your details on this device. Please unlock your device and try again."
+        case .storageUnavailable: return "Nana couldn't save your details. Please try again."
         }
     }
 }
@@ -58,11 +58,9 @@ enum NanaLocalAccountError: LocalizedError {
 final class NanaSessionStore: ObservableObject {
     @Published private(set) var activeProfile: NanaAccountProfile?
     @Published private(set) var pendingIdentity: NanaPendingIdentity?
-    @Published private(set) var onboardingFinished: Bool
     @Published var sessionNotice: AccountEntryNotice?
 
     private let defaults: UserDefaults
-    private let onboardingKey = "nana.onboardingFinished.v1"
     private let keychainService = "com.nanalantern.harbortide.local-accounts"
     private var ledger = NanaLocalAccountLedger()
     private var ledgerLoaded = false
@@ -71,16 +69,10 @@ final class NanaSessionStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        onboardingFinished = defaults.bool(forKey: onboardingKey)
         // Restore after the app is active, when protected Keychain data is available.
     }
 
     var isSignedIn: Bool { activeProfile != nil }
-
-    func finishOnboarding() {
-        onboardingFinished = true
-        defaults.set(true, forKey: onboardingKey)
-    }
 
     func restoreLocalSession() async {
         do {
@@ -220,7 +212,7 @@ final class NanaSessionStore: ObservableObject {
         } catch {
             guard revision == sessionRevision, !Task.isCancelled else { return }
             sessionNotice = AccountEntryNotice(title: "Apple sign-in couldn't be checked",
-                explanation: "Please check your connection and sign in with Apple again. Your saved profile is still on this device.")
+                explanation: "Please check your connection and sign in with Apple again.")
         }
     }
 
@@ -281,12 +273,24 @@ final class NanaSessionStore: ObservableObject {
                 throw NanaLocalAccountError.storageUnavailable
             }
             ledger = saved
+            ledger.profiles = ledger.profiles.reduce(into: [String: NanaAccountProfile]()) { result, item in
+                let (scope, profile) = item
+                var hydrated = profile
+                hydrated.avatarData = try? loadAvatar(for: scope)
+                result[scope] = hydrated
+            }
         }
         ledgerLoaded = true
     }
 
     private func persist(_ updated: NanaLocalAccountLedger) throws {
-        guard let data = try? JSONEncoder().encode(updated) else { throw NanaLocalAccountError.storageUnavailable }
+        var secureLedger = updated
+        secureLedger.profiles = updated.profiles.mapValues { profile in
+            var profileWithoutPhoto = profile
+            profileWithoutPhoto.avatarData = nil
+            return profileWithoutPhoto
+        }
+        guard let data = try? JSONEncoder().encode(secureLedger) else { throw NanaLocalAccountError.storageUnavailable }
         let values: [String: Any] = [kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
         var status = SecItemUpdate(keychainQuery as CFDictionary, values as CFDictionary)
@@ -296,11 +300,48 @@ final class NanaSessionStore: ObservableObject {
             status = SecItemAdd(insertion as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw NanaLocalAccountError.storageUnavailable }
+        for (scope, profile) in updated.profiles {
+            if let avatarData = profile.avatarData {
+                try saveAvatar(avatarData, for: scope)
+            } else {
+                try? removeAvatar(for: scope)
+            }
+        }
         ledger = updated
     }
 
+    private func avatarDirectory() throws -> URL {
+        guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw NanaLocalAccountError.storageUnavailable
+        }
+        var directory = root.appendingPathComponent("NanaLocalProfileMedia", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? directory.setResourceValues(values)
+        return directory
+    }
+
+    private func avatarURL(for scope: String) throws -> URL {
+        let digest = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
+        return try avatarDirectory().appendingPathComponent(digest).appendingPathExtension("jpg")
+    }
+
+    private func saveAvatar(_ data: Data, for scope: String) throws {
+        let url = try avatarURL(for: scope)
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+    }
+
+    private func loadAvatar(for scope: String) throws -> Data {
+        try Data(contentsOf: avatarURL(for: scope))
+    }
+
+    private func removeAvatar(for scope: String) throws {
+        try FileManager.default.removeItem(at: avatarURL(for: scope))
+    }
+
     private func showStorageNotice() {
-        sessionNotice = AccountEntryNotice(title: "Couldn't save on this device",
+        sessionNotice = AccountEntryNotice(title: "Couldn't save your details",
             explanation: NanaLocalAccountError.storageUnavailable.localizedDescription)
     }
 }

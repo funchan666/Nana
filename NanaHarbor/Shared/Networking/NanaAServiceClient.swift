@@ -110,7 +110,7 @@ struct NanaReadRequest {
 /// Local, sanitized errors; the export does not define a server error JSON schema.
 /// Never display or log raw bodies, tokens, signature values or transport URLs.
 enum NanaAServiceError: Error, LocalizedError, Equatable {
-    case invalidResponse, incompatibleSchema, timeout, offline, transport
+    case invalidResponse, incompatibleSchema, timeout, offline, transport, secureConnection
     case unauthorizedContent, forbidden, notFound, authenticationUnavailable, writeUnavailable, secureStorage
     case httpStatus(Int)
 
@@ -121,7 +121,8 @@ enum NanaAServiceError: Error, LocalizedError, Equatable {
         case .timeout: return "The request took too long. Please try again."
         case .offline: return "You're offline. Saved content is available when present."
         case .transport: return "Nana couldn't reach the service. Please try again later."
-        case .unauthorizedContent: return "The content service didn't authorize this request. Your local sign-in is still saved."
+        case .secureConnection: return "The service connection isn't ready yet. Please try again later."
+        case .unauthorizedContent: return "We couldn't refresh this content. Please try again later."
         case .forbidden: return "The content service has restricted this request. Please try again later."
         case .notFound: return "This content is no longer available."
         case .authenticationUnavailable: return "Account sign-in is not available yet. Please try again when the account service is ready."
@@ -195,6 +196,8 @@ struct NanaAServiceClient {
             switch error.code {
             case .timedOut: return .timeout
             case .notConnectedToInternet, .networkConnectionLost: return .offline
+            case .secureConnectionFailed, .serverCertificateUntrusted, .clientCertificateRejected:
+                return .secureConnection
             default: return .transport
             }
         }
