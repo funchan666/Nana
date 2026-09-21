@@ -148,8 +148,8 @@ final class NanaCoinStore: ObservableObject {
         if let product = products.first(where: { $0.id == productID }) { return product }
         isLoadingProducts = true
         defer { isLoadingProducts = false }
-        let loaded = try await Product.products(for: Self.packs.map(\.productID))
-        products = loaded.sorted { left, right in
+        let loaded = try await Product.products(for: [productID])
+        products = (products.filter { $0.id != productID } + loaded).sorted { left, right in
             let leftIndex = Self.packs.firstIndex { $0.productID == left.id } ?? .max
             let rightIndex = Self.packs.firstIndex { $0.productID == right.id } ?? .max
             return leftIndex < rightIndex
