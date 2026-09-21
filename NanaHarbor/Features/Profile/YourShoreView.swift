@@ -3,6 +3,7 @@ import SwiftUI
 struct YourShoreView: View {
     @EnvironmentObject private var sessionStore: NanaSessionStore
     @EnvironmentObject private var contentStore: NanaContentStore
+    @EnvironmentObject private var coinStore: NanaCoinStore
     @State private var showingEdit = false
     @State private var showingWallet = false
     @State private var showingCheckIn = false
@@ -41,7 +42,10 @@ struct YourShoreView: View {
                 } }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .task { await contentStore.refresh(.wallet) }
+            .task {
+                await contentStore.refresh(.wallet)
+                coinStore.hydrateRemoteBalance(contentStore.payload.wallet.coinBalance)
+            }
             .sheet(isPresented: $showingEdit) { NanaEditProfileView() }
             .sheet(isPresented: $showingWallet) { NanaWalletView() }
             .sheet(isPresented: $showingCheckIn) { NanaCheckInView() }
@@ -176,7 +180,7 @@ struct YourShoreView: View {
                         Text("My balance")
                             .font(NanaType.bodyMedium)
                             .foregroundStyle(NanaPalette.warmWhite)
-                        Text("\(contentStore.payload.wallet.coinBalance) coins")
+                        Text("\(coinStore.balance) coins")
                             .font(NanaType.caption)
                             .foregroundStyle(NanaPalette.mutedWhite)
                     }
@@ -198,7 +202,7 @@ struct YourShoreView: View {
     private var profileMenu: some View {
         VStack(spacing: 0) {
             menuRow(title: "Friends & connections", detail: "Your shared circle", icon: "person.2") { showingConnections = true }
-            menuRow(title: "My wallet", detail: "\(contentStore.payload.wallet.coinBalance) coins", icon: "circle.grid.2x2.fill") { showingWallet = true }
+            menuRow(title: "My wallet", detail: "\(coinStore.balance) coins", icon: "circle.grid.2x2.fill") { showingWallet = true }
             menuRow(title: "Daily check-in", detail: contentStore.checkedInToday ? "Checked in today" : "Claim today's signal", icon: "calendar.badge.plus") { showingCheckIn = true }
             menuRow(title: "Store", detail: "Gifts and room items", icon: "bag") { collectionTitle = "Store"; showingCollection = true }
             menuRow(title: "Backpack", detail: "Your collected items", icon: "shippingbox") { collectionTitle = "Backpack"; showingCollection = true }
@@ -411,7 +415,7 @@ private struct NanaConnectionsView: View {
 struct NanaWalletView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
-    private let packs = [("123,1", "$9.99"), ("246,2", "$19.99"), ("512,0", "$39.99"), ("1,280", "$79.99")]
+    @EnvironmentObject private var coinStore: NanaCoinStore
 
     var body: some View {
         NavigationStack {
@@ -427,7 +431,7 @@ struct NanaWalletView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text("My balance").font(NanaType.caption).foregroundStyle(.white.opacity(0.82))
-                                Text("\(contentStore.payload.wallet.coinBalance)").font(.system(size: 36, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                                Text("\(coinStore.balance)").font(.system(size: 36, weight: .bold, design: .rounded)).foregroundStyle(.white)
                                 Text("coins").font(NanaType.caption).foregroundStyle(.white.opacity(0.72))
                             }
                             Spacer()
@@ -437,30 +441,68 @@ struct NanaWalletView: View {
                         .background(LinearGradient(colors: [NanaPalette.warning.opacity(0.88), NanaPalette.neonPink.opacity(0.75), NanaPalette.electricLilac.opacity(0.82)], startPoint: .leading, endPoint: .trailing), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         NanaSectionTitle(eyebrow: "Recharge options", title: "Choose a pack")
                         VStack(spacing: 9) {
-                            ForEach(packs, id: \.0) { pack in
+                            ForEach(NanaCoinStore.packs) { pack in
                                 HStack(spacing: 12) {
                                     NanaAssetImage(assetKey: "nana.pic.Dc6Dfy6jSal", contentMode: .fit).frame(width: 42, height: 42)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(pack.0).font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite)
+                                        Text("\(pack.coins.formatted())").font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite)
                                         Text("coins").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
                                     }
                                     Spacer()
-                                    Button(pack.1) { contentStore.explainUnavailable("Coin recharge") }
-                                        .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.violet))
+                                    Button {
+                                        Task { await coinStore.purchase(pack: pack) }
+                                    } label: {
+                                        if coinStore.purchasingProductID == pack.productID {
+                                            ProgressView().tint(.white).frame(minWidth: 52)
+                                        } else if let product = coinStore.products.first(where: { $0.id == pack.productID }) {
+                                            Text(product.displayPrice)
+                                        } else {
+                                            Text(pack.fallbackPrice)
+                                        }
+                                    }
+                                    .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.violet))
+                                    .disabled(coinStore.purchasingProductID != nil)
                                 }
                                 .padding(11)
                                 .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                         }
+                        NanaSectionTitle(eyebrow: "Coin map", title: "What uses coins")
+                        VStack(alignment: .leading, spacing: 9) {
+                            coinUseRow(title: "Room gifts", detail: "Send a gift to a live room host", cost: "18–128")
+                            coinUseRow(title: "Room effects", detail: "Coming with a published write contract", cost: "—")
+                            coinUseRow(title: "Chat", detail: "Messages never spend coins", cost: "Free")
+                        }
+                        .padding(14)
+                        .nanaCard()
                     }
                     .padding(20)
                     .padding(.bottom, 24)
                 }
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .task {
+                await contentStore.refresh(.wallet)
+                coinStore.hydrateRemoteBalance(contentStore.payload.wallet.coinBalance)
+            }
+            .overlay { if let notice = coinStore.notice { AccountConsentNotice(notice: notice) { coinStore.dismissNotice() } } }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private func coinUseRow(title: String, detail: String, cost: String) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: title == "Chat" ? "bubble.left.and.bubble.right" : "sparkles")
+                .foregroundStyle(title == "Chat" ? NanaPalette.electricLilac : NanaPalette.neonPink)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite)
+                Text(detail).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+            }
+            Spacer()
+            Text(cost).font(NanaType.caption.weight(.bold)).foregroundStyle(NanaPalette.softPink)
+        }
     }
 }
 
@@ -506,7 +548,6 @@ private struct NanaCheckInView: View {
                 }
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
-            .task { await contentStore.refresh(.gifts) }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)
@@ -552,6 +593,7 @@ private struct NanaCollectionView: View {
                 }
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .task { await contentStore.refresh(.gifts) }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)
@@ -622,6 +664,7 @@ struct NanaSettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingNotice = false
     @State private var showingAbout = false
+    @State private var selectedPolicy: AccountPolicyDocument?
 
     var body: some View {
         NavigationStack {
@@ -640,8 +683,8 @@ struct NanaSettingsView: View {
                             settingsRow("Clear cache", icon: "trash") { contentStore.explainUnavailable("Clearing cache") }
                         }
                         settingsGroup {
-                            settingsRow("User Agreement", icon: "doc.text") { contentStore.explainUnavailable("User Agreement") }
-                            settingsRow("Privacy Policy", icon: "doc.plaintext") { contentStore.explainUnavailable("Privacy Policy") }
+                            settingsRow("User Agreement", icon: "doc.text") { selectedPolicy = .userAgreement }
+                            settingsRow("Privacy Policy", icon: "doc.plaintext") { selectedPolicy = .privacyPolicy }
                             settingsRow("About Nana", icon: "info.circle") { showingAbout = true }
                         }
                         .foregroundStyle(NanaPalette.warmWhite)
@@ -653,6 +696,7 @@ struct NanaSettingsView: View {
             .sheet(isPresented: $showingPrivacy) { NanaPrivacySettingsView() }
             .sheet(isPresented: $showingNotice) { NanaNoticeSettingsView() }
             .sheet(isPresented: $showingAbout) { NanaAboutView() }
+            .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)
@@ -758,6 +802,7 @@ private struct NanaNoticeSettingsView: View {
 private struct NanaAboutView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var selectedPolicy: AccountPolicyDocument?
 
     var body: some View {
         NavigationStack {
@@ -772,13 +817,14 @@ private struct NanaAboutView: View {
                     Text("Nana").font(NanaType.hero).foregroundStyle(NanaPalette.warmWhite)
                     Text("A little room for the people and moments you keep close.").font(NanaType.body).foregroundStyle(NanaPalette.mutedWhite).multilineTextAlignment(.center)
                     Text("Version 1.0").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
-                    Button("User Agreement") { contentStore.explainUnavailable("User Agreement") }.buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.cardStrong))
-                    Button("Privacy Policy") { contentStore.explainUnavailable("Privacy Policy") }.buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.cardStrong))
+                    Button("User Agreement") { selectedPolicy = .userAgreement }.buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.cardStrong))
+                    Button("Privacy Policy") { selectedPolicy = .privacyPolicy }.buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.cardStrong))
                     Spacer()
                 }
                 .padding(28)
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)

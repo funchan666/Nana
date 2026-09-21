@@ -5,6 +5,7 @@ struct NanaEntryCoordinator: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var sessionStore = NanaSessionStore()
     @StateObject private var contentStore = NanaContentStore()
+    @StateObject private var coinStore = NanaCoinStore()
     @State private var hasPresentedLaunchArtwork = false
     @State private var selectedHarbor: NanaHarbor = .home
     @State private var entryRoute: AccountRoute = .landing
@@ -18,6 +19,7 @@ struct NanaEntryCoordinator: View {
                 NanaHarborShellView(selectedHarbor: $selectedHarbor)
                     .environmentObject(sessionStore)
                     .environmentObject(contentStore)
+                    .environmentObject(coinStore)
             } else if sessionStore.pendingIdentity != nil {
                 NanaProfileCompletionView(goBack: { sessionStore.discardPendingIdentity(); entryRoute = .landing })
             } else {
@@ -26,6 +28,7 @@ struct NanaEntryCoordinator: View {
         }
         .environmentObject(sessionStore)
         .environmentObject(contentStore)
+        .environmentObject(coinStore)
         .task {
             guard !hasPresentedLaunchArtwork else { return }
             await sessionStore.restoreLocalSession()
@@ -35,10 +38,12 @@ struct NanaEntryCoordinator: View {
             } catch { }
         }
         .task(id: sessionStore.activeProfile?.localAccountScope) {
+            coinStore.beginSession(accountID: sessionStore.activeProfile?.localAccountScope)
             contentStore.beginSession(accountID: sessionStore.activeProfile?.localAccountScope)
             guard sessionStore.activeProfile != nil else { return }
             await contentStore.refresh(.bootstrap)
             await contentStore.refresh(.assetManifest)
+            coinStore.hydrateRemoteBalance(contentStore.payload.wallet.coinBalance)
         }
         .onChange(of: sessionStore.activeProfile?.localAccountScope) { _, scope in
             if scope == nil {
@@ -58,7 +63,11 @@ struct NanaEntryCoordinator: View {
             sessionStore.handleAppleCredentialRevocation()
         }
         .overlay {
-            if let notice = sessionStore.sessionNotice {
+            if let gift = coinStore.welcomeGift {
+                NanaWelcomeGiftOverlay(gift: gift) { coinStore.dismissWelcomeGift() }
+            } else if let notice = coinStore.notice {
+                AccountConsentNotice(notice: notice) { coinStore.dismissNotice() }
+            } else if let notice = sessionStore.sessionNotice {
                 AccountConsentNotice(notice: notice) { sessionStore.sessionNotice = nil }
             }
         }

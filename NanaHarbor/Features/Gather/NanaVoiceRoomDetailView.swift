@@ -299,6 +299,10 @@ private struct NanaGiftShelfView: View {
     let roomID: String
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
+    @EnvironmentObject private var coinStore: NanaCoinStore
+    @State private var showingWallet = false
+    @State private var showingInsufficient = false
+    @State private var insufficientCost = 0
 
     var body: some View {
         NavigationStack {
@@ -310,7 +314,7 @@ private struct NanaGiftShelfView: View {
                             Text("Send a gift")
                                 .font(NanaType.hero)
                                 .foregroundStyle(NanaPalette.warmWhite)
-                            Text("Balance \(contentStore.payload.wallet.coinBalance) coins")
+                            Text("Balance \(coinStore.balance) coins")
                                 .font(NanaType.caption)
                                 .foregroundStyle(NanaPalette.mutedWhite)
                         }
@@ -323,6 +327,11 @@ private struct NanaGiftShelfView: View {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(contentStore.payload.gifts) { gift in
                             Button {
+                                guard coinStore.balance >= gift.coinCost else {
+                                    insufficientCost = gift.coinCost
+                                    showingInsufficient = true
+                                    return
+                                }
                                 contentStore.sendGift(gift, to: roomID)
                             } label: {
                                 VStack(spacing: 9) {
@@ -347,6 +356,13 @@ private struct NanaGiftShelfView: View {
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
             .task { await contentStore.refresh(.gifts) }
+            .sheet(isPresented: $showingWallet) { NanaWalletView() }
+            .alert("More coins needed", isPresented: $showingInsufficient) {
+                Button("Open Wallet") { showingWallet = true }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This gift needs \(insufficientCost) coins. Your balance is \(coinStore.balance).")
+            }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)

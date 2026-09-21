@@ -21,6 +21,7 @@
 		3EB5293C67C21013DA7952FA /* NanaDiscoveryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 493AD74E302A039E8BF3BB85 /* NanaDiscoveryViews.swift */; };
 		5072206C95C2288CC55E305C /* NanaCredentialAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7595FC1A6D3979EF407E8ED /* NanaCredentialAccessView.swift */; };
 		53E877B3E4983F356CD3556B /* NanaAuthenticationBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */; };
+		58221BEC1DFCFB0DC70D83E1 /* NanaCoinStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84661A6F7482FFA73689C19E /* NanaCoinStore.swift */; };
 		5E30B7B45A8F32FD239B88D0 /* NanaAccessLandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F48A0CDD1C137F08BD7AD78 /* NanaAccessLandingView.swift */; };
 		60939F615EAC72FA7CEF915F /* HarborGatheringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D4175B19C1856901C484C7 /* HarborGatheringView.swift */; };
 		63BCAE5B1D0D4F56AB6D66BC /* NanaAServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8FAB44DCF531B86DFB9B131 /* NanaAServiceClient.swift */; };
@@ -60,6 +61,7 @@
 		5CF0564D9D0BEB4944CB2702 /* NanaHarborShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaHarborShellView.swift; sourceTree = "<group>"; };
 		6494A6E3FEE0378AB906383A /* WarmThreadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarmThreadsView.swift; sourceTree = "<group>"; };
 		768EC854236C626754AF0D37 /* videos */ = {isa = PBXFileReference; lastKnownFileType = folder; path = videos; sourceTree = SOURCE_ROOT; };
+		84661A6F7482FFA73689C19E /* NanaCoinStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaCoinStore.swift; sourceTree = "<group>"; };
 		8F413E4222BA6213AD488FAB /* AccountArtworkSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountArtworkSurface.swift; sourceTree = "<group>"; };
 		93A11B300E46AF384B5F1E33 /* EntryLoadingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryLoadingViews.swift; sourceTree = "<group>"; };
 		A10E7170B4575B52F8A46058 /* AppInfo.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = AppInfo.plist; sourceTree = "<group>"; };
@@ -177,6 +179,14 @@
 			path = Networking;
 			sourceTree = "<group>";
 		};
+		5B743B5BBA75BE08B948C81F /* Commerce */ = {
+			isa = PBXGroup;
+			children = (
+				84661A6F7482FFA73689C19E /* NanaCoinStore.swift */,
+			);
+			path = Commerce;
+			sourceTree = "<group>";
+		};
 		8DDBDB867DD70394ABE3B076 /* Gather */ = {
 			isa = PBXGroup;
 			children = (
@@ -200,6 +210,7 @@
 		9AB584A60A4516BCE4ECEC89 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				5B743B5BBA75BE08B948C81F /* Commerce */,
 				22B71BA11D4017814396B852 /* Components */,
 				26F2DE9C70E9CA233F555003 /* Content */,
 				06900BEB91B1CABCCE4A2674 /* Models */,
@@ -355,6 +366,7 @@
 				0FEF682DBD4832FE7C0E50D8 /* NanaApp.swift in Sources */,
 				28EF4336B2F2BC663F0D8989 /* NanaAssetLibrary.swift in Sources */,
 				53E877B3E4983F356CD3556B /* NanaAuthenticationBoundary.swift in Sources */,
+				58221BEC1DFCFB0DC70D83E1 /* NanaCoinStore.swift in Sources */,
 				AA45126663BD3BEDA595C7A2 /* NanaContentStore.swift in Sources */,
 				5072206C95C2288CC55E305C /* NanaCredentialAccessView.swift in Sources */,
 				3EB5293C67C21013DA7952FA /* NanaDiscoveryViews.swift in Sources */,
