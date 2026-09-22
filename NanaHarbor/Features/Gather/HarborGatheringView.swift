@@ -20,6 +20,13 @@ struct HarborGatheringView: View {
     }
 
     var body: some View {
+        // Allocate before category/search filtering so a portrait keeps its room.
+        let roomCoverPhotos = NanaVoiceRoomCoverAllocator.photosByRoom(
+            rooms: contentStore.payload.rooms,
+            profiles: contentStore.payload.profiles,
+            seats: contentStore.payload.roomSeats,
+            blockedProfileIDs: contentStore.blockedProfileIDs
+        )
         NavigationStack {
             ZStack {
                 NanaTabBackdrop()
@@ -46,9 +53,7 @@ struct HarborGatheringView: View {
                                     Button { selectedRoom = room } label: {
                                         NanaVoiceRoomCard(
                                             room: room,
-                                            profiles: contentStore.payload.profiles,
-                                            seats: contentStore.payload.roomSeats,
-                                            blockedProfileIDs: contentStore.blockedProfileIDs
+                                            coverPhotos: roomCoverPhotos[room.id] ?? []
                                         )
                                     }
                                     .buttonStyle(.plain)
@@ -144,24 +149,30 @@ struct HarborGatheringView: View {
     }
 }
 
-private struct NanaVoiceRoomCard: View {
-    let room: NanaLiveRoom
-    let profiles: [NanaProfile]
-    let seats: [NanaRoomSeat]
-    let blockedProfileIDs: Set<String>
-
-    // Cover artwork is separate from the live seat roster. Supplementary photos
-    // decorate the room card only; they never create members or change its count.
+/// Allocate across the complete room collection, never independently per card.
+/// Extra artwork decorates covers only and does not create live members or seats.
+private enum NanaVoiceRoomCoverAllocator {
     private static let coverPhotoKeys = [
         "nana.pic.Dc6OjcqAodc", "nana.pic.DdJ2uSSDENz",
         "nana.pic.DczCXb6HMNj", "nana.pic.DdTY1ZoDJ_o",
         "nana.pic.DdMJA6mE7N0", "nana.pic.DdQxT9NCkQ1",
-        "nana.pic.Dc0SA4UiUy3", "nana.pic.Dc0XoT9DgeO",
-        "nana.pic.Dc1CvDfCCHN", "nana.pic.Dc1Ii5HACCq",
-        "nana.pic.DdTmQsaCOiK", "nana.pic.DdV5vxnEs3N"
-    ]
+        "nana.pic.DdTmQsaCOiK", "nana.pic.DdV5vxnEs3N",
+        "nana.pic.Dc6Dfy6jSal", "nana.pic.Dc_JVYmiG2t",
+        "nana.pic.DctNjXIAIkT", "nana.pic.Dctezv0jcrn",
+        "nana.pic.DctrZb7jKiH", "nana.pic.DcyZpWQDN_L",
+        "nana.pic.Dcz55LfiUxQ", "nana.pic.DdBySv9iC1b",
+        "nana.pic.DdE6ef7ETo4", "nana.pic.DdEfRgwCOY1",
+        "nana.pic.DdGhSoTD1Cr", "nana.pic.DdLxPwjDqzz",
+        "nana.pic.DdMv-SrHWQm", "nana.pic.DdO8NGAjTkn",
+        "nana.pic.DdOkklBgBAh", "nana.pic.DdRpik8DVsi",
+        "nana.pic.DdTNJvtjogw", "nana.pic.DdTelR9Apxp",
+        "nana.pic.DdUCdcjCBlJ", "nana.pic.DdUMVs2jkhZ",
+        "nana.pic.DdWhEvOADv0", "nana.pic.DdWps4Cl9L5",
+        "nana.pic.DdYl3lqgOFb", "nana.pic.DdZjKW2CG9S",
+        "nana.pic.DdaK8LKDT4g", "nana.pic.DdefHeEDp0o"
+    ].filter { NanaAssetLibrary.image(for: $0) != nil }
 
-    private var coverPhotoCount: Int {
+    private static func photoLimit(for room: NanaLiveRoom) -> Int {
         switch room.seatCapacity {
         case ...3: return 4
         case 4...6: return 6
@@ -169,33 +180,60 @@ private struct NanaVoiceRoomCard: View {
         }
     }
 
-    private var coverPhotos: [String] {
-        let blockedAssets = Set(profiles.filter { blockedProfileIDs.contains($0.id) }.compactMap(\.avatarAssetKey))
-        var result: [String] = []
-        var included: Set<String> = []
-        func appendPhoto(_ key: String?) {
-            guard let key, !blockedAssets.contains(key), included.insert(key).inserted,
-                  NanaAssetLibrary.image(for: key) != nil else { return }
-            result.append(key)
+    static func photosByRoom(
+        rooms: [NanaLiveRoom], profiles: [NanaProfile], seats: [NanaRoomSeat],
+        blockedProfileIDs: Set<String>
+    ) -> [String: [String]] {
+        let orderedRooms = rooms.sorted { $0.id < $1.id }
+        let profileByID = Dictionary(profiles.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let seatsByRoom = Dictionary(grouping: seats, by: \.roomID)
+        // Reserve every member image before assigning decorative artwork, including
+        // alternate host artwork and blocked profiles, so it cannot leak into a cover.
+        let reservedPhotos = Set(profiles.compactMap(\.avatarAssetKey) + rooms.compactMap(\.hostAvatarAssetKey))
+        var usedProfiles: Set<String> = []
+        var usedPhotos: Set<String> = []
+        var result: [String: [String]] = [:]
+
+        func assignMember(_ id: String, asset: String?, to room: NanaLiveRoom) {
+            guard !blockedProfileIDs.contains(id), usedProfiles.insert(id).inserted else { return }
+            guard result[room.id, default: []].count < photoLimit(for: room),
+                  let asset, !usedPhotos.contains(asset), NanaAssetLibrary.image(for: asset) != nil else { return }
+            usedPhotos.insert(asset)
+            result[room.id, default: []].append(asset)
         }
-        if !blockedProfileIDs.contains(room.hostID) { appendPhoto(room.hostAvatarAssetKey) }
-        for seat in seats.filter({ $0.roomID == room.id }).sorted(by: { $0.position < $1.position }) {
-            guard let id = seat.profileID, !blockedProfileIDs.contains(id) else { continue }
-            appendPhoto(profiles.first { $0.id == id }?.avatarAssetKey)
+
+        // A host belongs to their own room even if another room has a stale seat.
+        for room in orderedRooms {
+            assignMember(room.hostID, asset: room.hostAvatarAssetKey ?? profileByID[room.hostID]?.avatarAssetKey, to: room)
         }
-        // Stable across launches, refreshes and filtering; Swift's hashValue is not.
-        var seed = room.id.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }
-        var pool = Self.coverPhotoKeys
-        for index in stride(from: pool.count - 1, through: 1, by: -1) {
-            seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            pool.swapAt(index, Int((seed >> 32) % UInt64(index + 1)))
+        for room in orderedRooms {
+            let members = (seatsByRoom[room.id] ?? []).sorted {
+                $0.position == $1.position ? $0.id < $1.id : $0.position < $1.position
+            }
+            for seat in members {
+                guard let id = seat.profileID else { continue }
+                assignMember(id, asset: profileByID[id]?.avatarAssetKey, to: room)
+            }
         }
-        for key in pool {
-            if result.count >= coverPhotoCount { break }
-            appendPhoto(key)
+
+        // Fill in rounds so rooms share a limited photo library fairly. Never cycle
+        // back to reused photos when the library runs out; leave the rest open.
+        var availablePhotos = coverPhotoKeys.filter { !reservedPhotos.contains($0) && !usedPhotos.contains($0) }.makeIterator()
+        for round in 0..<9 {
+            for room in orderedRooms where photoLimit(for: room) > round {
+                guard result[room.id, default: []].count <= round,
+                      let photo = availablePhotos.next() else { continue }
+                guard usedPhotos.insert(photo).inserted else { continue }
+                result[room.id, default: []].append(photo)
+            }
         }
-        return Array(result.prefix(coverPhotoCount))
+        return result
     }
+}
+
+private struct NanaVoiceRoomCard: View {
+    let room: NanaLiveRoom
+    let coverPhotos: [String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -270,7 +308,10 @@ private struct NanaVoiceRoomCard: View {
                                     .frame(width: tileWidth, height: tileHeight)
                                     .clipped()
                             } else {
-                                Color.clear.frame(width: tileWidth, height: tileHeight)
+                                NanaAssetImage(assetKey: "nana.voice.voice_asset_072", contentMode: .fit)
+                                    .frame(width: min(tileWidth, tileHeight) * 0.4, height: min(tileWidth, tileHeight) * 0.4)
+                                    .opacity(0.35)
+                                    .frame(width: tileWidth, height: tileHeight)
                             }
                         }
                     }
