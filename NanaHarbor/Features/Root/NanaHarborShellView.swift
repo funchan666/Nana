@@ -25,7 +25,7 @@ struct NanaHarborShellView: View {
 
             NanaTabRail(selectedHarbor: $selectedHarbor)
         }
-        .background(NanaPalette.midnight)
+        .background(NanaPalette.tabBarBackground)
         .preferredColorScheme(.dark)
         .overlay {
             if let notice = contentStore.actionNotice {
@@ -38,40 +38,41 @@ struct NanaHarborShellView: View {
 
 private struct NanaTabRail: View {
     @Binding var selectedHarbor: NanaHarbor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 0) {
-            tab(.home, title: "Live", icon: "play.tv")
-            tab(.gather, title: "Voice", icon: "mic.2")
-            tab(.inbox, title: "Message", icon: "bubble.left.and.bubble.right")
-            tab(.me, title: "Me", icon: "person.crop.circle")
+            tab(.home, title: "Live")
+            tab(.gather, title: "Voice")
+            tab(.inbox, title: "Message")
+            tab(.me, title: "Me")
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 10)
-        .padding(.bottom, 7)
-        .background(.ultraThinMaterial.opacity(0.86))
-        .background(NanaPalette.deepSpace.opacity(0.94))
-        .overlay(alignment: .top) { Rectangle().fill(NanaPalette.border).frame(height: 1) }
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+        .background(NanaPalette.tabBarBackground.ignoresSafeArea(edges: .bottom))
     }
 
-    private func tab(_ destination: NanaHarbor, title: String, icon: String) -> some View {
+    private func tab(_ destination: NanaHarbor, title: String) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) { selectedHarbor = destination }
-        } label: {
-            VStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .semibold))
-                Text(title)
-                    .font(NanaType.caption.weight(.semibold))
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                selectedHarbor = destination
             }
-            .foregroundStyle(selectedHarbor == destination ? NanaPalette.warmWhite : NanaPalette.mutedWhite)
-            .frame(maxWidth: .infinity, minHeight: 45)
-            .background(selectedHarbor == destination ? NanaPalette.violet.opacity(0.8) : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } label: {
+            VStack(spacing: 7) {
+                Text(title)
+                    .font(.system(size: 12, weight: selectedHarbor == destination ? .medium : .regular))
+                    .foregroundStyle(selectedHarbor == destination ? Color.white : Color.white.opacity(0.45))
+                    .lineLimit(1)
+                Capsule()
+                    .fill(selectedHarbor == destination ? NanaPalette.violet : Color.clear)
+                    .frame(width: 20, height: 3)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .accessibilityAddTraits(selectedHarbor == destination ? .isSelected : [])
     }
 }

@@ -1,6 +1,8 @@
 import SwiftUI
 
 enum NanaPalette {
+    // Matches the solid black lower portion of photo_asset_014.png.
+    static let tabBarBackground = Color.black
     static let midnight = Color(red: 0.025, green: 0.018, blue: 0.075)
     static let deepSpace = Color(red: 0.055, green: 0.027, blue: 0.14)
     static let violet = Color(red: 0.48, green: 0.15, blue: 0.98)
@@ -56,6 +58,21 @@ struct NanaCardSurface: ViewModifier {
 extension View {
     func nanaCard(fill: Color = NanaPalette.card, border: Color = NanaPalette.border) -> some View {
         modifier(NanaCardSurface(fill: fill, border: border))
+    }
+}
+
+/// Shared full-screen artwork for the four primary tabs, without tint overlays.
+struct NanaTabBackdrop: View {
+    var body: some View {
+        GeometryReader { display in
+            NanaAssetImage(assetKey: "nana.photo.photo_asset_014", contentMode: .fill)
+                .frame(width: display.size.width, height: display.size.height)
+                .clipped()
+        }
+        .background(NanaPalette.tabBarBackground)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

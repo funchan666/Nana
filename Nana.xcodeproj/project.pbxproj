@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -56,7 +56,7 @@
 		493AD74E302A039E8BF3BB85 /* NanaDiscoveryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaDiscoveryViews.swift; sourceTree = "<group>"; };
 		4C776CD160331BF7646627E4 /* voice-room-slices */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "voice-room-slices"; path = "assets/voice-room-slices"; sourceTree = SOURCE_ROOT; };
 		4C8BFF550EAEC135F636EFBF /* AccountCredentialRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCredentialRow.swift; sourceTree = "<group>"; };
-		5387E006AC6DA430C36A36A8 /* Nana.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Nana.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5387E006AC6DA430C36A36A8 /* Nana.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nana.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5440DF561E5939D352B50D2D /* NanaProfileCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaProfileCompletionView.swift; sourceTree = "<group>"; };
 		5CF0564D9D0BEB4944CB2702 /* NanaHarborShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaHarborShellView.swift; sourceTree = "<group>"; };
 		6494A6E3FEE0378AB906383A /* WarmThreadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarmThreadsView.swift; sourceTree = "<group>"; };
@@ -322,7 +322,6 @@
 			);
 			mainGroup = 91A37A184D7DC03E612F4896;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -452,6 +451,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NanaHarbor/Support/Nana.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = NanaHarbor/Support/AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Nana;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
@@ -461,10 +462,14 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -474,6 +479,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NanaHarbor/Support/Nana.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = NanaHarbor/Support/AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Nana;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
@@ -483,10 +490,14 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

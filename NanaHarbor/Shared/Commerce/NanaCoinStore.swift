@@ -162,20 +162,20 @@ final class NanaCoinStore: ObservableObject {
 
     private func startTransactionListener() {
         transactionUpdatesTask = Task { [weak self] in
-            for await verification in Transaction.updates {
+            for await verification in StoreKit.Transaction.updates {
                 guard !Task.isCancelled else { return }
                 await self?.handle(verification)
             }
         }
     }
 
-    private func handle(_ verification: VerificationResult<Transaction>) async {
+    private func handle(_ verification: VerificationResult<StoreKit.Transaction>) async {
         guard let transaction = verifiedTransaction(from: verification),
               let pack = Self.packs.first(where: { $0.productID == transaction.productID }) else { return }
         await apply(.verified(transaction), expectedPack: pack)
     }
 
-    private func apply(_ verification: VerificationResult<Transaction>, expectedPack: NanaCoinPack) async {
+    private func apply(_ verification: VerificationResult<StoreKit.Transaction>, expectedPack: NanaCoinPack) async {
         guard let transaction = verifiedTransaction(from: verification), transaction.productID == expectedPack.productID else {
             notice = AccountEntryNotice(title: "Purchase could not be verified", explanation: "No coins were added. Please try again or contact Apple Support.")
             return
@@ -199,7 +199,7 @@ final class NanaCoinStore: ObservableObject {
         }
     }
 
-    private func verifiedTransaction(from verification: VerificationResult<Transaction>) -> Transaction? {
+    private func verifiedTransaction(from verification: VerificationResult<StoreKit.Transaction>) -> StoreKit.Transaction? {
         guard case .verified(let transaction) = verification else { return nil }
         return transaction
     }

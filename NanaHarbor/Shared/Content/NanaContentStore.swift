@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 import CryptoKit
+import UIKit
+import ImageIO
 
 enum NanaDevelopmentMode {
     static var usesFixtures: Bool {
@@ -29,6 +31,10 @@ final class NanaContentStore: ObservableObject {
     @Published var actionNotice: AccountEntryNotice?
     @Published private(set) var assetManifest: [NanaAssetDescriptor] = []
 
+    @Published private(set) var personal = NanaPersonalState()
+    private var personalURL: URL?
+    private var personalStorageReady = false
+
     private let service: NanaAServiceClient
     private var fetchedAt: [NanaReadEndpoint: Date] = [:]
     private var requests: [NanaReadEndpoint: Task<Void, Never>] = [:]
@@ -40,8 +46,20 @@ final class NanaContentStore: ObservableObject {
     init(service: NanaAServiceClient = NanaAServiceClient()) { self.service = service }
 
     var categories: [String] { ["For you", "Following", "Late night", "Creative", "Music", "Open talk"] }
-    var checkedInToday: Bool { false }
-    var visibleConversations: [NanaConversation] { payload.conversations.filter { !blockedProfileIDs.contains($0.profileID) } }
+    var checkedInToday: Bool { personal.checkInDays.contains(dayKey(Date())) }
+    var activityPoints: Int { personal.checkInDays.count * 10 }
+    var activityLevel: Int { 1 + activityPoints / 200 }
+    var followedProfiles: [NanaProfile] {
+        personal.followedProfiles.values.filter { !blockedProfileIDs.contains($0.id) }.sorted { $0.displayName < $1.displayName }
+    }
+    var hiddenProfiles: [NanaProfile] { personal.hiddenProfiles.values.sorted { $0.displayName < $1.displayName } }
+    var visibleConversations: [NanaConversation] {
+        payload.conversations.filter { !blockedProfileIDs.contains($0.profileID) && !personal.hiddenConversationIDs.contains($0.id) }.map {
+            var conversation = $0
+            if personal.readConversations[$0.id] == conversationRevision($0) { conversation.unreadCount = 0 }
+            return conversation
+        }
+    }
 
     func beginSession(accountID: String?) {
         guard accountScope != accountID else { return }
@@ -54,6 +72,9 @@ final class NanaContentStore: ObservableObject {
         fetchedAt = [:]
         blockedProfileIDs = []
         drafts = [:]
+        personal = NanaPersonalState()
+        personalURL = nil
+        personalStorageReady = false
         assetManifest = []
         actionNotice = nil
         cacheSaveFailed = false
@@ -70,14 +91,36 @@ final class NanaContentStore: ObservableObject {
         let digest = SHA256.hash(data: Data(accountID.utf8)).map { String(format: "%02x", $0) }.joined()
         if let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             cacheURL = directory.appendingPathComponent("NanaReadCache", isDirectory: true).appendingPathComponent(digest + ".json")
+            personalURL = directory.appendingPathComponent("NanaPersonalData", isDirectory: true).appendingPathComponent(digest, isDirectory: true).appendingPathComponent("personal.json")
+        }
+        if let personalURL {
+            do {
+                if FileManager.default.fileExists(atPath: personalURL.path) {
+                    personal = try JSONDecoder().decode(NanaPersonalState.self, from: Data(contentsOf: personalURL))
+                }
+                personalStorageReady = true
+                blockedProfileIDs = Set(personal.hiddenProfiles.keys)
+                drafts = personal.drafts
+            } catch {
+                actionNotice = AccountEntryNotice(title: "Saved data unavailable", explanation: "Please reopen Nana to try again. Your saved data has not been replaced.")
+            }
         }
         guard let cacheURL, let data = try? Data(contentsOf: cacheURL),
               let cache = try? JSONDecoder().decode(NanaReadCache.self, from: data),
               cache.version == 1 else { return }
         payload = cache.snapshot
         fetchedAt = cache.fetchedAt
-        blockedProfileIDs = cache.hiddenProfiles
-        drafts = cache.drafts
+        blockedProfileIDs.formUnion(cache.hiddenProfiles)
+        if personalStorageReady {
+            var migrated = personal
+            for id in cache.hiddenProfiles {
+                if let profile = cache.snapshot.profiles.first(where: { $0.id == id }) { migrated.hiddenProfiles[id] = profile }
+            }
+            migrated.drafts.merge(cache.drafts, uniquingKeysWith: { current, _ in current })
+            _ = savePersonal(migrated)
+        }
+        drafts = personal.drafts
+        applyPersonalOverlays()
         assetManifest = cache.assets
     }
 
@@ -99,6 +142,7 @@ final class NanaContentStore: ObservableObject {
                 try Task.checkCancellation()
                 guard self.generation == requestGeneration else { return }
                 update()
+                self.applyPersonalOverlays()
                 self.fetchedAt[endpoint] = Date()
                 self.states[endpoint] = .loaded(Date())
                 self.persist()
@@ -206,22 +250,175 @@ final class NanaContentStore: ObservableObject {
         actionNotice = AccountEntryNotice(title: "\(action) isn't available yet", explanation: NanaAServiceError.writeUnavailable.localizedDescription)
     }
     func dismissActionNotice() { actionNotice = nil }
-    func toggleConnection(for profileID: String) { explainUnavailable("Following") }
+    func toggleConnection(for profileID: String) {
+        guard var profile = payload.profiles.first(where: { $0.id == profileID }) ?? personal.followedProfiles[profileID] else { return }
+        var updated = personal
+        let following = !(personal.following[profileID] ?? profile.isConnected)
+        updated.following[profileID] = following
+        profile.isConnected = following
+        if following { updated.followedProfiles[profileID] = profile } else { updated.followedProfiles.removeValue(forKey: profileID) }
+        if savePersonal(updated) { applyPersonalOverlays() }
+    }
     func appendMessage(to conversationID: String, body: String) { explainUnavailable("Sending messages") }
     func appendRoomMessage(roomID: String, body: String, senderName: String = "You") { explainUnavailable("Room chat") }
     func toggleMute(roomID: String, seatID: String) { explainUnavailable("Room moderation") }
     func kick(roomID: String, seatID: String) { explainUnavailable("Room moderation") }
-    func performCheckIn() { explainUnavailable("Check-in") }
+    func performCheckIn() {
+        guard !checkedInToday else { return }
+        var updated = personal
+        updated.checkInDays.insert(dayKey(Date()))
+        if savePersonal(updated) {
+            actionNotice = AccountEntryNotice(title: "Checked in", explanation: "+10 activity points. See you tomorrow.")
+        }
+    }
     func sendGift(_ gift: NanaGift, to roomID: String) { explainUnavailable("Sending gifts") }
 
     /// A device-only safety preference; never described as a submitted report/server block.
     func block(profileID: String) {
-        blockedProfileIDs.insert(profileID)
-        persist()
-        actionNotice = AccountEntryNotice(title: "Profile hidden", explanation: "This profile and its rooms, posts and conversations are hidden from your view.")
+        guard let profile = payload.profiles.first(where: { $0.id == profileID }) else { return }
+        var updated = personal
+        updated.hiddenProfiles[profileID] = profile
+        if savePersonal(updated) {
+            blockedProfileIDs.insert(profileID)
+            actionNotice = AccountEntryNotice(title: "Profile hidden", explanation: "This profile and its activity are hidden from your view.")
+        }
     }
     func draft(for key: String) -> String { drafts[key] ?? "" }
-    func saveDraft(_ value: String, for key: String) { drafts[key] = value; persist() }
+    @discardableResult
+    func saveDraft(_ value: String, for key: String) -> Bool {
+        var updated = personal
+        updated.drafts[key] = value
+        guard savePersonal(updated) else { return false }
+        drafts = updated.drafts
+        return true
+    }
+
+    func unhide(profileID: String) {
+        var updated = personal
+        updated.hiddenProfiles.removeValue(forKey: profileID)
+        if savePersonal(updated) { blockedProfileIDs.remove(profileID) }
+    }
+
+    func preference(_ key: String, default fallback: Bool = true) -> Bool { personal.preferences[key] ?? fallback }
+    func setPreference(_ key: String, value: Bool) {
+        var updated = personal
+        updated.preferences[key] = value
+        _ = savePersonal(updated)
+    }
+
+    func dayKey(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    func markRead(_ conversation: NanaConversation) {
+        var updated = personal
+        updated.readConversations[conversation.id] = conversationRevision(conversation)
+        _ = savePersonal(updated)
+    }
+
+    func hideConversation(_ id: String) {
+        var updated = personal
+        updated.hiddenConversationIDs.insert(id)
+        _ = savePersonal(updated)
+    }
+
+    func clearConversationList() {
+        var updated = personal
+        updated.hiddenConversationIDs.formUnion(payload.conversations.map(\.id))
+        if savePersonal(updated) {
+            actionNotice = AccountEntryNotice(title: "Messages cleared", explanation: "This device's message list has been cleared.")
+        }
+    }
+
+    func clearCache() {
+        generation = UUID()
+        requests.values.forEach { $0.cancel() }
+        requests.removeAll()
+        do {
+            if let cacheURL, FileManager.default.fileExists(atPath: cacheURL.path) { try FileManager.default.removeItem(at: cacheURL) }
+            payload = .empty
+            fetchedAt = [:]
+            states = [:]
+            assetManifest = []
+            URLCache.shared.removeAllCachedResponses()
+            actionNotice = AccountEntryNotice(title: "Cache cleared", explanation: "Your photos, preferences, activity and coins are kept.")
+        } catch {
+            actionNotice = AccountEntryNotice(title: "Cache not cleared", explanation: "Please try again.")
+        }
+    }
+
+    func photoURL(_ photo: NanaPersonalPhoto) -> URL? {
+        personalURL?.deletingLastPathComponent().appendingPathComponent(photo.filename)
+    }
+
+    func addPhoto(_ data: Data, accountID: String?) {
+        guard accountID == accountScope, accountID != nil, personalStorageReady,
+              let directory = personalURL?.deletingLastPathComponent(), data.count <= 25_000_000,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1600
+              ] as CFDictionary), let jpeg = UIImage(cgImage: thumbnail).jpegData(compressionQuality: 0.85) else {
+            actionNotice = AccountEntryNotice(title: "Photo not added", explanation: "Choose a photo smaller than 25 MB and try again.")
+            return
+        }
+        let photo = NanaPersonalPhoto(id: UUID().uuidString, createdAt: Date())
+        let destination = directory.appendingPathComponent(photo.filename)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try jpeg.write(to: destination, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            var updated = personal
+            updated.photos.append(photo)
+            if !savePersonal(updated) { try? FileManager.default.removeItem(at: destination) }
+        } catch {
+            actionNotice = AccountEntryNotice(title: "Photo not added", explanation: "Nana couldn't save this photo. Please try again.")
+        }
+    }
+
+    func deletePhotos(_ ids: Set<String>) {
+        let removed = personal.photos.filter { ids.contains($0.id) }
+        var updated = personal
+        updated.photos.removeAll { ids.contains($0.id) }
+        guard savePersonal(updated) else { return }
+        for photo in removed { if let url = photoURL(photo) { try? FileManager.default.removeItem(at: url) } }
+        actionNotice = AccountEntryNotice(title: "Photos deleted", explanation: "Selected photos were removed from this album.")
+    }
+
+    private func conversationRevision(_ value: NanaConversation) -> String {
+        [value.sentAtLabel, value.preview, String(value.unreadCount)].joined(separator: "|")
+    }
+
+    private func applyPersonalOverlays() {
+        for index in payload.profiles.indices {
+            if let following = personal.following[payload.profiles[index].id] { payload.profiles[index].isConnected = following }
+        }
+        for index in payload.rooms.indices {
+            if let following = personal.following[payload.rooms[index].hostID] { payload.rooms[index].isFollowingHost = following }
+        }
+    }
+
+    @discardableResult
+    private func savePersonal(_ updated: NanaPersonalState) -> Bool {
+        guard personalStorageReady, let personalURL else { return false }
+        do {
+            var directory = personalURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try directory.setResourceValues(values)
+            try JSONEncoder().encode(updated).write(to: personalURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            personal = updated
+            return true
+        } catch {
+            actionNotice = AccountEntryNotice(title: "Changes not saved", explanation: "Please try again. Your previous data is kept.")
+            return false
+        }
+    }
 
     private func persist() {
         guard let cacheURL, !NanaDevelopmentMode.usesFixtures else { return }
@@ -246,4 +443,24 @@ private struct NanaReadCache: Codable {
     let hiddenProfiles: Set<String>
     let drafts: [String: String]
     let assets: [NanaAssetDescriptor]
+}
+
+
+/// Separate from disposable JSON snapshots; never sent to the content service.
+struct NanaPersonalState: Codable {
+    var following: [String: Bool] = [:]
+    var followedProfiles: [String: NanaProfile] = [:]
+    var hiddenProfiles: [String: NanaProfile] = [:]
+    var hiddenConversationIDs: Set<String> = []
+    var readConversations: [String: String] = [:]
+    var checkInDays: Set<String> = []
+    var preferences: [String: Bool] = [:]
+    var drafts: [String: String] = [:]
+    var photos: [NanaPersonalPhoto] = []
+}
+
+struct NanaPersonalPhoto: Codable, Identifiable {
+    let id: String
+    let createdAt: Date
+    var filename: String { "photo-" + id + ".jpg" }
 }

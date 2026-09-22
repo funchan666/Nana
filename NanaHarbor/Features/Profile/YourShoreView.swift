@@ -23,7 +23,7 @@ struct YourShoreView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                NanaBackdrop()
+                NanaTabBackdrop()
                 if contentStore.state(for: .wallet) == .loading && contentStore.payload.wallet.nextLevelPoints == 1 {
                     NanaScreenLoading(label: "Loading your shore")
                 } else if case .failed(let error) = contentStore.state(for: .wallet), contentStore.payload.wallet.nextLevelPoints == 1 {
@@ -352,7 +352,7 @@ private struct NanaConnectionsView: View {
     private var visiblePeople: [NanaProfile] {
         switch selectedTab {
         case "Fans": return people.sorted { $0.followerCount > $1.followerCount }
-        case "Following": return people.sorted { $0.followingCount > $1.followingCount }
+        case "Following": return contentStore.followedProfiles
         default: return people.filter { $0.isConnected }
         }
     }
@@ -655,7 +655,8 @@ private struct NanaFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var message = ""
-    var body: some View { NavigationStack { ZStack { NanaBackdrop(); VStack(alignment: .leading, spacing: 16) { Text("Send feedback").font(NanaType.hero).foregroundStyle(NanaPalette.warmWhite); Text("Tell us what would make your next room better.").font(NanaType.body).foregroundStyle(NanaPalette.mutedWhite); TextEditor(text: $message).scrollContentBackground(.hidden).foregroundStyle(.white).frame(height: 160).padding(12).background(NanaPalette.card, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(NanaPalette.border)); Button("Submit") { contentStore.explainUnavailable("Feedback") }.buttonStyle(NanaPrimaryButtonStyle()); Spacer() }.padding(22) }.toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }.overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } } }.preferredColorScheme(.dark) }
+    @State private var savedDraft = false
+    var body: some View { NavigationStack { ZStack { NanaBackdrop(); VStack(alignment: .leading, spacing: 16) { Text("Send feedback").font(NanaType.hero).foregroundStyle(NanaPalette.warmWhite); Text("Tell us what would make your next room better.").font(NanaType.body).foregroundStyle(NanaPalette.mutedWhite); TextEditor(text: $message).scrollContentBackground(.hidden).foregroundStyle(.white).frame(height: 160).padding(12).background(NanaPalette.card, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(NanaPalette.border)); Button("Save draft") { savedDraft = contentStore.saveDraft(message, for: "feedback") }.buttonStyle(NanaPrimaryButtonStyle()); if savedDraft { Text("Draft saved").font(NanaType.caption).foregroundStyle(NanaPalette.softPink) }; Text("Sending feedback will be available when the service accepts submissions.").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite); Spacer() }.padding(22) }.toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }.onAppear { message = contentStore.draft(for: "feedback") }.overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } } }.preferredColorScheme(.dark) }
 }
 
 struct NanaSettingsView: View {
@@ -680,7 +681,7 @@ struct NanaSettingsView: View {
                         settingsGroup {
                             settingsRow("Privacy settings", icon: "hand.raised") { showingPrivacy = true }
                             settingsRow("Notice", icon: "bell") { showingNotice = true }
-                            settingsRow("Clear cache", icon: "trash") { contentStore.explainUnavailable("Clearing cache") }
+                            settingsRow("Clear cache", icon: "trash") { contentStore.clearCache() }
                         }
                         settingsGroup {
                             settingsRow("User Agreement", icon: "doc.text") { selectedPolicy = .userAgreement }
@@ -725,6 +726,7 @@ struct NanaSettingsView: View {
 
 private struct NanaPrivacySettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var privateInformation = true
     @State private var displayStatus = true
     @State private var allowMessages = true
@@ -745,6 +747,16 @@ private struct NanaPrivacySettingsView: View {
                 .padding(20)
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .onAppear {
+                privateInformation = contentStore.preference("privateInformation")
+                displayStatus = contentStore.preference("displayStatus")
+                allowMessages = contentStore.preference("allowMessages")
+                allowVideoCalls = contentStore.preference("allowVideoCalls")
+            }
+            .onChange(of: privateInformation) { _, value in contentStore.setPreference("privateInformation", value: value) }
+            .onChange(of: displayStatus) { _, value in contentStore.setPreference("displayStatus", value: value) }
+            .onChange(of: allowMessages) { _, value in contentStore.setPreference("allowMessages", value: value) }
+            .onChange(of: allowVideoCalls) { _, value in contentStore.setPreference("allowVideoCalls", value: value) }
         }
         .preferredColorScheme(.dark)
     }
@@ -763,6 +775,7 @@ private struct NanaPrivacySettingsView: View {
 
 private struct NanaNoticeSettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
     @State private var allowNotifications = true
     @State private var likeAndFollow = true
     @State private var liveReminder = true
@@ -783,6 +796,16 @@ private struct NanaNoticeSettingsView: View {
                 .padding(20)
             }
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .onAppear {
+                allowNotifications = contentStore.preference("allowNotifications")
+                likeAndFollow = contentStore.preference("likeAndFollow")
+                liveReminder = contentStore.preference("liveReminder")
+                videoReminder = contentStore.preference("videoReminder")
+            }
+            .onChange(of: allowNotifications) { _, value in contentStore.setPreference("allowNotifications", value: value) }
+            .onChange(of: likeAndFollow) { _, value in contentStore.setPreference("likeAndFollow", value: value) }
+            .onChange(of: liveReminder) { _, value in contentStore.setPreference("liveReminder", value: value) }
+            .onChange(of: videoReminder) { _, value in contentStore.setPreference("videoReminder", value: value) }
         }
         .preferredColorScheme(.dark)
     }
@@ -857,7 +880,9 @@ private struct NanaBlacklistView: View {
                                         Text("Hidden from your rooms, posts and conversations").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
                                     }
                                     Spacer()
-                                    Image(systemName: "nosign").foregroundStyle(NanaPalette.warning)
+                                    Button("Show") { contentStore.unhide(profileID: profile.id) }
+                                        .font(NanaType.caption.weight(.bold))
+                                        .foregroundStyle(NanaPalette.electricLilac)
                                 }
                                 .padding(12)
                                 .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 14, style: .continuous))

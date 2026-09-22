@@ -1,8 +1,6 @@
 import SwiftUI
-#if canImport(AVFoundation)
-import AVFoundation
+import PhotosUI
 import UIKit
-#endif
 
 struct WarmThreadsView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
@@ -24,7 +22,7 @@ struct WarmThreadsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                NanaBackdrop(imageName: "NanaLiveBackdrop")
+                NanaTabBackdrop()
                 if contentStore.payload.conversations.isEmpty && contentStore.state(for: .conversations) == .loading {
                     NanaScreenLoading(label: "Warming messages")
                 } else if contentStore.payload.conversations.isEmpty, case .failed(let error) = contentStore.state(for: .conversations) {
@@ -73,7 +71,7 @@ struct WarmThreadsView: View {
                     .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             }
             .buttonStyle(.plain)
-            Button { contentStore.explainUnavailable("Clearing messages") } label: {
+            Button { contentStore.clearConversationList() } label: {
                 Image(systemName: "sparkles")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(NanaPalette.softPink)
@@ -390,6 +388,7 @@ struct NanaAlbumGalleryView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var isSelecting = false
     @State private var selectedAssets: Set<String> = []
+    @State private var selectedPhoto: PhotosPickerItem?
     private let albumAssets = ["nana.pic.Dc0SA4UiUy3", "nana.pic.Dc1CvDfCCHN", "nana.pic.Dc1Ii5HACCq", "nana.pic.Dc1UKGTDL1J", "nana.pic.DdTmQsaCOiK", "nana.pic.DdV5vxnEs3N"]
 
     var body: some View {
@@ -423,6 +422,27 @@ struct NanaAlbumGalleryView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                            ForEach(contentStore.personal.photos) { photo in
+                                Button {
+                                    guard isSelecting else { return }
+                                    if selectedAssets.contains(photo.id) { selectedAssets.remove(photo.id) }
+                                    else { selectedAssets.insert(photo.id) }
+                                } label: {
+                                    ZStack(alignment: .topTrailing) {
+                                        NanaPersonalPhotoImage(url: contentStore.photoURL(photo))
+                                            .frame(height: 102)
+                                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                        if isSelecting {
+                                            Image(systemName: selectedAssets.contains(photo.id) ? "checkmark.square.fill" : "square")
+                                                .font(.system(size: 17, weight: .bold))
+                                                .foregroundStyle(selectedAssets.contains(photo.id) ? NanaPalette.softPink : .white)
+                                                .shadow(color: .black.opacity(0.6), radius: 3)
+                                                .padding(7)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                         if isSelecting {
                             HStack(spacing: 10) {
@@ -430,13 +450,20 @@ struct NanaAlbumGalleryView: View {
                                     .font(NanaType.caption)
                                     .foregroundStyle(NanaPalette.mutedWhite)
                                 Spacer()
-                                Button("Delete selected") { contentStore.explainUnavailable("Deleting photos") }
+                                Button("Delete selected") {
+                                    let localIDs = Set(selectedAssets.filter { id in contentStore.personal.photos.contains(where: { $0.id == id }) })
+                                    contentStore.deletePhotos(localIDs)
+                                    selectedAssets.subtract(localIDs)
+                                }
                                     .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.violet))
                                     .disabled(selectedAssets.isEmpty)
                                     .opacity(selectedAssets.isEmpty ? 0.45 : 1)
                             }
                         } else {
-                            Button { contentStore.explainUnavailable("Uploading photos") } label: { Text("Upload photo").frame(maxWidth: .infinity) }.buttonStyle(NanaPrimaryButtonStyle())
+                            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                                Text("Upload photo").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(NanaPrimaryButtonStyle())
                         }
                     }
                     .padding(20)
@@ -453,9 +480,37 @@ struct NanaAlbumGalleryView: View {
                     .foregroundStyle(NanaPalette.electricLilac)
                 }
             }
+            .onChange(of: selectedPhoto) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        contentStore.addPhoto(data, accountID: contentStore.accountScope)
+                    }
+                    selectedPhoto = nil
+                }
+            }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+private struct NanaPersonalPhotoImage: View {
+    let url: URL?
+
+    var body: some View {
+        Group {
+            if let url, let image = UIImage(contentsOfFile: url.path) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    NanaPalette.cardStrong
+                    Image(systemName: "photo").foregroundStyle(NanaPalette.mutedWhite)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
 }
 
@@ -524,7 +579,10 @@ struct NanaConversationView: View {
                     Button { showingCall = true } label: { Image(systemName: "video.fill").foregroundStyle(NanaPalette.neonPink) }
                 }
             }
-            .task { if conversation.id == "conversation-ava" { await contentStore.refresh(.avaMessages) } }
+            .task {
+                contentStore.markRead(conversation)
+                if conversation.id == "conversation-ava" { await contentStore.refresh(.avaMessages) }
+            }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
             .sheet(isPresented: $showingCall) {
                 if let profile = contentStore.profile(with: conversation.profileID) { NanaVideoCallView(profile: profile) }
@@ -537,70 +595,9 @@ struct NanaConversationView: View {
 
 struct NanaVideoCallView: View {
     let profile: NanaProfile
-    @Environment(\.dismiss) private var dismiss
-    @State private var callPhase = "Calling…"
-    @State private var elapsed = 0
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            VStack(spacing: 18) {
-                HStack {
-                    Button("End") { dismiss() }
-                        .font(NanaType.bodyMedium)
-                        .foregroundStyle(NanaPalette.softPink)
-                    Spacer()
-                    Text(callPhase)
-                        .font(NanaType.caption.weight(.semibold))
-                        .foregroundStyle(NanaPalette.mutedWhite)
-                    Spacer()
-                    Text("0:\(String(format: "%02d", elapsed))")
-                        .font(NanaType.caption.monospacedDigit())
-                        .foregroundStyle(NanaPalette.mutedWhite)
-                }
-                .padding(.horizontal, 18)
-                ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(LinearGradient(colors: [NanaPalette.deepSpace, NanaPalette.midnight], startPoint: .top, endPoint: .bottom))
-                        .overlay {
-                            VStack(spacing: 10) {
-                                NanaPlaceholderPortrait(title: profile.displayName, size: 96)
-                                Text(profile.displayName)
-                                    .font(NanaType.section)
-                                    .foregroundStyle(.white)
-                                Text(callPhase)
-                                    .font(NanaType.caption)
-                                    .foregroundStyle(NanaPalette.mutedWhite)
-                            }
-                        }
-                    NanaSelfCameraPreview()
-                        .frame(width: 112, height: 158)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.35), lineWidth: 1))
-                        .padding(14)
-                }
-                .padding(.horizontal, 16)
-                HStack(spacing: 18) {
-                    CircleCallButton(icon: "mic.slash", title: "Mute") { }
-                    CircleCallButton(icon: "video.slash", title: "Camera") { }
-                    CircleCallButton(icon: "speaker.wave.2", title: "Speaker") { }
-                    CircleCallButton(icon: "phone.down.fill", title: "End", tint: NanaPalette.warning) { dismiss() }
-                }
-                Text("Waiting for an answer. You can keep your camera preview ready here.")
-                    .font(NanaType.caption)
-                    .foregroundStyle(NanaPalette.mutedWhite)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 28)
-            }
-        }
-        .task {
-            for tick in 1...4 {
-                try? await Task.sleep(for: .seconds(1))
-                elapsed = tick
-            }
-            callPhase = "No answer"
-        }
-        .preferredColorScheme(.dark)
+        NanaUnavailableSurface(title: "Video calls are unavailable", detail: "The published A-side contract does not include a call transport yet.")
     }
 }
 
@@ -616,70 +613,3 @@ private struct NanaUnavailableSurface: View {
         .preferredColorScheme(.dark)
     }
 }
-
-private struct CircleCallButton: View {
-    let icon: String
-    let title: String
-    var tint: Color = NanaPalette.cardStrong
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 7) {
-                Image(systemName: icon)
-                    .foregroundStyle(.white)
-                    .frame(width: 49, height: 49)
-                    .background(tint, in: Circle())
-                Text(title)
-                    .font(NanaType.caption)
-                    .foregroundStyle(NanaPalette.mutedWhite)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-#if canImport(AVFoundation)
-private struct NanaSelfCameraPreview: UIViewRepresentable {
-    func makeUIView(context: Context) -> CameraPreviewView {
-        let view = CameraPreviewView()
-        view.start()
-        return view
-    }
-
-    func updateUIView(_ uiView: CameraPreviewView, context: Context) { }
-
-    static func dismantleUIView(_ uiView: CameraPreviewView, coordinator: ()) {
-        uiView.stop()
-    }
-}
-
-private final class CameraPreviewView: UIView {
-    private let session = AVCaptureSession()
-
-    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-
-    func start() {
-        let previewLayer = layer as? AVCaptureVideoPreviewLayer
-        previewLayer?.session = session
-        previewLayer?.videoGravity = .resizeAspectFill
-        guard AVCaptureDevice.authorizationStatus(for: .video) != .denied else { return }
-        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in if granted { self?.configure() } }
-        } else { configure() }
-    }
-
-    private func configure() {
-        guard !session.isRunning, let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front), let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else { return }
-        session.beginConfiguration()
-        session.addInput(input)
-        session.commitConfiguration()
-        DispatchQueue.global(qos: .userInitiated).async { self.session.startRunning() }
-    }
-
-    func stop() {
-        guard session.isRunning else { return }
-        DispatchQueue.global(qos: .userInitiated).async { self.session.stopRunning() }
-    }
-}
-#endif

@@ -21,7 +21,7 @@ struct HarborGatheringView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                NanaBackdrop(imageName: "NanaLiveBackdrop")
+                NanaTabBackdrop()
                 if contentStore.payload.rooms.isEmpty && contentStore.state(for: .rooms) == .loading {
                     NanaScreenLoading(label: "Opening rooms")
                 } else if contentStore.payload.rooms.isEmpty, case .failed(let error) = contentStore.state(for: .rooms) {

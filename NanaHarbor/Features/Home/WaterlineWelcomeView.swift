@@ -32,7 +32,7 @@ struct WaterlineWelcomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                NanaBackdrop(imageName: "NanaLiveBackdrop")
+                NanaTabBackdrop()
 
                 if isLoading || contentStore.state(for: .homeFeed) == .loading {
                     NanaScreenLoading(label: "Tuning the room")
