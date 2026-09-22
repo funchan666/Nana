@@ -10,13 +10,17 @@ struct WarmThreadsView: View {
     @State private var showingFriends = false
     @State private var showingRanking = false
     @State private var showingSearch = false
+    @State private var showingAlbum = false
+    @State private var showingClearConfirmation = false
+    @State private var pendingDeletion: NanaConversation?
+    @State private var revealedConversationID: String?
 
     private var visibleConversations: [NanaConversation] {
         contentStore.visibleConversations
     }
 
     private var friendProfiles: [NanaProfile] {
-        Array(contentStore.payload.profiles.filter { !contentStore.blockedProfileIDs.contains($0.id) }.prefix(6))
+        contentStore.payload.profiles.filter { !contentStore.blockedProfileIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -32,7 +36,7 @@ struct WarmThreadsView: View {
                     .padding(.horizontal, NanaPalette.screenPadding)
                 } else {
                     ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 17) {
+                        VStack(alignment: .leading, spacing: 12) {
                             messagesHeader
                             messageSearch
                             shortcutRail
@@ -52,33 +56,56 @@ struct WarmThreadsView: View {
             .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
             .sheet(isPresented: $showingNoticeCenter) { NanaNotificationCenterView() }
             .sheet(isPresented: $showingFriends) { NanaFriendsListView() }
-            .sheet(isPresented: $showingRanking) { NanaUnavailableSurface(title: "Ranking is unavailable", detail: "The published A-side service does not include ranking data yet.") }
+            .fullScreenCover(isPresented: $showingRanking) { NanaRankingView() }
             .sheet(isPresented: $showingSearch) { NanaDiscoverySearchView() }
+            .sheet(isPresented: $showingAlbum) { NanaAlbumGalleryView() }
+            .confirmationDialog("Clear this device's chat list?", isPresented: $showingClearConfirmation, titleVisibility: .visible) {
+                Button("Clear chat list", role: .destructive) { contentStore.clearConversationList() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This only hides conversations on this device. Messages on the service are not deleted.")
+            }
+            .alert(item: $pendingDeletion) { conversation in
+                Alert(
+                    title: Text("Remove conversation?"),
+                    message: Text("This conversation will be hidden from this device's chat list."),
+                    primaryButton: .destructive(Text("Remove")) {
+                        contentStore.hideConversation(conversation.id)
+                        revealedConversationID = nil
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+            .overlay {
+                if let notice = contentStore.actionNotice {
+                    AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
+                }
+            }
         }
     }
 
     private var messagesHeader: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(spacing: 2) {
             Text("Messages")
-                .font(.system(size: 20, weight: .bold, design: .serif).italic())
+                .font(.system(size: 19, weight: .heavy).italic())
                 .foregroundStyle(NanaPalette.warmWhite)
             Spacer()
-            Button { showingNoticeCenter = true } label: {
-                Image(systemName: "bell.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(NanaPalette.warmWhite)
-                    .frame(width: 33, height: 32)
-                    .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            Button { showingAlbum = true } label: {
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_108", contentMode: .fit)
+                    .frame(width: 32, height: 32)
+                    .background(NanaPalette.deepSpace.opacity(0.6), in: Circle())
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
-            Button { contentStore.clearConversationList() } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(NanaPalette.softPink)
-                    .frame(width: 33, height: 32)
-                    .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .accessibilityLabel("Personal album")
+            Button { showingClearConfirmation = true } label: {
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_107", contentMode: .fit)
+                    .frame(width: 30, height: 30)
+                    .background(NanaPalette.deepSpace.opacity(0.6), in: Circle())
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Clear chat list")
         }
     }
 
@@ -111,109 +138,156 @@ struct WarmThreadsView: View {
 
     private func messageShortcut(title: String, assetKey: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 7) {
-                NanaAssetImage(assetKey: assetKey, contentMode: .fit)
-                    .frame(width: 58, height: 42)
-                Text(title)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(NanaPalette.warmWhite)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, minHeight: 76)
-            .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            // These slices already include their labels and the complete tilted panel.
+            NanaAssetImage(assetKey: assetKey, contentMode: .fit)
+                .aspectRatio(234.0 / 142.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
+    private func hasLiveRoom(profileID: String) -> Bool {
+        contentStore.payload.rooms.contains { room in
+            room.hostID == profileID
+                && room.streamSourceType != "simulatedReplay"
+                && ["live", "live now"].contains(room.roomState.lowercased())
+        }
     }
 
     private var friendRoom: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("Friend Room")
-                    .font(.system(size: 14, weight: .bold, design: .serif).italic())
-                    .foregroundStyle(NanaPalette.warmWhite)
-                Spacer()
-                Button("View all") { showingFriends = true }
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(NanaPalette.electricLilac)
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Friend Room")
+                .font(.system(size: 13, weight: .heavy).italic())
+                .foregroundStyle(NanaPalette.warmWhite)
             if friendProfiles.isEmpty {
                 Text("Your friend room is waiting for its first hello.")
                     .font(NanaType.caption)
                     .foregroundStyle(NanaPalette.mutedWhite)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
+                    HStack(spacing: 17) {
                         ForEach(friendProfiles) { profile in
                             Button { selectedProfile = profile } label: {
-                                VStack(spacing: 5) {
-                                    ZStack(alignment: .bottomTrailing) {
-                                        NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 53)
-                                        Circle().fill(Color.green).frame(width: 10, height: 10).overlay(Circle().stroke(NanaPalette.midnight, lineWidth: 2))
-                                    }
+                                VStack(spacing: 7) {
+                                    NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 57)
+                                        .overlay(Circle().stroke(NanaPalette.softPink, lineWidth: 1.5))
+                                        .overlay(alignment: .bottom) {
+                                            if hasLiveRoom(profileID: profile.id) {
+                                                NanaAssetImage(assetKey: "nana.voice.voice_asset_053", contentMode: .fit)
+                                                    .frame(width: 32, height: 11)
+                                                    .offset(y: 2)
+                                            }
+                                        }
                                     Text(profile.displayName.split(separator: " ").first.map(String.init) ?? profile.displayName)
-                                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                                        .foregroundStyle(NanaPalette.mutedWhite)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(NanaPalette.warmWhite)
                                         .lineLimit(1)
+                                        .frame(width: 60)
                                 }
                             }
                             .buttonStyle(.plain)
                         }
                     }
+                    .padding(.horizontal, 2)
+                    .padding(.top, 2)
                 }
             }
         }
     }
 
     private var chatList: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Chat List")
-                .font(.system(size: 14, weight: .bold, design: .serif).italic())
+                .font(.system(size: 13, weight: .heavy).italic())
                 .foregroundStyle(NanaPalette.warmWhite)
             if visibleConversations.isEmpty {
                 NanaEmptyState(title: "No messages yet", detail: "A good room is a good place to start.", actionTitle: nil, action: nil)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     ForEach(visibleConversations) { conversation in
-                        Button { selectedConversation = conversation } label: { conversationRow(conversation) }
-                            .buttonStyle(.plain)
+                        conversationRow(conversation)
                     }
                 }
             }
         }
+        .padding(.top, 3)
     }
 
     private func conversationRow(_ conversation: NanaConversation) -> some View {
-        HStack(spacing: 10) {
-            ZStack(alignment: .bottomTrailing) {
-                NanaAvatarView(title: conversation.displayName, assetKey: conversation.avatarAssetKey, size: 49)
-                Circle().fill(Color.green).frame(width: 9, height: 9).overlay(Circle().stroke(NanaPalette.cardStrong, lineWidth: 2))
+        let isRevealed = revealedConversationID == conversation.id
+        return ZStack(alignment: .trailing) {
+            if isRevealed {
+                Button { pendingDeletion = conversation } label: {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_159", contentMode: .fit)
+                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 64)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove conversation with \(conversation.displayName)")
             }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(conversation.displayName)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(NanaPalette.warmWhite)
-                    if conversation.unreadCount > 0 {
-                        Text("\(conversation.unreadCount)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 17, height: 17)
-                            .background(NanaPalette.warning, in: Circle())
+            Button {
+                if isRevealed { revealedConversationID = nil }
+                else { selectedConversation = conversation }
+            } label: {
+                HStack(spacing: 10) {
+                    NanaAvatarView(title: conversation.displayName, assetKey: conversation.avatarAssetKey, size: 44)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 5) {
+                            Text(conversation.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(NanaPalette.warmWhite)
+                                .lineLimit(1)
+                            if hasLiveRoom(profileID: conversation.profileID) {
+                                NanaAssetImage(assetKey: "nana.voice.voice_asset_053", contentMode: .fit)
+                                    .frame(width: 29, height: 10)
+                            }
+                        }
+                        Text(conversation.preview)
+                            .font(.system(size: 11))
+                            .foregroundStyle(NanaPalette.mutedWhite)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text(conversation.sentAtLabel)
+                            .font(.system(size: 10))
+                            .foregroundStyle(NanaPalette.mutedWhite)
+                            .lineLimit(1)
+                        if conversation.unreadCount > 0 {
+                            Text(conversation.unreadCount > 99 ? "99+" : "\(conversation.unreadCount)")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4)
+                                .frame(minWidth: 17, minHeight: 17)
+                                .background(Color(red: 1, green: 0.39, blue: 0.43), in: Capsule())
+                        } else {
+                            Color.clear.frame(width: 17, height: 17)
+                        }
                     }
                 }
-                Text(conversation.preview)
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(NanaPalette.mutedWhite)
-                    .lineLimit(1)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 11)
+                .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
             }
-            Spacer()
-            Text(conversation.sentAtLabel)
-                .font(.system(size: 9, design: .rounded))
-                .foregroundStyle(NanaPalette.mutedWhite)
+            .buttonStyle(.plain)
+            .offset(x: isRevealed ? -52 : 0)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onEnded { value in
+                        guard abs(value.translation.width) > abs(value.translation.height), abs(value.translation.width) > 30 else { return }
+                        revealedConversationID = value.translation.width < 0 ? conversation.id : nil
+                    }
+            )
+            .accessibilityAction(named: Text("Remove conversation")) { pendingDeletion = conversation }
         }
-        .padding(12)
-        .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipped()
+        .animation(.easeOut(duration: 0.2), value: isRevealed)
     }
+
 }
 
 struct NanaNotificationCenterView: View {
@@ -383,7 +457,7 @@ struct NanaFriendsListView: View {
 }
 
 struct NanaAlbumGalleryView: View {
-    let profile: NanaProfile
+    var profile: NanaProfile? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var isSelecting = false
@@ -399,9 +473,15 @@ struct NanaAlbumGalleryView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Personal Album").font(.system(size: 20, weight: .bold, design: .serif).italic()).foregroundStyle(NanaPalette.warmWhite)
                         Text("All the shared moments are here.").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
-                        Text("2005/10/25  23:13:25").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+                        if profile == nil && contentStore.personal.photos.isEmpty {
+                            Text("Your album is empty. Upload a photo to keep it on this device.")
+                                .font(NanaType.body)
+                                .foregroundStyle(NanaPalette.mutedWhite)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 24)
+                        }
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                            ForEach(albumAssets, id: \.self) { asset in
+                            ForEach(profile == nil ? [] : albumAssets, id: \.self) { asset in
                                 Button {
                                     guard isSelecting else { return }
                                     if selectedAssets.contains(asset) { selectedAssets.remove(asset) }
@@ -469,7 +549,7 @@ struct NanaAlbumGalleryView: View {
                     .padding(20)
                 }
             }
-            .navigationTitle(profile.displayName)
+            .navigationTitle(profile?.displayName ?? "Personal Album")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) }
                 ToolbarItem(placement: .topBarTrailing) {

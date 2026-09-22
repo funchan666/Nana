@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */; };
 		022ECD668282A5AEC45B4C2F /* NanaLiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DFD2A4ECB3DC9A235416614 /* NanaLiveModels.swift */; };
 		059DC4BD98310B88212328D5 /* NanaLiveComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */; };
 		0673C9DFF604D2881E64DD08 /* NanaHarborShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF0564D9D0BEB4944CB2702 /* NanaHarborShellView.swift */; };
@@ -45,6 +46,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveRoomView.swift; sourceTree = "<group>"; };
 		17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaSessionStore.swift; sourceTree = "<group>"; };
 		1F48A0CDD1C137F08BD7AD78 /* NanaAccessLandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAccessLandingView.swift; sourceTree = "<group>"; };
 		26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourShoreView.swift; sourceTree = "<group>"; };
@@ -166,6 +168,7 @@
 			children = (
 				493AD74E302A039E8BF3BB85 /* NanaDiscoveryViews.swift */,
 				A26C7BEB00CEE7A012CEF6F8 /* WaterlineWelcomeView.swift */,
+				DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -379,6 +382,7 @@
 				6CB24382609B39CADC7D7636 /* NanaVoiceRoomDetailView.swift in Sources */,
 				AACA8C2956A3AE7524052368 /* WarmThreadsView.swift in Sources */,
 				0E6769F110AE93D51C71FB8D /* WaterlineWelcomeView.swift in Sources */,
+				DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */,
 				C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

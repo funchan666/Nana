@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct YourShoreView: View {
     @EnvironmentObject private var sessionStore: NanaSessionStore
@@ -12,6 +13,7 @@ struct YourShoreView: View {
     @State private var showingLevel = false
     @State private var showingFeedback = false
     @State private var showingConnections = false
+    @State private var connectionCategory = "Friends"
     @State private var showingSettings = false
     @State private var showingBlacklist = false
     @State private var showingLogout = false
@@ -29,16 +31,17 @@ struct YourShoreView: View {
                 } else if case .failed(let error) = contentStore.state(for: .wallet), contentStore.payload.wallet.nextLevelPoints == 1 {
                     NanaErrorState(title: "Your profile is unavailable", detail: error.localizedDescription, actionTitle: "Retry") { Task { await contentStore.refresh(.wallet) } }
                 } else { ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 12) {
                         header
                         profileCard
                         statsRow
-                        profileHighlights
+                        checkInCard
+                        balanceStrip
                         profileMenu
                     }
-                    .padding(.horizontal, NanaPalette.screenPadding)
-                    .padding(.top, 18)
-                    .padding(.bottom, 110)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 9)
+                    .padding(.bottom, 90)
                 } }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -52,7 +55,7 @@ struct YourShoreView: View {
             .sheet(isPresented: $showingCollection) { NanaCollectionView(title: collectionTitle) }
             .sheet(isPresented: $showingLevel) { NanaLevelView() }
             .sheet(isPresented: $showingFeedback) { NanaFeedbackView() }
-            .sheet(isPresented: $showingConnections) { NanaConnectionsView(profile: localProfile) }
+            .sheet(isPresented: $showingConnections) { NanaConnectionsView(profile: localProfile, initialTab: connectionCategory) }
             .sheet(isPresented: $showingSettings) { NanaSettingsView() }
             .sheet(isPresented: $showingBlacklist) { NanaBlacklistView() }
             .alert("Leave Nana?", isPresented: $showingLogout) {
@@ -66,172 +69,275 @@ struct YourShoreView: View {
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("MY PROFILE")
-                    .font(NanaType.stamp)
-                    .tracking(1.4)
-                    .foregroundStyle(NanaPalette.softPink)
-                Text("Your corner of Nana")
-                    .font(NanaType.hero)
-                    .foregroundStyle(NanaPalette.warmWhite)
-            }
-            Spacer()
-            Button { showingSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(NanaPalette.warmWhite)
-                    .frame(width: 38, height: 38)
-                    .background(NanaPalette.cardStrong, in: Circle())
-            }
-            .buttonStyle(.plain)
-            Button { showingEdit = true } label: {
-                Text("Edit")
-                    .font(NanaType.caption.weight(.bold))
-                    .foregroundStyle(NanaPalette.electricLilac)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(NanaPalette.cardStrong, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
+        Text("My Profile")
+            .font(.system(size: 19, weight: .heavy).italic())
+            .foregroundStyle(NanaPalette.warmWhite)
+            .frame(height: 36, alignment: .leading)
     }
 
     private var profileCard: some View {
-        HStack(alignment: .center, spacing: 14) {
-            NanaAvatarView(title: localProfile.displayName, assetKey: localProfile.avatarAssetKey, size: 78)
-            VStack(alignment: .leading, spacing: 7) {
-                Text(localProfile.displayName)
-                    .font(NanaType.section)
-                    .foregroundStyle(NanaPalette.warmWhite)
-                Text("@\(localProfile.handle)")
-                    .font(NanaType.caption)
-                    .foregroundStyle(NanaPalette.electricLilac)
-                Text("\(localProfile.region) · Lv.\(localProfile.level)")
-                    .font(NanaType.caption)
-                    .foregroundStyle(NanaPalette.mutedWhite)
+        HStack(alignment: .top, spacing: 11) {
+            Button { showingEdit = true } label: {
+                Group {
+                    if let data = sessionStore.activeProfile?.avatarData, let image = UIImage(data: data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 72, height: 72)
+                            .clipShape(Circle())
+                    } else {
+                        NanaAvatarView(title: localProfile.displayName, assetKey: localProfile.avatarAssetKey, size: 72)
+                    }
+                }
+                .padding(3)
+                .overlay(Circle().stroke(NanaPalette.violet, lineWidth: 1.5))
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white, NanaPalette.electricLilac)
+                        .background(.white, in: Circle())
+                }
             }
-            Spacer()
-            Image("NanaLevelGem")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 54, height: 54)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit profile")
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(localProfile.displayName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(NanaPalette.warmWhite)
+                        .lineLimit(1)
+                    Text("Lv.\(localProfile.level)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(
+                            LinearGradient(colors: [Color.orange, NanaPalette.softPink, NanaPalette.violet, Color.cyan], startPoint: .leading, endPoint: .trailing),
+                            in: Capsule()
+                        )
+                        .fixedSize()
+                }
+                HStack(spacing: 7) {
+                    if sessionStore.activeProfile?.birthDate != nil {
+                        Text("\(localProfile.age)")
+                    }
+                    Text(localProfile.region.isEmpty ? "Not set" : localProfile.region)
+                        .lineLimit(1)
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(NanaPalette.mutedWhite)
+                Text(profileInterests)
+                    .font(.system(size: 11))
+                    .foregroundStyle(NanaPalette.mutedWhite)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, 7)
+
+            Button { showingSettings = true } label: {
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_168", contentMode: .fit)
+                    .frame(width: 29, height: 29)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+            .padding(.top, 3)
         }
-        .padding(16)
-        .nanaCard()
+    }
+
+    private var profileInterests: String {
+        let interests = sessionStore.activeProfile?.interests ?? []
+        return interests.isEmpty ? "Add your interests to make this space yours." : interests.joined(separator: " · ")
     }
 
     private var statsRow: some View {
         HStack(spacing: 0) {
-            stat("Followers", value: "\(localProfile.followerCount)")
-            Divider().frame(height: 34).overlay(NanaPalette.border)
-            stat("Friends", value: "\(localProfile.followingCount)")
-            Divider().frame(height: 34).overlay(NanaPalette.border)
-            stat("Level", value: "Lv.\(localProfile.level)")
+            stat("Fans", value: "—", category: "Fans")
+            stat("Friend", value: "\(contentStore.payload.profiles.filter { $0.isConnected && !contentStore.blockedProfileIDs.contains($0.id) }.count)", category: "Friends")
+            stat("Follow", value: "\(contentStore.followedProfiles.count)", category: "Following")
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 15)
-        .nanaCard()
+        .padding(.top, 5)
     }
 
-    private func stat(_ title: String, value: String) -> some View {
-        VStack(spacing: 5) {
-            Text(value).font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite)
-            Text(title).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+    private func stat(_ title: String, value: String, category: String) -> some View {
+        Button {
+            connectionCategory = category
+            showingConnections = true
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(value).font(.system(size: 13, weight: .medium)).foregroundStyle(NanaPalette.warmWhite)
+                Text(title).font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
+            }
+            .frame(width: 82, height: 44, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(value)")
     }
 
-    private var profileHighlights: some View {
-        VStack(spacing: 12) {
-            Button { showingCheckIn = true } label: {
-                HStack(spacing: 13) {
-                    Image("NanaCheckInArtwork")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 74, height: 58)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Sign in today")
-                            .font(NanaType.bodyMedium)
-                            .foregroundStyle(NanaPalette.warmWhite)
-                        Text(contentStore.checkedInToday ? "Checked in" : "Keep your streak glowing")
-                            .font(NanaType.caption)
-                            .foregroundStyle(NanaPalette.mutedWhite)
+    private var checkInCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("「 Sign in today 」")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(NanaPalette.warmWhite)
+                Spacer()
+                Button { showingCheckIn = true } label: {
+                    Group {
+                        if contentStore.checkedInToday {
+                            Text("Checked in")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 89, height: 25)
+                                .background(NanaPalette.violet, in: Capsule())
+                        } else {
+                            NanaAssetImage(assetKey: "nana.voice.voice_asset_146", contentMode: .fit)
+                                .frame(width: 89, height: 25)
+                        }
                     }
-                    Spacer()
-                    Text(contentStore.checkedInToday ? "Done" : "Check-in")
-                        .font(NanaType.caption.weight(.bold))
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(contentStore.checkedInToday ? "View check-in calendar" : "Check in")
+            }
+            HStack(spacing: 10) {
+                ForEach(0..<10, id: \.self) { index in
+                    let date = Calendar.current.date(byAdding: .day, value: index - 9, to: Date()) ?? Date()
+                    let checked = contentStore.personal.checkInDays.contains(contentStore.dayKey(date))
+                    Circle()
+                        .fill(checked ? NanaPalette.violet : Color.white.opacity(0.24))
+                        .frame(width: 9, height: 9)
+                        .overlay {
+                            if index == 9 && checked {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 6, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(contentStore.personal.checkInDays.count) check-ins recorded")
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 20) {
+                    Text("Lv\(contentStore.activityLevel)")
                         .foregroundStyle(NanaPalette.warmWhite)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 8)
-                        .background(NanaPalette.violet, in: Capsule())
-                }
-                .padding(12)
-                .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-            }
-            .buttonStyle(.plain)
-
-            Button { showingWallet = true } label: {
-                HStack(spacing: 12) {
-                    Image("NanaWalletArtwork")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 66, height: 42)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("My balance")
-                            .font(NanaType.bodyMedium)
-                            .foregroundStyle(NanaPalette.warmWhite)
-                        Text("\(coinStore.balance) coins")
-                            .font(NanaType.caption)
-                            .foregroundStyle(NanaPalette.mutedWhite)
+                    HStack(spacing: 0) {
+                        Text("\(contentStore.activityPoints % 200)").foregroundStyle(NanaPalette.electricLilac)
+                        Text("/200").foregroundStyle(NanaPalette.mutedWhite)
                     }
-                    Spacer()
-                    Text("Check")
-                        .font(NanaType.caption.weight(.bold))
-                        .foregroundStyle(NanaPalette.deepSpace)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 8)
-                        .background(NanaPalette.warmWhite, in: Capsule())
                 }
-                .padding(12)
-                .background(LinearGradient(colors: [NanaPalette.warning.opacity(0.88), NanaPalette.neonPink.opacity(0.82), NanaPalette.electricLilac.opacity(0.92)], startPoint: .leading, endPoint: .trailing), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                .font(.system(size: 11))
+                GeometryReader { geometry in
+                    let width = geometry.size.width * CGFloat(contentStore.activityPoints % 200) / 200
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.black.opacity(0.85))
+                        Capsule().fill(NanaPalette.violet).frame(width: width)
+                        Circle().fill(NanaPalette.violet)
+                            .frame(width: 7, height: 7)
+                            .offset(x: max(0, min(width - 3.5, geometry.size.width - 7)))
+                    }
+                }
+                .frame(height: 4)
+                .accessibilityLabel("Activity progress, \(contentStore.activityPoints % 200) of 200 points")
             }
-            .buttonStyle(.plain)
+            .padding(.top, 3)
         }
+        .padding(12)
+        .background(
+            LinearGradient(colors: [Color(red: 0.39, green: 0.34, blue: 0.61).opacity(0.7), NanaPalette.deepSpace.opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.18), lineWidth: 0.7))
+    }
+
+    private var balanceStrip: some View {
+        Button { showingWallet = true } label: {
+            HStack(spacing: 8) {
+                // The original strip already contains the coin artwork on its left edge.
+                Color.clear.frame(width: 43, height: 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("My balance").font(.system(size: 13, weight: .medium))
+                    Text(coinStore.balance.formatted()).font(.system(size: 11))
+                }
+                .foregroundStyle(NanaPalette.warmWhite)
+                Spacer(minLength: 3)
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_106", contentMode: .fit)
+                    .frame(width: 53, height: 26)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 52)
+            .background {
+                GeometryReader { geometry in
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_105")
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("My balance, \(coinStore.balance) coins. Open wallet")
     }
 
     private var profileMenu: some View {
-        VStack(spacing: 0) {
-            menuRow(title: "Friends & connections", detail: "Your shared circle", icon: "person.2") { showingConnections = true }
-            menuRow(title: "My wallet", detail: "\(coinStore.balance) coins", icon: "circle.grid.2x2.fill") { showingWallet = true }
-            menuRow(title: "Daily check-in", detail: contentStore.checkedInToday ? "Checked in today" : "Claim today's signal", icon: "calendar.badge.plus") { showingCheckIn = true }
-            menuRow(title: "Store", detail: "Gifts and room items", icon: "bag") { collectionTitle = "Store"; showingCollection = true }
-            menuRow(title: "Backpack", detail: "Your collected items", icon: "shippingbox") { collectionTitle = "Backpack"; showingCollection = true }
-            menuRow(title: "My level", detail: "Consumption · activity · room contribution", icon: "diamond.fill") { showingLevel = true }
-            menuRow(title: "Feedback", detail: "Tell us what would make Nana better", icon: "text.bubble") { showingFeedback = true }
-            menuRow(title: "Black list", detail: "Hidden people and rooms", icon: "nosign") { showingBlacklist = true }
-            menuRow(title: "Log out", detail: "Leave Nana", icon: "rectangle.portrait.and.arrow.right", destructive: true) { showingLogout = true }
+        VStack(spacing: 8) {
+            menuRow(title: "Shop", icon: "storefront.fill") { collectionTitle = "Store"; showingCollection = true }
+            menuRow(title: "Backpack", icon: "backpack.fill") { collectionTitle = "Backpack"; showingCollection = true }
+            menuRow(title: "My level", icon: "diamond.fill") { showingLevel = true }
+            menuRow(title: "Feedback", icon: "questionmark.bubble.fill") { showingFeedback = true }
+            menuRow(title: "Blacklist", icon: "person.crop.circle.badge.xmark") { showingBlacklist = true }
+            menuRow(title: "Log out", icon: "power", destructive: true) { showingLogout = true }
         }
-        .padding(.horizontal, 14)
-        .nanaCard()
     }
 
-    private func menuRow(title: String, detail: String, icon: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+    private func menuRow(title: String, icon: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(destructive ? NanaPalette.warning : NanaPalette.electricLilac)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(NanaType.bodyMedium).foregroundStyle(destructive ? NanaPalette.warning : NanaPalette.warmWhite)
-                    Text(detail).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+            HStack(spacing: 11) {
+                if destructive {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_023", contentMode: .fit)
+                        .frame(width: 14, height: 14)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(NanaPalette.warmWhite)
+                        .frame(width: 14)
                 }
+                Text(title)
+                    .font(.system(size: 14))
+                    .foregroundStyle(destructive ? NanaPalette.warning : NanaPalette.warmWhite)
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(NanaPalette.mutedWhite)
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_033", contentMode: .fit)
+                    .frame(width: 14, height: 20)
+                    .opacity(0.9)
             }
-            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NanaProfileMenuButtonStyle())
+    }
+
+}
+
+private struct NanaProfileMenuButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed ? NanaPalette.violet.opacity(0.3) : Color(white: 0.14),
+                in: RoundedRectangle(cornerRadius: 10)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(configuration.isPressed ? 0.3 : 0.12), lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -343,7 +449,12 @@ private struct NanaConnectionsView: View {
     let profile: NanaProfile
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
-    @State private var selectedTab = "Friends"
+    @State private var selectedTab: String
+
+    init(profile: NanaProfile, initialTab: String = "Friends") {
+        self.profile = profile
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     private var people: [NanaProfile] {
         contentStore.payload.profiles.filter { !contentStore.blockedProfileIDs.contains($0.id) }
@@ -351,7 +462,9 @@ private struct NanaConnectionsView: View {
 
     private var visiblePeople: [NanaProfile] {
         switch selectedTab {
-        case "Fans": return people.sorted { $0.followerCount > $1.followerCount }
+        case "Fans":
+            // Profile popularity does not describe who follows the signed-in account.
+            return []
         case "Following": return contentStore.followedProfiles
         default: return people.filter { $0.isConnected }
         }
@@ -373,7 +486,11 @@ private struct NanaConnectionsView: View {
                             Spacer()
                         }
                         if visiblePeople.isEmpty {
-                            NanaEmptyState(title: "Nothing here yet", detail: "Your \(selectedTab.lowercased()) will appear here when there is something to show.", actionTitle: nil, action: nil)
+                            NanaEmptyState(
+                                title: selectedTab == "Fans" ? "Fans are unavailable" : "Nothing here yet",
+                                detail: selectedTab == "Fans" ? "Your fan list will appear when the service provides follower relationships." : "Your \(selectedTab.lowercased()) will appear here when there is something to show.",
+                                actionTitle: nil, action: nil
+                            )
                         } else {
                             VStack(spacing: 8) {
                                 ForEach(visiblePeople) { person in

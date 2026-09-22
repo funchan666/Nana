@@ -30,6 +30,14 @@ Nana is a SwiftUI iOS 17 live-room social prototype. The A-side follows the purp
 
 ## A-side read service
 
+### Bundled video collection
+
+All 17 supplied MP4 files in `videos` are included in the default home recommendation feed. Videos already represented by room cards are not added again; other bundled videos use video cards without invented room metadata. Following/category filters still apply to room content. Room refresh failures remain visible while bundled videos can be watched.
+
+Each card uses the matching first decoded frame from `videos/covers`, centered and cropped to fill its bounds. Covers are bundled, so scrolling does not start video players or extract frames on the main thread. Tapping a video opens a single player; dismissal or backgrounding pauses playback. Run `python3 scripts/generate_video_covers.py` after adding or replacing videos (requires FFmpeg). Original videos are preserved.
+
+### Published endpoints
+
 - Platform app: `67746202`; main domain: `https://nanacc.top`; configured API HTTPS origin: `https://lantern.nanacc.top`.
 - On launch, GET `/harbortide/v1/bootstrap` refreshes the complete baseline. The home, rooms, messages, wallet, search and room detail screens revalidate their matching published read endpoint when opened.
 - The client declares all 12 read operations from the exported template, including literal detail routes. No endpoint outside that export is constructed.

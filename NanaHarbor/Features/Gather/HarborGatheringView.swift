@@ -4,6 +4,7 @@ struct HarborGatheringView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var showingCreateRoom = false
     @State private var showingSearch = false
+    @State private var showingRanking = false
     @State private var selectedRoom: NanaLiveRoom?
     @State private var selectedCategory = "Category"
 
@@ -43,7 +44,12 @@ struct HarborGatheringView: View {
                             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 12) {
                                 ForEach(rooms) { room in
                                     Button { selectedRoom = room } label: {
-                                        NanaVoiceRoomCard(room: room, profiles: contentStore.payload.profiles)
+                                        NanaVoiceRoomCard(
+                                            room: room,
+                                            profiles: contentStore.payload.profiles,
+                                            seats: contentStore.payload.roomSeats,
+                                            blockedProfileIDs: contentStore.blockedProfileIDs
+                                        )
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -60,27 +66,33 @@ struct HarborGatheringView: View {
             .task { await contentStore.refresh(.rooms) }
             .sheet(isPresented: $showingCreateRoom) { NanaCreateRoomView() }
             .sheet(isPresented: $showingSearch) { NanaDiscoverySearchView() }
-            .sheet(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
+            .fullScreenCover(isPresented: $showingRanking) { NanaRankingView() }
+            .fullScreenCover(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
         }
     }
 
     private var voiceHeader: some View {
         HStack(alignment: .center, spacing: 12) {
             Text("Voice Rooms")
-                .font(.system(size: 19, weight: .bold, design: .serif).italic())
+                .font(.system(size: 19, weight: .heavy).italic())
                 .foregroundStyle(NanaPalette.warmWhite)
             Spacer()
-            Button { showingCreateRoom = true } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "plus").font(.system(size: 11, weight: .bold))
-                    Text("Create").font(.system(size: 12, weight: .bold, design: .rounded))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .frame(height: 32)
-                .background(NanaPalette.violet, in: Capsule())
+            Button { showingRanking = true } label: {
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_055", contentMode: .fit)
+                    .frame(width: 40, height: 28)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Ranking")
+            Button { showingCreateRoom = true } label: {
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_158", contentMode: .fit)
+                    .frame(width: 88, height: 34)
+                    .frame(height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Create a room")
         }
     }
 
@@ -112,12 +124,18 @@ struct HarborGatheringView: View {
                         contentStore.selectedCategory = category == "Category" ? "For you" : category
                     } label: {
                         Text(category)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(selectedCategory == category ? .white : NanaPalette.mutedWhite)
-                            .padding(.horizontal, 12)
-                            .frame(height: 26)
-                            .background(selectedCategory == category ? NanaPalette.violet : NanaPalette.card, in: Capsule())
-                            .overlay(Capsule().stroke(selectedCategory == category ? NanaPalette.violet : NanaPalette.border, lineWidth: 1))
+                            .padding(.horizontal, 13)
+                            .frame(height: 20)
+                            .background(
+                                selectedCategory == category
+                                    ? Color(red: 0.30, green: 0.26, blue: 0.51)
+                                    : Color(red: 0.14, green: 0.13, blue: 0.17),
+                                in: Capsule()
+                            )
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -129,88 +147,151 @@ struct HarborGatheringView: View {
 private struct NanaVoiceRoomCard: View {
     let room: NanaLiveRoom
     let profiles: [NanaProfile]
+    let seats: [NanaRoomSeat]
+    let blockedProfileIDs: Set<String>
 
-    private var roomBackdropKey: String {
-        switch abs(room.id.hashValue) % 3 {
-        case 0: return "nana.voice.room_backdrop_01"
-        case 1: return "nana.voice.room_backdrop_02"
-        default: return "nana.voice.room_backdrop_03"
+    // Cover artwork is separate from the live seat roster. Supplementary photos
+    // decorate the room card only; they never create members or change its count.
+    private static let coverPhotoKeys = [
+        "nana.pic.Dc6OjcqAodc", "nana.pic.DdJ2uSSDENz",
+        "nana.pic.DczCXb6HMNj", "nana.pic.DdTY1ZoDJ_o",
+        "nana.pic.DdMJA6mE7N0", "nana.pic.DdQxT9NCkQ1",
+        "nana.pic.Dc0SA4UiUy3", "nana.pic.Dc0XoT9DgeO",
+        "nana.pic.Dc1CvDfCCHN", "nana.pic.Dc1Ii5HACCq",
+        "nana.pic.DdTmQsaCOiK", "nana.pic.DdV5vxnEs3N"
+    ]
+
+    private var coverPhotoCount: Int {
+        switch room.seatCapacity {
+        case ...3: return 4
+        case 4...6: return 6
+        default: return 9
         }
     }
 
-    private var people: [(String, String?)] {
-        let roomHost = (room.hostName, room.hostAvatarAssetKey)
-        let otherPeople = profiles.filter { $0.id != room.hostID }.prefix(5).map { ($0.displayName, $0.avatarAssetKey) }
-        return Array(([roomHost] + otherPeople).prefix(6))
+    private var coverPhotos: [String] {
+        let blockedAssets = Set(profiles.filter { blockedProfileIDs.contains($0.id) }.compactMap(\.avatarAssetKey))
+        var result: [String] = []
+        var included: Set<String> = []
+        func appendPhoto(_ key: String?) {
+            guard let key, !blockedAssets.contains(key), included.insert(key).inserted,
+                  NanaAssetLibrary.image(for: key) != nil else { return }
+            result.append(key)
+        }
+        if !blockedProfileIDs.contains(room.hostID) { appendPhoto(room.hostAvatarAssetKey) }
+        for seat in seats.filter({ $0.roomID == room.id }).sorted(by: { $0.position < $1.position }) {
+            guard let id = seat.profileID, !blockedProfileIDs.contains(id) else { continue }
+            appendPhoto(profiles.first { $0.id == id }?.avatarAssetKey)
+        }
+        // Stable across launches, refreshes and filtering; Swift's hashValue is not.
+        var seed = room.id.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }
+        var pool = Self.coverPhotoKeys
+        for index in stride(from: pool.count - 1, through: 1, by: -1) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            pool.swapAt(index, Int((seed >> 32) % UInt64(index + 1)))
+        }
+        for key in pool {
+            if result.count >= coverPhotoCount { break }
+            appendPhoto(key)
+        }
+        return Array(result.prefix(coverPhotoCount))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                NanaAssetImage(assetKey: roomBackdropKey)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 151)
-                    .clipped()
-                LinearGradient(colors: [.black.opacity(0.12), .black.opacity(0.74)], startPoint: .top, endPoint: .bottom)
-                HStack(spacing: 4) {
-                    Text("HOT")
-                        .font(.system(size: 8, weight: .black, design: .rounded))
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 8, weight: .bold))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_024", contentMode: .fit)
+                    .frame(width: 11, height: 11)
+                    .accessibilityHidden(true)
+                Text("Voice")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(Color(red: 0.55, green: 0.84, blue: 0.54))
+                Spacer(minLength: 0)
+                Label("\(room.viewerCount)", systemImage: "person.fill")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .frame(height: 15)
+                    .background(.black.opacity(0.35), in: Capsule())
+            }
+            .padding(.leading, 7)
+
+            coverCollage
+
+            HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(room.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        roomTag("Voice", color: Color(red: 0.95, green: 0.70, blue: 0.99))
+                        roomTag(room.category, color: Color(red: 0.77, green: 0.70, blue: 0.99))
+                    }
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 7)
-                .frame(height: 18)
-                .background(NanaPalette.neonPink, in: Capsule())
-                .padding(8)
-                HStack(spacing: 4) {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 8, weight: .semibold))
-                    Text("\(room.viewerCount)")
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .frame(height: 18)
-                .background(.black.opacity(0.38), in: Capsule())
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(8)
-                VStack {
-                    Spacer()
-                    HStack(spacing: -8) {
-                        ForEach(Array(people.enumerated()), id: \.offset) { person in
-                            NanaAvatarView(title: person.element.0, assetKey: person.element.1, size: 31)
+                Spacer(minLength: 0)
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_041", contentMode: .fit)
+                    .frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
+            }
+            Text(room.subtitle)
+                .font(.system(size: 9))
+                .foregroundStyle(NanaPalette.mutedWhite)
+                .lineLimit(1)
+        }
+        .padding(8)
+        .background(Color(red: 0.075, green: 0.055, blue: 0.17))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(NanaPalette.border, lineWidth: 1))
+        .overlay(alignment: .topLeading) {
+            NanaAssetImage(assetKey: "nana.voice.voice_asset_016", contentMode: .fit)
+                .frame(width: 28, height: 30)
+                .offset(x: -2, y: -2)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var coverCollage: some View {
+        let photos = coverPhotos
+        let columns = photos.count <= 4 ? 2 : 3
+        let rows = max(1, (photos.count + columns - 1) / columns)
+        return GeometryReader { geometry in
+            let spacing: CGFloat = 2
+            let tileWidth = max(0, (geometry.size.width - CGFloat(columns - 1) * spacing) / CGFloat(columns))
+            let tileHeight = max(0, (geometry.size.height - CGFloat(rows - 1) * spacing) / CGFloat(rows))
+            VStack(spacing: spacing) {
+                ForEach(0..<rows, id: \.self) { row in
+                    HStack(spacing: spacing) {
+                        ForEach(0..<columns, id: \.self) { column in
+                            let index = row * columns + column
+                            if index < photos.count {
+                                NanaAssetImage(assetKey: photos[index])
+                                    .frame(width: tileWidth, height: tileHeight)
+                                    .clipped()
+                            } else {
+                                Color.clear.frame(width: tileWidth, height: tileHeight)
+                            }
                         }
                     }
-                    .padding(.bottom, 13)
                 }
-                .frame(maxWidth: .infinity)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 5) {
-                    Circle().fill(Color.green).frame(width: 5, height: 5)
-                    Text(room.category)
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(NanaPalette.softPink)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(NanaPalette.electricLilac)
-                }
-                Text(room.title)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(NanaPalette.warmWhite)
-                    .lineLimit(1)
-                Text(room.subtitle)
-                    .font(.system(size: 9, weight: .regular, design: .rounded))
-                    .foregroundStyle(NanaPalette.mutedWhite)
-                    .lineLimit(1)
-            }
-            .padding(10)
         }
-        .background(NanaPalette.cardStrong, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(NanaPalette.border, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .aspectRatio(1, contentMode: .fit)
+        .padding(3)
+        .background(NanaPalette.violet.opacity(0.20), in: RoundedRectangle(cornerRadius: 5))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .accessibilityHidden(true)
+    }
+
+    private func roomTag(_ title: String, color: Color) -> some View {
+        Text(title)
+            .font(.system(size: 8, weight: .medium))
+            .foregroundStyle(Color(red: 0.47, green: 0.18, blue: 0.66))
+            .lineLimit(1)
+            .padding(.horizontal, 5)
+            .frame(height: 14)
+            .background(color, in: Capsule())
     }
 }
 

@@ -3,7 +3,13 @@ import AVKit
 import UIKit
 
 enum NanaAssetLibrary {
+    private static let videoCoverCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
     private static let bundledPictures = resourceMap(extension: "jpg", directory: "pics", prefix: "nana.pic.")
+    private static let bundledVideoCovers = resourceMap(extension: "jpg", directory: "videos/covers", prefix: "nana.video.")
     private static let bundledVideos = resourceMap(extension: "mp4", directory: "videos", prefix: "nana.video.")
     private static let bundledPhotoSlices = resourceMap(extension: "png", directory: "photos", prefix: "nana.photo.")
         .merging(resourceMap(extension: "png", directory: "assets/photos", prefix: "nana.photo."), uniquingKeysWith: { first, _ in first })
@@ -38,6 +44,19 @@ enum NanaAssetLibrary {
         return UIImage(named: assetKey)
     }
 
+    /// Every supplied video participates in the feed, independent of the server's room count.
+    static var videoClips: [NanaBundledVideo] {
+        bundledVideos.keys.sorted().map { NanaBundledVideo(assetKey: $0) }
+    }
+
+    static func videoCover(for assetKey: String) -> UIImage? {
+        if let cached = videoCoverCache.object(forKey: assetKey as NSString) { return cached }
+        guard let url = bundledVideoCovers[assetKey], let image = UIImage(contentsOfFile: url.path) else { return nil }
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        videoCoverCache.setObject(image, forKey: assetKey as NSString, cost: cost)
+        return image
+    }
+
     static func videoURL(for assetKey: String) -> URL? {
         bundledVideos[assetKey]
     }
@@ -64,44 +83,80 @@ struct NanaAssetImage: View {
     }
 }
 
-struct NanaVideoPreview: View {
+struct NanaBundledVideo: Identifiable {
     let assetKey: String
-    @State private var player: AVPlayer?
-
-    var body: some View {
-        Group {
-            if let player {
-                VideoPlayer(player: player)
-                    .disabled(true)
-                    .onAppear { player.play() }
-                    .onDisappear { player.pause() }
-            } else {
-                LinearGradient(
-                    colors: [NanaPalette.neonPink.opacity(0.74), NanaPalette.violet, .black],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-        }
-        .task {
-            guard player == nil, let url = NanaAssetLibrary.videoURL(for: assetKey) else { return }
-            let configuredPlayer = AVPlayer(url: url)
-            configuredPlayer.isMuted = true
-            player = configuredPlayer
-            configuredPlayer.play()
-        }
+    var id: String { assetKey }
+    var creatorLabel: String {
+        let filename = String(assetKey.dropFirst("nana.video.".count))
+        // Supplied filenames end in an underscore followed by the 11-character media ID.
+        return "@" + String(filename.dropLast(12)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
     }
 }
 
+/// Static covers only. Video playback belongs to the presented player, never feed cells.
 struct NanaMediaPreview: View {
     let assetKey: String
 
     var body: some View {
-        if NanaAssetLibrary.videoURL(for: assetKey) != nil {
-            NanaVideoPreview(assetKey: assetKey)
-        } else {
-            NanaAssetImage(assetKey: assetKey)
+        GeometryReader { geometry in
+            Group {
+                if NanaAssetLibrary.videoURL(for: assetKey) != nil {
+                    if let image = NanaAssetLibrary.videoCover(for: assetKey) {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    } else {
+                        NanaPalette.deepSpace
+                    }
+                } else {
+                    NanaAssetImage(assetKey: assetKey)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
         }
+    }
+}
+
+struct NanaVideoPlayerView: View {
+    let clip: NanaBundledVideo
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let player {
+                VideoPlayer(player: player)
+            } else {
+                Text("Video unavailable").foregroundStyle(.white)
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            HStack {
+                Text(clip.creatorLabel).font(.headline).lineLimit(1)
+                Spacer()
+                Button("Close") { player?.pause(); dismiss() }
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .background(.black)
+        }
+        .onAppear {
+            guard let url = NanaAssetLibrary.videoURL(for: clip.assetKey) else { return }
+            let activePlayer = player ?? AVPlayer(url: url)
+            player = activePlayer
+            activePlayer.play()
+        }
+        .onDisappear {
+            player?.pause()
+            player?.replaceCurrentItem(with: nil)
+            player = nil
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { player?.pause() }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 

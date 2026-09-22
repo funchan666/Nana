@@ -44,7 +44,7 @@ struct NanaDiscoverySearchView: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
             .sheet(isPresented: $showingFilters) { NanaSearchFilterView(filter: $filter) }
             .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
-            .sheet(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
+            .fullScreenCover(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
             .sheet(item: $selectedPost) { post in NanaPostDetailView(post: post) }
             .task { await contentStore.refresh(.search) }
         }
