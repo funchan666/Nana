@@ -11,6 +11,8 @@ struct NanaLiveRoomView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var contentStore: NanaContentStore
     @EnvironmentObject private var coinStore: NanaCoinStore
+    @EnvironmentObject private var sessionStore: NanaSessionStore
+    @StateObject private var voiceConnection = NanaVoiceConnectionSession()
     @State private var player: AVQueuePlayer?
     @State private var looper: AVPlayerLooper?
     @State private var panel: RoomPanel?
@@ -100,6 +102,16 @@ struct NanaLiveRoomView: View {
                         NanaVoiceStageView(room: room) { open(.connection) }
                             .frame(height: min(360, geometry.size.height * 0.43))
                     }
+                    if presentation == .video && voiceConnection.isActive && !composerFocused {
+                        HStack {
+                            Spacer()
+                            NanaVoiceConnectionTiles(
+                                session: voiceConnection, hostName: room.hostName,
+                                hostAvatar: room.hostAvatarAssetKey ?? host?.avatarAssetKey,
+                                account: sessionStore.activeProfile
+                            ) { open(.connection) }
+                        }
+                    }
                     Spacer(minLength: 0)
                     if showsReplayActivity && player != nil && !composerFocused {
                         NanaRoomReplayActivityView(
@@ -144,14 +156,27 @@ struct NanaLiveRoomView: View {
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .task(id: room.id) {
+            voiceConnection.end()
             startPlayback()
             messageDraft = contentStore.draft(for: "live-room-\(room.id)")
             if room.id == "room-aurora" { await contentStore.refresh(.auroraRoom) }
         }
         .onDisappear {
+            voiceConnection.end()
             _ = contentStore.saveDraft(messageDraft, for: "live-room-\(room.id)")
             stopPlayback()
         }
+        .task(id: "\(room.id)-\(voiceConnection.sessionID)-\(voiceConnection.isActive)-\(scenePhase == .active)") {
+            guard voiceConnection.isActive, scenePhase == .active else { return }
+            let sessionID = voiceConnection.sessionID
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) }
+                catch { return }
+                guard !Task.isCancelled, voiceConnection.isActive, voiceConnection.sessionID == sessionID else { return }
+                voiceConnection.advance()
+            }
+        }
+        .onChange(of: isMuted) { _, muted in player?.isMuted = muted }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && isPlaying { player?.play() } else { player?.pause() }
         }
@@ -367,7 +392,7 @@ struct NanaLiveRoomView: View {
     private func roomPanel(_ panel: RoomPanel, availableHeight: CGFloat) -> some View {
         let isDrawer = panel == .more || panel == .music
         let footerHeight: CGFloat = panel == .gifts ? 78 : 0
-        let heightFraction: CGFloat = (panel == .ranking || panel == .heat || panel == .audience) ? 0.60 : 0.78
+        let heightFraction: CGFloat = (panel == .ranking || panel == .heat || panel == .audience || panel == .connection) ? 0.60 : 0.78
         let limit = max(80, availableHeight * heightFraction - 78 - footerHeight)
         let contentHeight = panelContentHeights[panel.rawValue] ?? initialPanelHeight(panel)
         return VStack(spacing: 10) {
@@ -375,6 +400,16 @@ struct NanaLiveRoomView: View {
                 Text(panel.rawValue).font(.system(size: 16, weight: .heavy).italic())
                     .lineLimit(1).minimumScaleFactor(0.85)
                 Spacer(minLength: 0)
+                if panel == .connection && voiceConnection.phase == .connecting {
+                    symbolButton(voiceConnection.microphoneMuted ? "mic.slash.fill" : "mic.fill",
+                                 title: voiceConnection.microphoneMuted ? "Unmute microphone" : "Mute microphone") {
+                        voiceConnection.microphoneMuted.toggle()
+                    }
+                    symbolButton(voiceConnection.cameraEnabled ? "video.fill" : "video.slash.fill",
+                                 title: voiceConnection.cameraEnabled ? "Turn camera off" : "Turn camera on") {
+                        voiceConnection.cameraEnabled.toggle()
+                    }
+                }
                 if panel == .ranking || panel == .heat {
                     NanaAssetImage(assetKey: "nana.voice.voice_asset_\(panel == .heat ? "009" : "008")", contentMode: .fit)
                         .frame(width: 48, height: 40).accessibilityHidden(true)
@@ -400,6 +435,7 @@ struct NanaLiveRoomView: View {
             if panel == .gifts { giftBalanceBar }
         }
         .padding(.horizontal, 14).padding(.top, 4).padding(.bottom, 12)
+        .accessibilityAction(.escape) { self.panel = nil }
         .background {
             Color(red: 0.065, green: 0.052, blue: 0.075)
                 .clipShape(UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14))
@@ -411,7 +447,7 @@ struct NanaLiveRoomView: View {
         switch panel {
         case .gifts: return 210
         case .exit: return 110
-        case .connection: return 150
+        case .connection: return 340
         case .ranking, .heat: return 360
         case .audience: return max(80, CGFloat(participants.count + replayAudience.count) * 60 + 80)
         case .host: return 300
@@ -605,32 +641,17 @@ struct NanaLiveRoomView: View {
     }
 
     private var connectionPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Color.clear.frame(width: 72)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Voice chat").font(.system(size: 12, weight: .semibold))
-                    Text("Not connected").font(.system(size: 10)).foregroundStyle(.mint)
-                    Button { contentStore.explainUnavailable("Joining voice chat") } label: {
-                        Text("Request to join").font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 12).frame(height: 25)
-                            .background(NanaPalette.violet, in: Capsule())
-                            .frame(minHeight: 44)
-                    }.buttonStyle(.plain)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10).frame(height: 94)
-            .background {
-                GeometryReader { geometry in
-                    NanaAssetImage(assetKey: "nana.voice.voice_asset_078")
-                        .frame(width: geometry.size.width, height: geometry.size.height).clipped()
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 9))
-            Text("Voice chat is currently unavailable.")
-                .font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
-                .padding(.bottom, 4)
+        NanaVoiceConnectionPanel(
+            session: voiceConnection, soundMuted: $isMuted,
+            audience: connectionAudience, account: sessionStore.activeProfile
+        )
+    }
+
+    private var connectionAudience: [NanaReplayAudienceMember] {
+        if !replayAudience.isEmpty { return replayAudience }
+        return participants.filter { $0.id != room.hostID }.compactMap { profile in
+            guard let avatar = profile.avatarAssetKey else { return nil }
+            return NanaReplayAudienceMember(id: profile.id, displayName: profile.displayName, avatarAssetKey: avatar)
         }
     }
 

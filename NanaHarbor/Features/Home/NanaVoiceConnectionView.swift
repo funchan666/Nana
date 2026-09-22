@@ -6,12 +6,13 @@ import UIKit
 /// capture devices nor changes server membership, gifts, followers or balances.
 @MainActor
 final class NanaVoiceConnectionSession: ObservableObject {
-    enum Phase { case ready, waiting, connecting }
+    enum Phase: Equatable { case ready, waiting, connecting }
 
     @Published private(set) var phase: Phase = .ready
     @Published private(set) var waitingSeconds = 0
     @Published private(set) var connectionSeconds = 0
     @Published private(set) var queue: [NanaReplayAudienceMember] = []
+    @Published private(set) var sessionID = UUID()
     @Published var microphoneMuted = true
     @Published var cameraEnabled = false
     @Published var frontCamera = true
@@ -21,6 +22,7 @@ final class NanaVoiceConnectionSession: ObservableObject {
 
     func request(audience: [NanaReplayAudienceMember]) {
         guard phase == .ready else { return }
+        sessionID = UUID()
         queue = Array(audience.prefix(2))
         waitingSeconds = 0
         connectionSeconds = 0
@@ -43,6 +45,7 @@ final class NanaVoiceConnectionSession: ObservableObject {
     }
 
     func end() {
+        sessionID = UUID()
         phase = .ready
         waitingSeconds = 0
         connectionSeconds = 0
@@ -163,7 +166,7 @@ struct NanaVoiceConnectionPanel: View {
     }
 
     private var listMembers: [NanaReplayAudienceMember] {
-        session.phase == .waiting ? session.queue : Array(audience.prefix(4))
+        session.phase == .waiting ? session.queue : audience
     }
 
     private func audienceRow(_ member: NanaReplayAudienceMember, position: Int) -> some View {
@@ -173,7 +176,7 @@ struct NanaVoiceConnectionPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(member.displayName).font(.system(size: 13, weight: .medium)).lineLimit(1)
                 Text(session.phase == .waiting ? "Waiting" : "Viewer")
-                    .font(.system(size: 10)).foregroundStyle(NanaPalette.softLilac)
+                    .font(.system(size: 10)).foregroundStyle(NanaPalette.electricLilac)
             }
             Spacer(minLength: 4)
             if session.phase == .waiting {
@@ -186,11 +189,11 @@ struct NanaVoiceConnectionPanel: View {
 
     private var currentUserRow: some View {
         HStack(spacing: 10) {
-            Text("\(session.queuePosition)").frame(width: 22).foregroundStyle(NanaPalette.softLilac)
+            Text("\(session.queuePosition)").frame(width: 22).foregroundStyle(NanaPalette.electricLilac)
             NanaVoiceConnectionAccountAvatar(account: account, size: 36)
             VStack(alignment: .leading, spacing: 4) {
                 Text(account?.displayName ?? "You").font(.system(size: 13, weight: .medium)).lineLimit(1)
-                Text("You · Waiting").font(.system(size: 10)).foregroundStyle(NanaPalette.softLilac)
+                Text("You · Waiting").font(.system(size: 10)).foregroundStyle(NanaPalette.electricLilac)
             }
             Spacer(minLength: 4)
             Text(NanaVoiceConnectionSession.duration(session.waitingSeconds))
