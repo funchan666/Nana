@@ -8,6 +8,7 @@ struct NanaRoomReplayActivityView: View {
     let recordedMessages: [NanaRoomChatMessage]
     let audience: [NanaReplayAudienceMember]
     let isActive: Bool
+    var hidesGiftEffects = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lines: [ReplayLine] = []
     @State private var gift: ReplayGift?
@@ -41,17 +42,17 @@ struct NanaRoomReplayActivityView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Demo chat & gift effects")
+            Text("Room activity")
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.white.opacity(0.65))
             ZStack(alignment: .leading) {
-                if let gift {
+                if let gift, !hidesGiftEffects {
                     giftBanner(gift)
                         .id(gift.id)
                         .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
                 }
             }
-            .frame(height: 50, alignment: .leading)
+            .frame(height: hidesGiftEffects ? 0 : 50, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             Text("Keep it kind. Enjoy the room and respect each other.")
                 .font(.system(size: 9)).foregroundStyle(.white.opacity(0.7))

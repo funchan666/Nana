@@ -78,6 +78,30 @@ struct NanaConversation: Identifiable, Codable, Hashable {
     var avatarAssetKey: String?
 }
 
+struct NanaPostDiscussion {
+    let key: String
+    let title: String
+    let authorID: String
+    let authorName: String
+    let authorAvatar: String?
+    let videoAssetKey: String?
+}
+
+struct NanaPostComment: Identifiable, Codable {
+    let id: String
+    let authorID: String
+    let authorName: String
+    let avatarAssetKey: String?
+    let body: String
+    let timeLabel: String
+}
+
+struct NanaPostReport: Codable {
+    let contentKey: String
+    let reason: String
+    let createdAt: Date
+}
+
 struct NanaMessage: Identifiable, Codable, Hashable {
     let id: String
     let conversationID: String
@@ -125,6 +149,30 @@ struct NanaRoomChatMessage: Identifiable, Codable, Hashable {
     let senderName: String
     let body: String
     let sentAtLabel: String
+}
+
+/// A local room gift receipt. This is separate from server chat and gift delivery.
+struct NanaRoomGiftReceipt: Identifiable, Codable, Hashable {
+    let id: String
+    let roomID: String
+    let hostName: String
+    let senderName: String
+    let gift: NanaGift
+    let quantity: Int
+    let createdAt: Date
+
+    var totalCoins: Int {
+        let result = gift.coinCost.multipliedReportingOverflow(by: quantity)
+        return result.overflow ? Int.max : result.partialValue
+    }
+
+    var chatMessage: NanaRoomChatMessage {
+        NanaRoomChatMessage(
+            id: "sent-gift-\(id)", roomID: roomID, senderName: senderName,
+            body: "Sent \(gift.title) ×\(quantity) to \(hostName)",
+            sentAtLabel: createdAt.formatted(date: .omitted, time: .shortened)
+        )
+    }
 }
 
 struct NanaSearchFilter: Codable, Hashable {

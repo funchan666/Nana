@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DA5F3A50C1234E6AB000000B /* NanaRoomGiftViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */; };
         DA5F3A50C1234E6AB0000009 /* NanaVoiceConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */; };
 		DA5F3A50C1234E6AB0000007 /* NanaVideoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */; };
 		022ECD668282A5AEC45B4C2F /* NanaLiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DFD2A4ECB3DC9A235416614 /* NanaLiveModels.swift */; };
@@ -50,6 +51,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomGiftViews.swift; sourceTree = "<group>"; };
         DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVoiceConnectionView.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVideoDetailView.swift; sourceTree = "<group>"; };
 		17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaSessionStore.swift; sourceTree = "<group>"; };
@@ -181,6 +183,7 @@
 				DA5F3A50C1234E6AB0000006 /* NanaLiveCreationView.swift */,
 				DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */,
 				DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */,
+				DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -399,6 +402,7 @@
 				DA5F3A50C1234E6AB0000005 /* NanaLiveCreationView.swift in Sources */,
 				DA5F3A50C1234E6AB0000007 /* NanaVideoDetailView.swift in Sources */,
 				DA5F3A50C1234E6AB0000009 /* NanaVoiceConnectionView.swift in Sources */,
+				DA5F3A50C1234E6AB000000B /* NanaRoomGiftViews.swift in Sources */,
 				C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

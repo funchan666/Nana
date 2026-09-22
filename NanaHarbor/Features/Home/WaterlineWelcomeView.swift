@@ -36,7 +36,7 @@ struct WaterlineWelcomeView: View {
         // A room's existing video keeps its position. Do not duplicate it, or reintroduce
         // videos belonging to blocked profiles through the bundled collection.
         let represented = Set(contentStore.payload.rooms.compactMap(\.streamAssetKey))
-        return NanaAssetLibrary.videoClips.filter { !represented.contains($0.assetKey) }
+        return NanaAssetLibrary.videoClips.filter { !represented.contains($0.assetKey) && contentStore.isVideoVisible($0) }
     }
 
     private var hasVisibleContent: Bool { !filteredRooms.isEmpty || !additionalVideos.isEmpty }

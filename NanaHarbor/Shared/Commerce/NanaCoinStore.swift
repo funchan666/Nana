@@ -21,6 +21,8 @@ private struct NanaCoinAccountRecord: Codable {
     var balance: Int
     var receivedWelcomeGift: Bool
     var processedTransactionIDs: Set<UInt64>
+    // Optional for compatibility with previously saved account ledgers.
+    var roomGiftReceipts: [NanaRoomGiftReceipt]? = nil
 }
 
 private struct NanaCoinLedger: Codable {
@@ -40,6 +42,7 @@ final class NanaCoinStore: ObservableObject {
     ]
 
     @Published private(set) var balance = 0
+    @Published private(set) var roomGiftReceipts: [NanaRoomGiftReceipt] = []
     @Published private(set) var products: [Product] = []
     @Published private(set) var isLoadingProducts = false
     @Published private(set) var purchasingProductID: String?
@@ -62,6 +65,7 @@ final class NanaCoinStore: ObservableObject {
         transactionUpdatesTask = nil
         accountScope = accountID
         balance = 0
+        roomGiftReceipts = []
         products = []
         notice = nil
         welcomeGift = nil
@@ -71,6 +75,7 @@ final class NanaCoinStore: ObservableObject {
             try loadLedgerIfNeeded()
             if let record = ledger.accounts[accountID] {
                 balance = record.balance
+                roomGiftReceipts = record.roomGiftReceipts ?? []
             } else {
                 let gift = NanaWelcomeGift(amount: 1_200, title: "Your first spark.", detail: "A little gift to light up your first day.")
                 ledger.accounts[accountID] = NanaCoinAccountRecord(balance: gift.amount, receivedWelcomeGift: true, processedTransactionIDs: [])
@@ -135,13 +140,37 @@ final class NanaCoinStore: ObservableObject {
         notice = nil
     }
 
-    /// Coin spending is intentionally limited to a future server-confirmed write. Chat never calls this path.
+    /// Read-only affordability check. Purchases still require verified StoreKit transactions.
     func canAfford(_ amount: Int, action: String) -> Bool {
         guard balance >= amount else {
             notice = AccountEntryNotice(title: "More coins needed", explanation: "\(action) needs \(amount) coins. Open Wallet to add more.")
             return false
         }
         return true
+    }
+
+    /// Commits the debit and its receipt in one Keychain write. It represents a
+    /// local gift interaction, not a server-confirmed delivery to another account.
+    func sendRoomGift(_ receipt: NanaRoomGiftReceipt, accountID: String) throws {
+        guard accountScope == accountID else { throw NanaRoomGiftError.accountChanged }
+        try loadLedgerIfNeeded()
+        guard var record = ledger.accounts[accountID] else { throw NanaRoomGiftError.accountChanged }
+        if (record.roomGiftReceipts ?? []).contains(where: { $0.id == receipt.id }) { return }
+        guard (1...99).contains(receipt.quantity),
+              let catalogGift = NanaGift.roomCatalog.first(where: { $0.id == receipt.gift.id }),
+              catalogGift == receipt.gift, receipt.totalCoins >= 0,
+              !receipt.roomID.isEmpty else { throw NanaRoomGiftError.invalidGift }
+        guard record.balance >= receipt.totalCoins else { throw NanaRoomGiftError.insufficientCoins }
+
+        record.balance -= receipt.totalCoins
+        record.roomGiftReceipts = (record.roomGiftReceipts ?? []) + [receipt]
+        var updatedLedger = ledger
+        updatedLedger.accounts[accountID] = record
+        try persistLedger(updatedLedger)
+        // Publish only after the debit AND history have been durably saved.
+        ledger = updatedLedger
+        balance = record.balance
+        roomGiftReceipts = record.roomGiftReceipts ?? []
     }
 
     private func product(for productID: String) async throws -> Product {
@@ -229,8 +258,8 @@ final class NanaCoinStore: ObservableObject {
         ledgerLoaded = true
     }
 
-    private func persistLedger() throws {
-        let data = try JSONEncoder().encode(ledger)
+    private func persistLedger(_ updatedLedger: NanaCoinLedger? = nil) throws {
+        let data = try JSONEncoder().encode(updatedLedger ?? ledger)
         let values: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
@@ -242,6 +271,18 @@ final class NanaCoinStore: ObservableObject {
             status = SecItemAdd(insertion as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw NanaCoinPurchaseError.storageUnavailable }
+    }
+}
+
+enum NanaRoomGiftError: LocalizedError {
+    case accountChanged, invalidGift, insufficientCoins
+
+    var errorDescription: String? {
+        switch self {
+        case .accountChanged: return "Please sign in again before sending a gift."
+        case .invalidGift: return "Please select this gift again."
+        case .insufficientCoins: return "Your balance is too low for this gift."
+        }
     }
 }
 

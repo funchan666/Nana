@@ -9,6 +9,7 @@ struct NanaLiveRoomView: View {
     @State private var room: NanaLiveRoom
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var contentStore: NanaContentStore
     @EnvironmentObject private var coinStore: NanaCoinStore
     @EnvironmentObject private var sessionStore: NanaSessionStore
@@ -22,7 +23,11 @@ struct NanaLiveRoomView: View {
     @State private var selectedGiftID: String?
     @State private var giftQuantity = 1
     @State private var showingWallet = false
-    @State private var showingGiftConfirmation = false
+    @State private var pendingGiftReceipt: NanaRoomGiftReceipt?
+    @State private var pendingGiftAccountID: String?
+    @State private var giftConfirmationError: String?
+    @State private var sentGiftReceipt: NanaRoomGiftReceipt?
+    @State private var isSendingGift = false
     @State private var showingInsufficientCoins = false
     @State private var conversation: NanaConversation?
     @State private var panelContentHeights: [String: CGFloat] = [:]
@@ -46,7 +51,11 @@ struct NanaLiveRoomView: View {
 
     private var host: NanaProfile? { contentStore.profile(with: room.hostID) }
     private var isFollowing: Bool { contentStore.personal.following[room.hostID] ?? room.isFollowingHost }
-    private var messages: [NanaRoomChatMessage] { contentStore.payload.roomMessages.filter { $0.roomID == room.id } }
+    private var messages: [NanaRoomChatMessage] {
+        let published = contentStore.payload.roomMessages.filter { $0.roomID == room.id }
+        let sent = coinStore.roomGiftReceipts.filter { $0.roomID == room.id }.map(\.chatMessage)
+        return published + sent
+    }
     private var participants: [NanaProfile] {
         let ids = Set(contentStore.payload.roomSeats.filter { $0.roomID == room.id }.compactMap(\.profileID))
         return contentStore.payload.profiles.filter { ids.contains($0.id) && !contentStore.blockedProfileIDs.contains($0.id) }
@@ -113,10 +122,16 @@ struct NanaLiveRoomView: View {
                         }
                     }
                     Spacer(minLength: 0)
+                    if let receipt = sentGiftReceipt, receipt.roomID == room.id {
+                        NanaSentRoomGiftBanner(receipt: receipt, avatarData: sessionStore.activeProfile?.avatarData)
+                            .id(receipt.id)
+                            .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+                    }
                     if showsReplayActivity && player != nil && !composerFocused {
                         NanaRoomReplayActivityView(
                             room: room, recordedMessages: messages,
-                            audience: replayAudience, isActive: replayActivityIsActive
+                            audience: replayAudience, isActive: replayActivityIsActive,
+                            hidesGiftEffects: sentGiftReceipt != nil
                         )
                             .id(room.id)
                     } else {
@@ -127,9 +142,11 @@ struct NanaLiveRoomView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 4)
                 .padding(.bottom, 8)
-                .allowsHitTesting(panel == nil)
-                .accessibilityHidden(panel != nil)
-                if let panel {
+                .allowsHitTesting(panel == nil && pendingGiftReceipt == nil)
+                .accessibilityHidden(panel != nil || pendingGiftReceipt != nil)
+                if let receipt = pendingGiftReceipt {
+                    giftConfirmationOverlay(receipt)
+                } else if let panel {
                     Color.clear.ignoresSafeArea()
                         .contentShape(Rectangle())
                         .onTapGesture { self.panel = nil }
@@ -152,16 +169,21 @@ struct NanaLiveRoomView: View {
                 }
             }
             .animation(.easeOut(duration: 0.2), value: panel)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: sentGiftReceipt?.id)
         }
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .task(id: room.id) {
+            cancelGiftConfirmation()
+            sentGiftReceipt = nil
             voiceConnection.end()
             startPlayback()
             messageDraft = contentStore.draft(for: "live-room-\(room.id)")
             if room.id == "room-aurora" { await contentStore.refresh(.auroraRoom) }
         }
         .onDisappear {
+            cancelGiftConfirmation()
+            sentGiftReceipt = nil
             voiceConnection.end()
             _ = contentStore.saveDraft(messageDraft, for: "live-room-\(room.id)")
             stopPlayback()
@@ -177,17 +199,18 @@ struct NanaLiveRoomView: View {
             }
         }
         .onChange(of: isMuted) { _, muted in player?.isMuted = muted }
+        .task(id: sentGiftReceipt?.id) {
+            guard let receiptID = sentGiftReceipt?.id else { return }
+            do { try await Task.sleep(for: .seconds(6)) }
+            catch { return }
+            guard !Task.isCancelled, sentGiftReceipt?.id == receiptID else { return }
+            sentGiftReceipt = nil
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && isPlaying { player?.play() } else { player?.pause() }
         }
         .sheet(isPresented: $showingWallet) { NanaWalletView() }
         .sheet(item: $conversation) { NanaConversationView(conversation: $0) }
-        .alert("Send this gift?", isPresented: $showingGiftConfirmation) {
-            Button("Send") { sendGift() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("\(selectedGift?.title ?? "Gift") × \(giftQuantity) costs \(giftTotal) coins.")
-        }
         .alert("More coins needed", isPresented: $showingInsufficientCoins) {
             Button("Open Wallet") { showingWallet = true }
             Button("Cancel", role: .cancel) { }
@@ -704,7 +727,7 @@ struct NanaLiveRoomView: View {
                     quantityButton("plus.circle", title: "Increase quantity", enabled: giftQuantity < 99) { giftQuantity += 1 }
                     Button {
                         if coinStore.balance < giftTotal { showingInsufficientCoins = true }
-                        else { showingGiftConfirmation = true }
+                        else { prepareGiftConfirmation() }
                     } label: {
                         NanaAssetImage(assetKey: "nana.voice.voice_asset_102", contentMode: .fit)
                             .frame(width: 40, height: 26).frame(width: 44, height: 44)
@@ -894,12 +917,70 @@ struct NanaLiveRoomView: View {
         contentStore.appendRoomMessage(roomID: room.id, body: text)
         composerFocused = false
     }
-    private func sendGift() {
+    private func giftConfirmationOverlay(_ receipt: NanaRoomGiftReceipt) -> some View {
+        ZStack {
+            Color.clear.ignoresSafeArea().contentShape(Rectangle())
+                .onTapGesture { cancelGiftConfirmation() }.accessibilityHidden(true)
+            ViewThatFits(in: .vertical) {
+                giftConfirmationCard(receipt).padding(20)
+                ScrollView(showsIndicators: false) {
+                    giftConfirmationCard(receipt).padding(20)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func giftConfirmationCard(_ receipt: NanaRoomGiftReceipt) -> some View {
+        NanaGiftConfirmationCard(
+            receipt: receipt, hostAvatar: room.hostAvatarAssetKey ?? host?.avatarAssetKey,
+            balance: coinStore.balance, errorMessage: giftConfirmationError,
+            cancel: cancelGiftConfirmation, send: sendGift
+        )
+        .disabled(isSendingGift)
+    }
+
+    private func prepareGiftConfirmation() {
         guard let gift = selectedGift else { return }
-        guard coinStore.balance >= giftTotal else { showingInsufficientCoins = true; return }
-        // The current service has no gift-write contract. Never debit a local balance
-        // or claim delivery while the existing send action is unavailable.
-        contentStore.sendGift(gift, to: room.id)
+        giftConfirmationError = nil
+        pendingGiftAccountID = sessionStore.activeProfile?.localAccountScope
+        pendingGiftReceipt = NanaRoomGiftReceipt(
+            id: UUID().uuidString, roomID: room.id, hostName: room.hostName,
+            senderName: sessionStore.activeProfile?.displayName ?? "You",
+            gift: gift, quantity: giftQuantity, createdAt: Date()
+        )
+    }
+
+    private func cancelGiftConfirmation() {
+        guard !isSendingGift else { return }
+        pendingGiftReceipt = nil
+        pendingGiftAccountID = nil
+        giftConfirmationError = nil
+    }
+
+    private func sendGift() {
+        guard !isSendingGift, let receipt = pendingGiftReceipt, receipt.roomID == room.id else { return }
+        guard let accountID = pendingGiftAccountID,
+              accountID == sessionStore.activeProfile?.localAccountScope else {
+            giftConfirmationError = NanaRoomGiftError.accountChanged.errorDescription
+            return
+        }
+        isSendingGift = true
+        defer { isSendingGift = false }
+        do {
+            try coinStore.sendRoomGift(receipt, accountID: accountID)
+            pendingGiftReceipt = nil
+            pendingGiftAccountID = nil
+            giftConfirmationError = nil
+            panel = nil
+            giftQuantity = 1
+            sentGiftReceipt = receipt
+        } catch let error as NanaRoomGiftError {
+            giftConfirmationError = error.errorDescription
+        } catch {
+            giftConfirmationError = "Couldn't save this gift. Your balance hasn't changed. Please try again."
+        }
     }
     private func startPlayback() {
         stopPlayback()

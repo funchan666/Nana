@@ -230,7 +230,7 @@ final class NanaContentStore: ObservableObject {
     func post(with id: String) -> NanaPost? { payload.posts.first { $0.id == id && !blockedProfileIDs.contains($0.authorID) } }
     func posts(for filter: NanaSearchFilter? = nil) -> [NanaPost] {
         if let filter, filter.kind == .people || filter.kind == .rooms { return [] }
-        return payload.posts.filter { !blockedProfileIDs.contains($0.authorID) }
+        return payload.posts.filter { !blockedProfileIDs.contains($0.authorID) && !(personal.hiddenPostKeys ?? []).contains($0.id) }
     }
     func filteredProfiles(for filter: NanaSearchFilter) -> [NanaProfile] {
         payload.profiles.filter { profile in
@@ -301,7 +301,6 @@ final class NanaContentStore: ObservableObject {
             actionNotice = AccountEntryNotice(title: "Checked in", explanation: "+10 activity points. See you tomorrow.")
         }
     }
-    func sendGift(_ gift: NanaGift, to roomID: String) { explainUnavailable("Sending gifts") }
 
     /// A device-only safety preference; never described as a submitted report/server block.
     func block(profileID: String) {
@@ -314,6 +313,73 @@ final class NanaContentStore: ObservableObject {
         }
     }
     func draft(for key: String) -> String { drafts[key] ?? "" }
+
+    func discussion(for post: NanaPost) -> NanaPostDiscussion {
+        NanaPostDiscussion(key: post.id, title: post.title, authorID: post.authorID,
+                           authorName: post.authorName, authorAvatar: profile(with: post.authorID)?.avatarAssetKey,
+                           videoAssetKey: post.coverAssetKey?.hasPrefix("nana.video.") == true ? post.coverAssetKey : nil)
+    }
+
+    func discussion(for clip: NanaBundledVideo) -> NanaPostDiscussion {
+        if let post = payload.posts.first(where: { $0.coverAssetKey == clip.assetKey }) { return discussion(for: post) }
+        return NanaPostDiscussion(key: clip.id, title: clip.creatorLabel, authorID: videoCreatorID(clip),
+                                  authorName: clip.creatorLabel, authorAvatar: nil, videoAssetKey: clip.assetKey)
+    }
+
+    private func videoCreatorID(_ clip: NanaBundledVideo) -> String { "video-creator-" + clip.creatorLabel.lowercased() }
+
+    func isVideoVisible(_ clip: NanaBundledVideo) -> Bool {
+        let context = discussion(for: clip)
+        let hidden = personal.hiddenPostKeys ?? []
+        return !blockedProfileIDs.contains(context.authorID) && !blockedProfileIDs.contains(videoCreatorID(clip))
+            && !hidden.contains(context.key) && !hidden.contains(clip.id)
+    }
+
+    func comments(for context: NanaPostDiscussion) -> [NanaPostComment] {
+        let samples = NanaPostCommentSamples.comments(for: context)
+        return (samples + (personal.postComments?[context.key] ?? [])).filter { !blockedProfileIDs.contains($0.authorID) }
+    }
+
+    @discardableResult
+    func addComment(_ body: String, to context: NanaPostDiscussion, senderName: String) -> Bool {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 500 else { return false }
+        var updated = personal
+        var comments = updated.postComments ?? [:]
+        comments[context.key, default: []].append(NanaPostComment(
+            id: UUID().uuidString, authorID: "local-account", authorName: senderName,
+            avatarAssetKey: nil, body: trimmed, timeLabel: Date().formatted(date: .abbreviated, time: .shortened)))
+        updated.postComments = comments
+        updated.drafts["post-comment-\(context.key)"] = ""
+        guard savePersonal(updated) else { return false }
+        drafts = updated.drafts
+        return true
+    }
+
+    @discardableResult
+    func reportPost(_ context: NanaPostDiscussion, reason: String) -> Bool {
+        var updated = personal
+        var reports = updated.postReports ?? []
+        reports.removeAll { $0.contentKey == context.key }
+        reports.append(NanaPostReport(contentKey: context.key, reason: reason, createdAt: Date()))
+        updated.postReports = reports
+        updated.hiddenPostKeys = (updated.hiddenPostKeys ?? []).union([context.key])
+        if let asset = context.videoAssetKey { updated.hiddenPostKeys?.insert(asset) }
+        return savePersonal(updated)
+    }
+
+    @discardableResult
+    func blockPostAuthor(_ context: NanaPostDiscussion) -> Bool {
+        let author = payload.profiles.first { $0.id == context.authorID } ?? NanaProfile(
+            id: context.authorID, displayName: context.authorName, handle: context.authorName,
+            region: "", language: "", gender: "", age: 0, introduction: "", avatarAssetKey: context.authorAvatar,
+            isConnected: false, followerCount: 0, followingCount: 0, level: 0)
+        var updated = personal
+        updated.hiddenProfiles[author.id] = author
+        guard savePersonal(updated) else { return false }
+        blockedProfileIDs.insert(author.id)
+        return true
+    }
     @discardableResult
     func saveDraft(_ value: String, for key: String) -> Bool {
         var updated = personal
@@ -534,6 +600,9 @@ private struct NanaReadCache: Codable {
 
 /// Separate from disposable JSON snapshots; never sent to the content service.
 struct NanaPersonalState: Codable {
+    var postComments: [String: [NanaPostComment]]? = nil
+    var postReports: [NanaPostReport]? = nil
+    var hiddenPostKeys: Set<String>? = nil
     var following: [String: Bool] = [:]
     var followedProfiles: [String: NanaProfile] = [:]
     var hiddenProfiles: [String: NanaProfile] = [:]
