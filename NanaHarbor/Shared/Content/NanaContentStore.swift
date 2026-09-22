@@ -246,6 +246,33 @@ final class NanaContentStore: ObservableObject {
         return payload.rooms.filter { !blockedProfileIDs.contains($0.hostID) && (!filteringPeople || hosts.contains($0.hostID)) }
     }
 
+    func replayAudience(for room: NanaLiveRoom) -> [NanaReplayAudienceMember] {
+        guard room.streamSourceType == "simulatedReplay" else { return [] }
+        let reservedPhotos = Set(payload.profiles.compactMap(\.avatarAssetKey) + payload.rooms.compactMap(\.hostAvatarAssetKey))
+        let allocatedPhotos = NanaRoomPortraitAllocator.photosByRoom(
+            rooms: payload.rooms, profiles: payload.profiles, seats: payload.roomSeats,
+            blockedProfileIDs: blockedProfileIDs
+        )[room.id] ?? []
+        let photos = allocatedPhotos.filter { !reservedPhotos.contains($0) }
+        let names: [String]
+        switch room.id {
+        case "room-aurora": names = ["Maya", "Theo", "Iris", "Jude", "Hazel", "Eli", "Rose", "Felix"]
+        case "room-studio": names = ["Ruby", "Finn", "Cleo", "Owen", "Poppy", "Levi", "Nina", "Hugo"]
+        case "room-lantern": names = ["Aria", "Ezra", "Nell", "Kai", "Vera", "Dean", "Tess", "Leon"]
+        case "room-midnight": names = ["Skye", "Luca", "Zoe", "Milo", "Luna", "Remy", "Wren", "Seth"]
+        default: names = ["Alex", "Sam", "Charlie", "Robin", "Rowan", "Jamie", "Casey", "Taylor"]
+        }
+        return zip(names, photos).map { name, asset in
+            NanaReplayAudienceMember(id: "\(room.id)-\(asset)", displayName: name, avatarAssetKey: asset)
+        }
+    }
+
+    func displayedViewerCount(for room: NanaLiveRoom) -> Int {
+        // A replay count must match its complete sample roster, not the four-image
+        // header preview or an unrelated viewer total from the feed fixture.
+        room.streamSourceType == "simulatedReplay" ? replayAudience(for: room).count : room.viewerCount
+    }
+
     func explainUnavailable(_ action: String) {
         actionNotice = AccountEntryNotice(title: "\(action) isn't available yet", explanation: NanaAServiceError.writeUnavailable.localizedDescription)
     }

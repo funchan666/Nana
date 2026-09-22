@@ -30,79 +30,140 @@ struct NanaLiveCreationView: View {
     private let fieldColor = Color(red: 0.065, green: 0.035, blue: 0.20)
 
     var body: some View {
+        creationScreen
+            .preferredColorScheme(.dark)
+            .interactiveDismissDisabled()
+            .onAppear(perform: restoreDraft)
+            .task(id: photoItem) { await loadCover() }
+    }
+
+    private var creationScreen: some View {
+        creationLayout
+            .safeAreaInset(edge: .bottom, spacing: 0) { keyboardBar }
+            .disabled(notice != nil)
+            .overlay { noticeOverlay }
+    }
+
+    private var creationLayout: some View {
         ZStack {
             NanaTabBackdrop()
             VStack(spacing: 8) {
                 header
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        coverPicker
-                        TextField("Please enter the live streaming theme", text: $draft.title)
-                            .focused($focusedField, equals: .title)
-                            .submitLabel(.next)
-                            .onSubmit { focusedField = .popularity }
-                            .padding(.horizontal, 14).frame(height: 52)
-                            .background(fieldColor, in: RoundedRectangle(cornerRadius: 18))
-                            .accessibilityLabel("Live streaming theme")
-                        HStack(spacing: 12) {
-                            Text("Target popularity").foregroundStyle(NanaPalette.mutedWhite)
-                            Spacer(minLength: 0)
-                            TextField("1548", text: $draft.popularityTarget)
-                                .keyboardType(.numberPad).multilineTextAlignment(.trailing)
-                                .focused($focusedField, equals: .popularity)
-                                .frame(width: 90).accessibilityLabel("Target popularity")
-                        }
-                        .padding(.horizontal, 14).frame(height: 52)
-                        .background(fieldColor, in: RoundedRectangle(cornerRadius: 18))
-                        introductionField
-                        publicSetting
-                        tagPicker
-                        if let validationMessage {
-                            Text(validationMessage).font(.system(size: 12))
-                                .foregroundStyle(NanaPalette.softPink)
-                                .accessibilityLabel("Please check: \(validationMessage)")
-                        }
-                        Button(action: prepareToStart) {
-                            Text("Start live streaming")
-                                .font(.system(size: 15, weight: .semibold))
-                                .frame(maxWidth: .infinity, minHeight: 52)
-                                .background(NanaPalette.violet, in: Capsule())
-                        }
-                        .buttonStyle(.plain).disabled(isLoadingCover)
-                        .padding(.horizontal, 24).padding(.top, 14)
-                        Text("Save your setup as a draft. Live broadcasting is not available yet.")
-                            .font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
-                            .frame(maxWidth: .infinity).multilineTextAlignment(.center)
-                    }
-                    .font(.system(size: 13)).foregroundStyle(NanaPalette.warmWhite)
-                    .padding(.horizontal, 20).padding(.bottom, 24)
+                    creationForm
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
         }
-        .preferredColorScheme(.dark)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if focusedField != nil {
-                HStack {
-                    Spacer()
-                    Button("Done") { focusedField = nil }
-                        .font(.system(size: 14, weight: .semibold)).frame(minWidth: 64, minHeight: 44)
-                }
-                .padding(.horizontal, 16).background(fieldColor)
+    }
+
+    private var creationForm: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            coverPicker
+            titleField
+            popularityField
+            introductionField
+            publicSetting
+            tagPicker
+            validationFeedback
+            startButton
+            publishingAvailability
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(NanaPalette.warmWhite)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+    }
+
+    private var titleField: some View {
+        TextField("Please enter the live streaming theme", text: titleBinding)
+            .focused($focusedField, equals: Field.title)
+            .submitLabel(.next)
+            .onSubmit { focusedField = .popularity }
+            .padding(.horizontal, 14)
+            .frame(height: 52)
+            .background(fieldColor, in: RoundedRectangle(cornerRadius: 18))
+            .accessibilityLabel("Live streaming theme")
+    }
+
+    private var popularityField: some View {
+        HStack(spacing: 12) {
+            Text("Target popularity").foregroundStyle(NanaPalette.mutedWhite)
+            Spacer(minLength: 0)
+            TextField("1548", text: popularityBinding)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .focused($focusedField, equals: Field.popularity)
+                .frame(width: 90)
+                .accessibilityLabel("Target popularity")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 52)
+        .background(fieldColor, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder private var validationFeedback: some View {
+        if let validationMessage {
+            Text(validationMessage)
+                .font(.system(size: 12))
+                .foregroundStyle(NanaPalette.softPink)
+                .accessibilityLabel("Please check: \(validationMessage)")
+        }
+    }
+
+    private var startButton: some View {
+        Button(action: prepareToStart) {
+            Text("Start live streaming")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(NanaPalette.violet, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoadingCover)
+        .padding(.horizontal, 24)
+        .padding(.top, 14)
+    }
+
+    private var publishingAvailability: some View {
+        Text("Save your setup as a draft. Live broadcasting is not available yet.")
+            .font(.system(size: 11))
+            .foregroundStyle(NanaPalette.mutedWhite)
+            .frame(maxWidth: .infinity)
+            .multilineTextAlignment(.center)
+    }
+
+    @ViewBuilder private var keyboardBar: some View {
+        if focusedField != nil {
+            HStack {
+                Spacer()
+                Button("Done") { focusedField = nil }
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(minWidth: 64, minHeight: 44)
             }
+            .padding(.horizontal, 16)
+            .background(fieldColor)
         }
-        .disabled(notice != nil)
-        .overlay {
-            if let notice { AccountConsentNotice(notice: notice) { self.notice = nil } }
+    }
+
+    @ViewBuilder private var noticeOverlay: some View {
+        if let notice {
+            AccountConsentNotice(notice: notice) { self.notice = nil }
         }
-        .interactiveDismissDisabled()
-        .onAppear(perform: restoreDraft)
-        .onChange(of: draft.title) { _, value in draft.title = String(value.prefix(60)) }
-        .onChange(of: draft.introduction) { _, value in draft.introduction = String(value.prefix(80)) }
-        .onChange(of: draft.popularityTarget) { _, value in
-            draft.popularityTarget = String(value.filter { "0123456789".contains($0) }.prefix(7))
-        }
-        .task(id: photoItem) { await loadCover() }
+    }
+
+    private var titleBinding: Binding<String> {
+        Binding<String>(get: { draft.title }, set: { draft.title = String($0.prefix(60)) })
+    }
+
+    private var introductionBinding: Binding<String> {
+        Binding<String>(get: { draft.introduction }, set: { draft.introduction = String($0.prefix(80)) })
+    }
+
+    private var popularityBinding: Binding<String> {
+        Binding<String>(get: { draft.popularityTarget }, set: { value in
+            let digits = value.filter { character in "0123456789".contains(character) }
+            draft.popularityTarget = String(digits.prefix(7))
+        })
     }
 
     private var header: some View {
@@ -173,7 +234,7 @@ struct NanaLiveCreationView: View {
                     Text("Please enter the live streaming content")
                         .foregroundStyle(NanaPalette.mutedWhite).padding(.top, 8).padding(.leading, 5)
                 }
-                TextEditor(text: $draft.introduction)
+                TextEditor(text: introductionBinding)
                     .scrollContentBackground(.hidden).frame(height: 108)
                     .focused($focusedField, equals: .introduction)
                     .accessibilityLabel("Live streaming content")
@@ -200,9 +261,9 @@ struct NanaLiveCreationView: View {
     private func publicChoice(_ title: String, value: Bool) -> some View {
         Button { draft.isPublic = value } label: {
             Text(title).font(.system(size: 11, weight: .medium))
-                .foregroundStyle(draft.isPublic == value ? .white : .gray)
+                .foregroundStyle(draft.isPublic == value ? Color.white : Color.gray)
                 .frame(width: 42, height: 32)
-                .background(draft.isPublic == value ? NanaPalette.violet : .clear, in: Capsule())
+                .background(draft.isPublic == value ? NanaPalette.violet : Color.clear, in: Capsule())
                 .frame(height: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityAddTraits(draft.isPublic == value ? [.isSelected] : [])
     }
@@ -216,21 +277,36 @@ struct NanaLiveCreationView: View {
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 0) {
                 ForEach(labels, id: \.self) { label in
-                    let selected = draft.tags.contains(label)
-                    Button {
-                        if selected { draft.tags.removeAll { $0 == label } }
-                        else if draft.tags.count < 3 { draft.tags.append(label) }
-                        else { validationMessage = "Select up to three labels." }
-                    } label: {
-                        Text("# \(label)").font(.system(size: 11)).lineLimit(1)
-                            .foregroundStyle(selected ? NanaPalette.electricLilac : NanaPalette.mutedWhite)
-                            .frame(maxWidth: .infinity).frame(height: 28)
-                            .overlay(Capsule().stroke(selected ? NanaPalette.violet : NanaPalette.border))
-                            .frame(height: 44).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityAddTraits(selected ? [.isSelected] : [])
+                    tagButton(label)
                 }
             }
         }
+    }
+
+    private func tagButton(_ label: String) -> some View {
+        let selected: Bool = draft.tags.contains(label)
+        let textColor: Color = selected ? NanaPalette.electricLilac : NanaPalette.mutedWhite
+        let borderColor: Color = selected ? NanaPalette.violet : NanaPalette.border
+        let traits: AccessibilityTraits = selected ? .isSelected : []
+        return Button { toggleTag(label) } label: {
+            Text("# \(label)")
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .foregroundStyle(textColor)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .overlay(Capsule().stroke(borderColor))
+                .frame(height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(traits)
+    }
+
+    private func toggleTag(_ label: String) {
+        if draft.tags.contains(label) { draft.tags.removeAll { $0 == label } }
+        else if draft.tags.count < 3 { draft.tags.append(label) }
+        else { validationMessage = "Select up to three labels." }
     }
 
     private func restoreDraft() {

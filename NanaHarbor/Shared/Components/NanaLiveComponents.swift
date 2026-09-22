@@ -22,6 +22,53 @@ struct NanaRankingEntry: Identifiable {
     var isCurrentUser = false
 }
 
+/// Local presentation fixtures, kept separate from published rankings and wallet data.
+enum NanaRankingSamples {
+    private struct Member {
+        let id: String
+        let name: String
+        let photo: String
+        let level: Int
+    }
+
+    private static let members: [Member] = [
+        Member(id: "profile-ava", name: "Ava Monroe", photo: "Dc0SA4UiUy3", level: 28),
+        Member(id: "profile-jules", name: "Jules Harper", photo: "Dc0XoT9DgeO", level: 25),
+        Member(id: "profile-mira", name: "Mira Laurent", photo: "Dc1CvDfCCHN", level: 24),
+        Member(id: "profile-noah", name: "Noah Reed", photo: "Dc1Ii5HACCq", level: 34),
+        Member(id: "profile-lin", name: "Lin Wei", photo: "Dc1UKGTDL1J", level: 21),
+        Member(id: "ranking-sample-ruby", name: "Ruby Ellis", photo: "Dc6OjcqAodc", level: 23),
+        Member(id: "ranking-sample-theo", name: "Theo Brooks", photo: "DdJ2uSSDENz", level: 19),
+        Member(id: "ranking-sample-iris", name: "Iris Bennett", photo: "DczCXb6HMNj", level: 22),
+        Member(id: "ranking-sample-finn", name: "Finn Hayes", photo: "DdTY1ZoDJ_o", level: 18),
+        Member(id: "ranking-sample-skye", name: "Skye Morgan", photo: "DdMJA6mE7N0", level: 20)
+    ]
+
+    static func entries(for category: NanaRankingCategory) -> [NanaRankingEntry] {
+        let order: [Int]
+        let gifts: [Int]
+        switch category {
+        case .popularity:
+            order = [0, 3, 2, 1, 5, 4, 7, 6, 9, 8]
+            gifts = [258420, 231860, 208740, 186320, 164580, 142910, 121460, 98620, 84350, 72180]
+        case .liveRoom:
+            order = [3, 1, 5, 0, 8, 2, 6, 9, 4, 7]
+            gifts = [196850, 175420, 158760, 134910, 118340, 97480, 85260, 71630, 58420, 46380]
+        case .voiceRoom:
+            order = [4, 2, 7, 9, 0, 6, 1, 5, 3, 8]
+            gifts = [168920, 149680, 128430, 112750, 96780, 82340, 69850, 56410, 43280, 31860]
+        }
+        return order.enumerated().map { position, index in
+            let member = members[index]
+            return NanaRankingEntry(
+                id: "sample-\(category.rawValue)-\(member.id)", profileID: member.id,
+                category: category, rank: position + 1, displayName: member.name,
+                avatarAssetKey: "nana.pic.\(member.photo)", level: member.level, giftCount: gifts[position]
+            )
+        }
+    }
+}
+
 struct NanaRankingView: View {
     // The current read contract has no ranking endpoint. Its adapter can supply
     // entries here when confirmed, without replacing the screen with a placeholder.
@@ -33,13 +80,18 @@ struct NanaRankingView: View {
     @State private var showingRules = false
     @State private var selectedProfile: NanaProfile?
 
+    private var publishedCategoryEntries: [NanaRankingEntry] {
+        entries.filter { $0.category == category && $0.rank > 0 }
+    }
+    private var showsSampleRankings: Bool { publishedCategoryEntries.isEmpty }
     private var visibleEntries: [NanaRankingEntry] {
-        entries.filter {
-            $0.category == category && $0.rank > 0 && !contentStore.blockedProfileIDs.contains($0.profileID)
-        }.sorted { $0.rank == $1.rank ? $0.id < $1.id : $0.rank < $1.rank }
+        let categoryEntries = showsSampleRankings ? NanaRankingSamples.entries(for: category) : publishedCategoryEntries
+        return categoryEntries.filter { !contentStore.blockedProfileIDs.contains($0.profileID) }
+            .sorted { $0.rank == $1.rank ? $0.id < $1.id : $0.rank < $1.rank }
     }
     private var personalEntry: NanaRankingEntry? {
-        visibleEntries.first(where: \.isCurrentUser)
+        guard !showsSampleRankings else { return nil }
+        return visibleEntries.first(where: \.isCurrentUser)
     }
 
     var body: some View {
@@ -58,7 +110,7 @@ struct NanaRankingView: View {
         .alert("About rankings", isPresented: $showingRules) {
             Button("Got it", role: .cancel) { }
         } message: {
-            Text("Switch between Popularity, Live room and Voice room to view published gift rankings. A dash means your rank or gift total is not available. Rankings will appear when the ranking service is available.")
+            Text("Each category shows its own gift ranking. Sample rankings are shown until published results are available; sample gifts do not affect balances or your personal rank. A dash means your personal ranking is unavailable.")
         }
     }
 
@@ -88,7 +140,7 @@ struct NanaRankingView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Ranking List")
                     .font(.system(size: 21, weight: .heavy).italic())
-                Text("View recent rankings")
+                Text(showsSampleRankings ? "Sample rankings" : "View recent rankings")
                     .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
                 Spacer(minLength: 12)
                 categoryPicker
@@ -152,10 +204,12 @@ struct NanaRankingView: View {
                         .padding(.vertical, 38)
                     } else {
                         ForEach(visibleEntries) { entry in
-                            Button {
-                                selectedProfile = contentStore.profile(with: entry.profileID)
-                            } label: { rankingRow(entry) }
-                            .buttonStyle(.plain)
+                            if !showsSampleRankings, let profile = contentStore.profile(with: entry.profileID) {
+                                Button { selectedProfile = profile } label: { rankingRow(entry) }
+                                    .buttonStyle(.plain)
+                            } else {
+                                rankingRow(entry)
+                            }
                             Rectangle().fill(.white.opacity(0.07)).frame(height: 0.5)
                         }
                     }
@@ -319,6 +373,7 @@ struct NanaRoundAction: View {
 }
 
 struct NanaRoomArtwork: View {
+    @EnvironmentObject private var contentStore: NanaContentStore
     let room: NanaLiveRoom
     var height: CGFloat = 185
 
@@ -342,7 +397,7 @@ struct NanaRoomArtwork: View {
                         .tracking(1)
                         .foregroundStyle(.white)
                     Spacer()
-                    Label("\(room.viewerCount)", systemImage: "eye")
+                    Label("\(contentStore.displayedViewerCount(for: room))", systemImage: "eye")
                         .font(NanaType.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.82))
                 }

@@ -32,6 +32,13 @@ struct NanaLiveRoom: Identifiable, Codable, Hashable {
     var isFollowingHost: Bool
 }
 
+/// Presentation-only audience for a bundled replay; never persisted as live membership.
+struct NanaReplayAudienceMember: Identifiable {
+    let id: String
+    let displayName: String
+    let avatarAssetKey: String
+}
+
 enum NanaRoomRole: String, Codable, Hashable {
     case host = "Host"
     case administrator = "Administrator"

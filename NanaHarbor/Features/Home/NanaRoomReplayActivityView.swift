@@ -1,11 +1,12 @@
 import SwiftUI
 
 /// Local presentation effects for bundled video replays. These events are never
-/// persisted as messages, added to an audience roster, or sent to the coin ledger.
+/// persisted as messages, added to live membership, or sent to the coin ledger.
 @MainActor
 struct NanaRoomReplayActivityView: View {
     let room: NanaLiveRoom
     let recordedMessages: [NanaRoomChatMessage]
+    let audience: [NanaReplayAudienceMember]
     let isActive: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lines: [ReplayLine] = []
@@ -20,22 +21,13 @@ struct NanaRoomReplayActivityView: View {
     }
     private struct ReplayGift: Identifiable {
         let id: Int
-        let name: String
+        let sender: NanaReplayAudienceMember
         let item: NanaGift
         let quantity: Int
     }
 
     private var seed: Int {
         Int(room.id.utf8.reduce(UInt32(5381)) { ($0 &* 33) &+ UInt32($1) } % 10000)
-    }
-    private var names: [String] {
-        switch room.id {
-        case "room-aurora": return ["Maya", "Theo", "Iris", "Jude"]
-        case "room-studio": return ["Ruby", "Finn", "Cleo", "Owen"]
-        case "room-lantern": return ["Aria", "Ezra", "Nell", "Kai"]
-        case "room-midnight": return ["Skye", "Luca", "Zoe", "Milo"]
-        default: return ["Alex", "Sam", "Charlie", "Robin"]
-        }
     }
     private var phrases: [String] {
         let common = ["Love the energy here!", "Sending a little good energy your way.", "That made me smile.", "Such a lovely moment."]
@@ -111,9 +103,9 @@ struct NanaRoomReplayActivityView: View {
 
     private func giftBanner(_ event: ReplayGift) -> some View {
         HStack(spacing: 7) {
-            NanaAvatarView(title: event.name, assetKey: nil, size: 29)
+            NanaAvatarView(title: event.sender.displayName, assetKey: event.sender.avatarAssetKey, size: 29)
             VStack(alignment: .leading, spacing: 3) {
-                Text(event.name).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                Text(event.sender.displayName).font(.system(size: 11, weight: .semibold)).lineLimit(1)
                 Text("\(event.item.title) · Preview").font(.system(size: 9)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -128,12 +120,14 @@ struct NanaRoomReplayActivityView: View {
         .background(LinearGradient(colors: [NanaPalette.violet.opacity(0.65), NanaPalette.deepSpace.opacity(0.75)], startPoint: .leading, endPoint: .trailing), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 0.7))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Demo gift: \(event.name), \(event.item.title), quantity \(event.quantity)")
+        .accessibilityLabel("Demo gift: \(event.sender.displayName), \(event.item.title), quantity \(event.quantity)")
     }
 
     private func appendLine() {
+        let participants = audience
+        guard !participants.isEmpty else { return }
         let index = sequence + seed
-        lines.append(ReplayLine(id: sequence, name: names[index % names.count], text: phrases[index % phrases.count]))
+        lines.append(ReplayLine(id: sequence, name: participants[index % participants.count].displayName, text: phrases[index % phrases.count]))
         lines = Array(lines.suffix(3))
         sequence += 1
     }
@@ -141,7 +135,9 @@ struct NanaRoomReplayActivityView: View {
     private func showGift() {
         let index = seed + tick / 5
         let catalog = NanaGift.roomCatalog
-        guard !catalog.isEmpty else { return }
-        gift = ReplayGift(id: tick, name: names[(index + 1) % names.count], item: catalog[index % catalog.count], quantity: [1, 3, 5, 10][index % 4])
+        let participants = audience
+        guard !catalog.isEmpty, !participants.isEmpty else { return }
+        let sender = participants[(index + 1) % participants.count]
+        gift = ReplayGift(id: tick, sender: sender, item: catalog[index % catalog.count], quantity: [1, 3, 5, 10][index % 4])
     }
 }

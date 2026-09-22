@@ -232,6 +232,7 @@ enum NanaRoomPortraitAllocator {
 }
 
 private struct NanaVoiceRoomCard: View {
+    @EnvironmentObject private var contentStore: NanaContentStore
     let room: NanaLiveRoom
     let coverPhotos: [String]
 
@@ -245,7 +246,7 @@ private struct NanaVoiceRoomCard: View {
                     .font(.system(size: 8, weight: .medium))
                     .foregroundStyle(Color(red: 0.55, green: 0.84, blue: 0.54))
                 Spacer(minLength: 0)
-                Label("\(room.viewerCount)", systemImage: "person.fill")
+                Label("\(contentStore.displayedViewerCount(for: room))", systemImage: "person.fill")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)

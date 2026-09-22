@@ -55,27 +55,19 @@ struct NanaLiveRoomView: View {
         let assetKey: String?
     }
 
-    private var replayAudiencePhotos: [String] {
-        guard room.streamSourceType == "simulatedReplay" else { return [] }
-        let payload = contentStore.payload
-        let memberPhotos = Set(payload.profiles.compactMap(\.avatarAssetKey) + payload.rooms.compactMap(\.hostAvatarAssetKey))
-        let photos = NanaRoomPortraitAllocator.photosByRoom(
-            rooms: payload.rooms, profiles: payload.profiles, seats: payload.roomSeats,
-            blockedProfileIDs: contentStore.blockedProfileIDs
-        )[room.id] ?? []
-        // Reuse this room's exclusive artwork without passing it off as a live roster.
-        return Array(photos.filter { !memberPhotos.contains($0) }.prefix(4))
-    }
+    private var replayAudience: [NanaReplayAudienceMember] { contentStore.replayAudience(for: room) }
+    private var audienceCount: Int { contentStore.displayedViewerCount(for: room) }
 
     private var audiencePortraits: [AudiencePortrait] {
+        if room.streamSourceType == "simulatedReplay" {
+            return replayAudience.prefix(4).map {
+                AudiencePortrait(id: $0.id, title: $0.displayName, assetKey: $0.avatarAssetKey)
+            }
+        }
         var usedPhotos = Set([room.hostAvatarAssetKey, host?.avatarAssetKey].compactMap { $0 })
-        var portraits = participants.filter { $0.id != room.hostID }.compactMap { profile -> AudiencePortrait? in
+        let portraits = participants.filter { $0.id != room.hostID }.compactMap { profile -> AudiencePortrait? in
             if let asset = profile.avatarAssetKey, !usedPhotos.insert(asset).inserted { return nil }
             return AudiencePortrait(id: profile.id, title: profile.displayName, assetKey: profile.avatarAssetKey)
-        }
-        for asset in replayAudiencePhotos where portraits.count < 4 {
-            guard usedPhotos.insert(asset).inserted else { continue }
-            portraits.append(AudiencePortrait(id: asset, title: "Replay preview", assetKey: asset))
         }
         return Array(portraits.prefix(4))
     }
@@ -110,7 +102,10 @@ struct NanaLiveRoomView: View {
                     }
                     Spacer(minLength: 0)
                     if showsReplayActivity && player != nil && !composerFocused {
-                        NanaRoomReplayActivityView(room: room, recordedMessages: messages, isActive: replayActivityIsActive)
+                        NanaRoomReplayActivityView(
+                            room: room, recordedMessages: messages,
+                            audience: replayAudience, isActive: replayActivityIsActive
+                        )
                             .id(room.id)
                     } else {
                         chatOverlay(maxHeight: geometry.size.height * (presentation == .voice ? 0.20 : 0.30))
@@ -129,8 +124,8 @@ struct NanaLiveRoomView: View {
                         .accessibilityHidden(true)
                     if panel == .options {
                         optionsPanel
+                            .frame(maxWidth: 340)
                             .padding(.horizontal, 24)
-                            .frame(maxWidth: 390)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .transition(.opacity.combined(with: .scale(scale: 0.96)))
                     } else if panel == .more || panel == .music {
@@ -238,7 +233,7 @@ struct NanaLiveRoomView: View {
                             NanaAvatarView(title: portrait.title, assetKey: portrait.assetKey, size: 24)
                         }
                     }
-                    Text(room.viewerCount.formatted(.number.notation(.compactName)))
+                    Text(contentStore.displayedViewerCount(for: room).formatted(.number.notation(.compactName)))
                         .font(.system(size: 10, weight: .medium)).monospacedDigit().lineLimit(1)
                 }
                 .padding(.horizontal, 6).frame(height: 32)
@@ -246,8 +241,8 @@ struct NanaLiveRoomView: View {
                 .frame(minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.plain).fixedSize(horizontal: true, vertical: false)
-            .accessibilityLabel("Room audience, \(room.viewerCount)")
-            .accessibilityHint(replayAudiencePhotos.isEmpty ? "Shows room members" : "Includes decorative replay portraits")
+            .accessibilityLabel("Room audience, \(contentStore.displayedViewerCount(for: room))")
+            .accessibilityHint(room.streamSourceType == "simulatedReplay" ? "Shows the complete sample audience" : "Shows available room members")
             headerControl("ellipsis", title: "Room options") { open(.options) }
             headerControl("xmark", title: "Leave room") { open(.exit) }
         }
@@ -372,7 +367,8 @@ struct NanaLiveRoomView: View {
     private func roomPanel(_ panel: RoomPanel, availableHeight: CGFloat) -> some View {
         let isDrawer = panel == .more || panel == .music
         let footerHeight: CGFloat = panel == .gifts ? 78 : 0
-        let limit = max(80, availableHeight * 0.78 - 78 - footerHeight)
+        let heightFraction: CGFloat = (panel == .ranking || panel == .heat || panel == .audience) ? 0.60 : 0.78
+        let limit = max(80, availableHeight * heightFraction - 78 - footerHeight)
         let contentHeight = panelContentHeights[panel.rawValue] ?? initialPanelHeight(panel)
         return VStack(spacing: 10) {
             HStack(spacing: 8) {
@@ -416,8 +412,8 @@ struct NanaLiveRoomView: View {
         case .gifts: return 210
         case .exit: return 110
         case .connection: return 150
-        case .ranking, .heat: return 160
-        case .audience: return max(80, CGFloat(participants.count) * 64 + 44 + (replayAudiencePhotos.isEmpty ? 0 : 124))
+        case .ranking, .heat: return 360
+        case .audience: return max(80, CGFloat(participants.count + replayAudience.count) * 60 + 80)
         case .host: return 300
         case .quick, .report: return 300
         default: return 180
@@ -453,7 +449,7 @@ struct NanaLiveRoomView: View {
             HStack(spacing: 8) {
                 metric("Fans", value: host.map { String($0.followerCount) } ?? "—", color: .green)
                 metric("Following", value: host.map { String($0.followingCount) } ?? "—", color: .cyan)
-                metric("Audience", value: String(room.viewerCount), color: .orange)
+                metric("Audience", value: String(audienceCount), color: .orange)
             }
             VStack(alignment: .leading, spacing: 7) {
                 Text(room.title).font(.system(size: 14, weight: .medium))
@@ -472,59 +468,125 @@ struct NanaLiveRoomView: View {
     }
 
     private var audiencePanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("\(room.viewerCount) viewers").font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
-            if !replayAudiencePhotos.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Replay preview").font(.system(size: 11)).foregroundStyle(NanaPalette.electricLilac)
-                    HStack(spacing: 12) {
-                        ForEach(replayAudiencePhotos, id: \.self) { asset in
-                            NanaAvatarView(title: "Replay preview", assetKey: asset, size: 42)
-                        }
-                    }
-                    Text("Decorative portraits for this replay.")
-                        .font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
+        VStack(alignment: .leading, spacing: 10) {
+            if room.streamSourceType == "simulatedReplay" {
+                Text("Sample audience · \(audienceCount) viewers")
+                    .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
+                ForEach(replayAudience) { member in
+                    audienceMemberRow(name: member.displayName, assetKey: member.avatarAssetKey, detail: "Viewer")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-            }
-            if participants.isEmpty {
-                panelNote("The audience list is not available yet.")
+                if replayAudience.isEmpty { panelNote("No sample viewers in this replay.") }
             } else {
+                Text("\(audienceCount) viewers").font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
+                panelNote("The complete viewer list is not available yet.")
+            }
+            if !participants.isEmpty {
                 Text("On stage").font(.system(size: 11)).foregroundStyle(NanaPalette.electricLilac)
+                    .padding(.top, 4)
                 ForEach(participants) { profile in
-                    HStack(spacing: 10) {
-                        NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 40)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(profile.displayName).font(.system(size: 13, weight: .medium))
-                            Text("\(profile.region) · Lv.\(profile.level)").font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
-                        }
-                        Spacer()
-                    }.padding(10).background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+                    audienceMemberRow(
+                        name: profile.displayName, assetKey: profile.avatarAssetKey,
+                        detail: "\(profile.region) · Lv.\(profile.level)"
+                    )
                 }
             }
         }
     }
 
+    private func audienceMemberRow(name: String, assetKey: String?, detail: String) -> some View {
+        HStack(spacing: 10) {
+            NanaAvatarView(title: name, assetKey: assetKey, size: 36)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(name).font(.system(size: 13, weight: .medium))
+                Text(detail).font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
+            }
+            Spacer()
+        }
+        .padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+    }
+
     private func rankingPanel(isHeat: Bool) -> some View {
-        VStack(spacing: 14) {
+        let category: NanaRankingCategory = isHeat ? .popularity : (presentation == .voice ? .voiceRoom : .liveRoom)
+        let entries = NanaRankingSamples.entries(for: category)
+            .filter { !contentStore.blockedProfileIDs.contains($0.profileID) }
+        let hostEntry = entries.first { $0.profileID == room.hostID }
+        let previewHeat = 280 + Int(room.id.utf8.reduce(UInt32(5381)) { ($0 &* 33) &+ UInt32($1) } % 420)
+        return VStack(alignment: .leading, spacing: 10) {
+            roomRankingSummary(isHeat: isHeat, hostEntry: hostEntry, previewHeat: previewHeat)
+            Text("Sample rankings")
+                .font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
+                .padding(.horizontal, 2)
+            VStack(spacing: 0) {
+                ForEach(entries) { entry in
+                    roomRankingRow(entry)
+                    Rectangle().fill(.white.opacity(0.07)).frame(height: 0.5)
+                }
+            }
+        }
+    }
+
+    private func roomRankingSummary(isHeat: Bool, hostEntry: NanaRankingEntry?, previewHeat: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("—").font(.system(size: 24, weight: .medium)).foregroundStyle(Color(red: 1, green: 0.28, blue: 0.31))
+                    Text(isHeat ? "\(previewHeat)/800" : hostEntry.map { "No. \($0.rank)" } ?? "Unranked")
+                        .font(.system(size: 24, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(Color(red: 1, green: 0.28, blue: 0.31))
                     Text(isHeat ? "Popularity target" : room.hostName)
                         .font(.system(size: 11)).lineLimit(1)
                 }
-                Spacer()
+                Spacer(minLength: 12)
                 VStack(spacing: 3) {
-                    NanaAssetImage(assetKey: "nana.voice.voice_asset_009", contentMode: .fit).frame(width: 30, height: 32)
-                    Text("—").font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_009", contentMode: .fit)
+                        .frame(width: 30, height: 32)
+                    Text(hostEntry.map { $0.giftCount.formatted(.number.notation(.compactName)) } ?? "—")
+                        .font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
                 }
             }
-            .padding(12)
-            .background(LinearGradient(colors: [Color(red: 0.33, green: 0.31, blue: 0.52), Color(red: 0.12, green: 0.11, blue: 0.22)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(.white.opacity(0.15), lineWidth: 0.7))
-            Text("No rankings yet").font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
-                .frame(maxWidth: .infinity).padding(.vertical, 14)
+            if isHeat {
+                GeometryReader { geometry in
+                    Capsule().fill(.white.opacity(0.12))
+                    Capsule().fill(NanaPalette.neonPink)
+                        .frame(width: geometry.size.width * CGFloat(previewHeat) / 800)
+                }
+                .frame(height: 4)
+                .accessibilityLabel("Sample popularity: \(previewHeat) of 800")
+            }
+        }
+        .padding(12)
+        .background(LinearGradient(colors: [Color(red: 0.33, green: 0.31, blue: 0.52), Color(red: 0.12, green: 0.11, blue: 0.22)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(.white.opacity(0.15), lineWidth: 0.7))
+    }
+
+    private func roomRankingRow(_ entry: NanaRankingEntry) -> some View {
+        HStack(spacing: 9) {
+            roomRankingBadge(entry.rank).frame(width: 28)
+            NanaAvatarView(title: entry.displayName, assetKey: entry.avatarAssetKey, size: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.displayName).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                Text("Lv.\(entry.level)")
+                    .font(.system(size: 8, weight: .medium))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(NanaPalette.violet, in: Capsule())
+            }
+            Spacer(minLength: 4)
+            NanaAssetImage(assetKey: "nana.voice.voice_asset_009", contentMode: .fit)
+                .frame(width: 12, height: 16).accessibilityHidden(true)
+            Text(entry.giftCount.formatted(.number.notation(.compactName)))
+                .font(.system(size: 10)).monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+        }
+        .padding(.horizontal, 4).frame(height: 48)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private func roomRankingBadge(_ rank: Int) -> some View {
+        if (1...3).contains(rank) {
+            let asset = rank == 1 ? "005" : rank == 2 ? "001" : "003"
+            NanaAssetImage(assetKey: "nana.voice.voice_asset_\(asset)", contentMode: .fit)
+                .frame(width: 23, height: 29).accessibilityLabel("Rank \(rank)")
+        } else {
+            Text("\(rank)").font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
         }
     }
 
@@ -690,49 +752,69 @@ struct NanaLiveRoomView: View {
     }
 
     private var optionsPanel: some View {
-        VStack(spacing: 8) {
-            VStack(spacing: 0) {
-                Button { open(.report) } label: {
-                    Text("Report").frame(maxWidth: .infinity).frame(height: 48).contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Room options")
+                .font(.system(size: 17, weight: .heavy).italic())
+                .foregroundStyle(NanaPalette.warmWhite)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 4)
+                .padding(.top, 4)
+
+            VStack(spacing: 8) {
+                roomOptionRow("Report", symbol: "flag", tint: NanaPalette.electricLilac) {
+                    open(.report)
                 }
-                Rectangle().fill(.white.opacity(0.12)).frame(height: 0.5).padding(.horizontal, 12)
-                Button { showingBlockConfirmation = true } label: {
-                    Text("Block").frame(maxWidth: .infinity).frame(height: 48).contentShape(Rectangle())
+                roomOptionRow("Block", symbol: "person.slash", tint: NanaPalette.softPink) {
+                    showingBlockConfirmation = true
                 }
             }
-            .background(Color(red: 0.09, green: 0.075, blue: 0.10), in: RoundedRectangle(cornerRadius: 12))
-            HStack(spacing: 0) {
-                if presentation == .video {
-                    compactOption(isMuted ? "speaker.wave.2" : "speaker.slash", title: isMuted ? "Sound on" : "Mute") {
-                        isMuted.toggle(); player?.isMuted = isMuted
-                    }
-                    compactOption(isPlaying ? "pause" : "play", title: isPlaying ? "Pause" : "Play") {
-                        isPlaying.toggle()
-                        if isPlaying { player?.play() } else { player?.pause() }
-                    }
-                } else {
-                    compactOption("music.note", title: "Music") { open(.music) }
-                    compactOption("mic", title: "Join") { open(.connection) }
-                }
-                compactOption("text.bubble", title: "Quick messages") { open(.quick) }
-            }
-            .padding(.vertical, 8)
-            .background(Color(red: 0.09, green: 0.075, blue: 0.10), in: RoundedRectangle(cornerRadius: 12))
+
             Button { panel = nil } label: {
-                Text("Close").foregroundStyle(.red).frame(maxWidth: .infinity).frame(height: 48)
-            }.background(Color(red: 0.09, green: 0.075, blue: 0.10), in: RoundedRectangle(cornerRadius: 12))
+                Text("Close")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(NanaPalette.warmWhite)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 13))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .font(.system(size: 14))
-        .buttonStyle(.plain)
+        .padding(18)
+        .background(Color(red: 0.075, green: 0.055, blue: 0.10), in: RoundedRectangle(cornerRadius: 24))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { panel = nil }
     }
 
-    private func compactOption(_ symbol: String, title: String, action: @escaping () -> Void) -> some View {
+    private func roomOptionRow(_ title: String, symbol: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 17))
-                Text(title).font(.system(size: 10)).lineLimit(1).minimumScaleFactor(0.8)
-            }.frame(maxWidth: .infinity).frame(minHeight: 44)
-        }.buttonStyle(.plain)
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 34, height: 34)
+                    .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(title == "Block" ? tint : NanaPalette.warmWhite)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 58)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     private var reportPanel: some View {
@@ -825,6 +907,7 @@ private struct NanaRoomPanelHeightKey: PreferenceKey {
 /// A drawer card has its own compact type scale; full-size room artwork does not
 /// fit a two-column drawer and causes both viewer counts and titles to wrap.
 private struct NanaRoomDrawerCard: View {
+    @EnvironmentObject private var contentStore: NanaContentStore
     let room: NanaLiveRoom
     let isVoice: Bool
 
@@ -837,7 +920,7 @@ private struct NanaRoomDrawerCard: View {
                 LinearGradient(colors: [.black.opacity(0.12), .clear, .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 2) {
-                        Label(room.viewerCount.formatted(.number.notation(.compactName)), systemImage: "person.fill")
+                        Label(contentStore.displayedViewerCount(for: room).formatted(.number.notation(.compactName)), systemImage: "person.fill")
                             .font(.system(size: 8)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                             .padding(.horizontal, 4).padding(.vertical, 3)
                             .background(.black.opacity(0.45), in: Capsule())
@@ -860,7 +943,7 @@ private struct NanaRoomDrawerCard: View {
         }
         .aspectRatio(169.0 / 227.0, contentMode: .fit)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(room.hostName), \(room.title), \(room.viewerCount) viewers")
+        .accessibilityLabel("\(room.hostName), \(room.title), \(contentStore.displayedViewerCount(for: room)) viewers")
     }
 }
 

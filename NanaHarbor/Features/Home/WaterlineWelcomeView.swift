@@ -204,7 +204,7 @@ struct WaterlineWelcomeView: View {
                     .frame(width: 34, height: 36)
                     .accessibilityHidden(true)
                 HStack(spacing: 5) {
-                    Label("\(room.viewerCount)", systemImage: "person.fill")
+                    Label("\(contentStore.displayedViewerCount(for: room))", systemImage: "person.fill")
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5)
@@ -414,6 +414,7 @@ private struct NanaHomeVideoCard: View {
 }
 
 private struct NanaHomeRoomCard: View {
+    @EnvironmentObject private var contentStore: NanaContentStore
     let room: NanaLiveRoom
 
     var body: some View {
@@ -425,7 +426,7 @@ private struct NanaHomeRoomCard: View {
             LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .center, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
-                    Label("\(room.viewerCount)", systemImage: "person.fill")
+                    Label("\(contentStore.displayedViewerCount(for: room))", systemImage: "person.fill")
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5)
