@@ -1,7 +1,7 @@
 import Foundation
 
 enum NanaAServiceConfiguration {
-    static let interfaceBaseURL = URL(string: "https://lantern.party.top")!
+    static let interfaceBaseURL = URL(string: "https://lantern.nanacc.top")!
     static let pathPrefix = "harbortide/v1"
     static let versionFieldName = "nanaReleaseVersion"
     static let clientName = "Nana"

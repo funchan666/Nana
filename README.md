@@ -30,7 +30,7 @@ Nana is a SwiftUI iOS 17 live-room social prototype. The A-side follows the purp
 
 ## A-side read service
 
-- Platform app: `67746202`; configured HTTPS origin: `https://lantern.party.top`.
+- Platform app: `67746202`; main domain: `https://nanacc.top`; configured API HTTPS origin: `https://lantern.nanacc.top`.
 - On launch, GET `/harbortide/v1/bootstrap` refreshes the complete baseline. The home, rooms, messages, wallet, search and room detail screens revalidate their matching published read endpoint when opened.
 - The client declares all 12 read operations from the exported template, including literal detail routes. No endpoint outside that export is constructed.
 - Requests accept JSON, include `nanaReleaseVersion`, and have bounded timeouts. There is no fabricated login Token or server authentication claim. The app's signed-in navigation gate remains independent of these fixed responses.
@@ -38,8 +38,8 @@ Nana is a SwiftUI iOS 17 live-room social prototype. The A-side follows the purp
 - The published snapshot persists per account under Application Support/NanaReadCache, with hidden-profile preferences and drafts kept locally. Wallet, gift, follow, moderation, chat, check-in and server profile writes remain unavailable until a real write contract exists. Local profile edits remain on the device. A read-service 401 shows a content error and does not log out the local account.
 - Images and videos resolve to bundled files only; server `bundlePath` values are not used as arbitrary filesystem paths.
 
-### Integration status — 2026-09-21
+### Integration status — 2026-09-22
 
-The user confirmed platform publication. The domain purchase status is intentionally ignored for this integration pass; live device decoding and reachability still need user-side verification. No app build or tests were run, as requested.
+The user confirmed platform publication and supplied the new main and API domains. The platform screenshot marks the main domain as active. The A-side client now uses `https://lantern.nanacc.top`, preserving all published paths, methods and fields. The main domain is recorded here; the current A-side app has no separate main-domain consumer. Live device decoding and reachability still need verification. No app build or tests were run, as requested.
 
 Apple sign-in requires the developer team's `com.nanalantern.harbortide` App ID and provisioning profile to enable Sign in with Apple. The project already includes the entitlement. Authorization, cancellation, credential revocation and cold-launch restoration still require device verification; this change was reviewed at source level only.
