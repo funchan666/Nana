@@ -27,7 +27,8 @@ struct NanaHarborShellView: View {
         }
         .background(NanaPalette.tabBarBackground)
         .preferredColorScheme(.dark)
-        .disabled(contentStore.actionNotice != nil)
+        // The notice intercepts background taps itself. Disabling this presenter
+        // also disables notices inside its full-screen rooms and nested sheets.
         .overlay {
             if let notice = contentStore.actionNotice {
                 AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }

@@ -350,10 +350,9 @@ struct WaterlineWelcomeView: View {
     }
 
     private var liveGrid: some View {
-        // Keep filtered matches in the list, even when there is only one result.
-        let grid = selectedHomeCategory == "All" && feedMode == "Recommend"
-            ? filteredRooms.filter { $0.id != featuredRoom?.id }
-            : filteredRooms
+        // The carousel is an alternate entry point, not a reason to hide a room
+        // from the complete six-room grid below it.
+        let grid = filteredRooms
         return LazyVGrid(columns: [GridItem(.adaptive(minimum: 169, maximum: 169), spacing: 9)], spacing: 11) {
             ForEach(grid) { room in
                 Button { openRoomVideo(room) } label: { NanaHomeRoomCard(room: room) }.buttonStyle(.plain)

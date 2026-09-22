@@ -6,7 +6,11 @@ struct AccountConsentNotice: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.76).ignoresSafeArea()
+            Color.black.opacity(0.76)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: dismissNotice)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 18) {
                 Capsule()
                     .fill(AccountEntryAppearance.linkLilac)
@@ -40,8 +44,14 @@ struct AccountConsentNotice: View {
             }
             .shadow(color: AccountEntryAppearance.violet.opacity(0.16), radius: 32, y: 10)
             .padding(24)
+            .contentShape(Rectangle())
+            .onTapGesture { }
             .accessibilityElement(children: .contain)
             .accessibilityAddTraits(.isModal)
         }
+        // Dismissal must remain available even when the presenting form is busy
+        // or a parent presentation supplied a disabled environment.
+        .environment(\.isEnabled, true)
+        .accessibilityAction(.escape, dismissNotice)
     }
 }

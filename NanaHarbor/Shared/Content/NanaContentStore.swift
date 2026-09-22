@@ -86,6 +86,7 @@ final class NanaContentStore: ObservableObject {
         if NanaDevelopmentMode.usesFixtures {
             #if DEBUG
             payload = .sample
+            applyReplayCatalog()
             #endif
         }
         let digest = SHA256.hash(data: Data(accountID.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -260,6 +261,8 @@ final class NanaContentStore: ObservableObject {
         case "room-studio": names = ["Ruby", "Finn", "Cleo", "Owen", "Poppy", "Levi", "Nina", "Hugo"]
         case "room-lantern": names = ["Aria", "Ezra", "Nell", "Kai", "Vera", "Dean", "Tess", "Leon"]
         case "room-midnight": names = ["Skye", "Luca", "Zoe", "Milo", "Luna", "Remy", "Wren", "Seth"]
+        case "room-city": names = ["Ada", "Miles", "June", "Oscar", "Lucy", "Jasper", "Eva", "Cole"]
+        case "room-outdoors": names = ["Freya", "Arlo", "Isla", "Ben", "Daisy", "Max", "Mae", "Rhys"]
         default: names = ["Alex", "Sam", "Charlie", "Robin", "Rowan", "Jamie", "Casey", "Taylor"]
         }
         return zip(names, photos).map { name, asset in
@@ -420,7 +423,63 @@ final class NanaContentStore: ObservableObject {
         [value.sentAtLabel, value.preview, String(value.unreadCount)].joined(separator: "|")
     }
 
+    /// Curate the bundled replay experience without changing real live streams.
+    /// Reapply after every read so a refreshed four-room fixture cannot undo it.
+    private func applyReplayCatalog() {
+        let replacements = [
+            "room-aurora": "nana.video.lilyrowland1_DdUO9QMRvap",
+            "room-studio": "nana.video.maialopezr_Dcn_qDCoCUr"
+        ]
+        guard payload.rooms.contains(where: { replacements[$0.id] != nil && $0.streamSourceType == "simulatedReplay" }) else { return }
+        for index in payload.rooms.indices {
+            guard payload.rooms[index].streamSourceType == "simulatedReplay",
+                  let asset = replacements[payload.rooms[index].id],
+                  NanaAssetLibrary.videoURL(for: asset) != nil else { continue }
+            payload.rooms[index].streamAssetKey = asset
+        }
+        let lin = payload.profiles.first { $0.id == "profile-lin" } ?? NanaProfile(
+            id: "profile-lin", displayName: "Lin Wei", handle: "lin.w", region: "Singapore",
+            language: "English", gender: "Female", age: 26, introduction: "Small stories from the city.",
+            avatarAssetKey: "nana.pic.Dc1UKGTDL1J", isConnected: false, followerCount: 0, followingCount: 0, level: 3
+        )
+        let sienna = NanaProfile(
+            id: "profile-replay-sienna", displayName: "Sienna Blake", handle: "sienna.b", region: "Vancouver",
+            language: "English", gender: "Female", age: 28, introduction: "Fresh air and easy conversations.",
+            avatarAssetKey: "nana.pic.DdQxT9NCkQ1", isConnected: false, followerCount: 0, followingCount: 0, level: 5
+        )
+        let additions: [(NanaProfile, NanaLiveRoom)] = [
+            (lin, NanaLiveRoom(
+                id: "room-city", title: "City catch-up", subtitle: "A walk, a story, a little company",
+                category: "Open talk", hostID: lin.id, hostName: lin.displayName, hostAvatarAssetKey: lin.avatarAssetKey,
+                viewerCount: 0, seatCapacity: 6, streamAssetKey: "nana.video.mkaaloha_DcJhc7MRaoo",
+                streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false
+            )),
+            (sienna, NanaLiveRoom(
+                id: "room-outdoors", title: "Fresh air stories", subtitle: "Slow down and share your day",
+                category: "Creative", hostID: sienna.id, hostName: sienna.displayName, hostAvatarAssetKey: sienna.avatarAssetKey,
+                viewerCount: 0, seatCapacity: 6, streamAssetKey: "nana.video.inga_galeeva__DanUYxRMQMd",
+                streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false
+            ))
+        ]
+        for (profile, room) in additions {
+            guard let asset = room.streamAssetKey, NanaAssetLibrary.videoURL(for: asset) != nil else { continue }
+            if !payload.rooms.contains(where: { $0.id == room.id }) { payload.rooms.append(room) }
+            guard payload.rooms.contains(where: { $0.id == room.id && $0.streamSourceType == "simulatedReplay" }) else { continue }
+            if !payload.profiles.contains(where: { $0.id == profile.id }) { payload.profiles.append(profile) }
+            if !payload.roomSeats.contains(where: { $0.roomID == room.id }) {
+                payload.roomSeats += (0..<room.seatCapacity).map { position in
+                    NanaRoomSeat(
+                        id: "\(room.id)-seat-\(position)", roomID: room.id, position: position,
+                        profileID: position == 0 ? profile.id : nil, displayName: position == 0 ? profile.displayName : nil,
+                        role: position == 0 ? "Host" : "Listener", isMuted: false, isInvited: false
+                    )
+                }
+            }
+        }
+    }
+
     private func applyPersonalOverlays() {
+        applyReplayCatalog()
         for index in payload.profiles.indices {
             if let following = personal.following[payload.profiles[index].id] { payload.profiles[index].isConnected = following }
         }

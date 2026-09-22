@@ -116,50 +116,6 @@ struct NanaMediaPreview: View {
     }
 }
 
-struct NanaVideoPlayerView: View {
-    let clip: NanaBundledVideo
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var player: AVPlayer?
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            if let player {
-                VideoPlayer(player: player)
-            } else {
-                Text("Video unavailable").foregroundStyle(.white)
-            }
-        }
-        .safeAreaInset(edge: .top) {
-            HStack {
-                Text(clip.creatorLabel).font(.headline).lineLimit(1)
-                Spacer()
-                Button("Close") { player?.pause(); dismiss() }
-                    .frame(minWidth: 44, minHeight: 44)
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 20)
-            .background(.black)
-        }
-        .onAppear {
-            guard let url = NanaAssetLibrary.videoURL(for: clip.assetKey) else { return }
-            let activePlayer = player ?? AVPlayer(url: url)
-            player = activePlayer
-            activePlayer.play()
-        }
-        .onDisappear {
-            player?.pause()
-            player?.replaceCurrentItem(with: nil)
-            player = nil
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active { player?.pause() }
-        }
-        .preferredColorScheme(.dark)
-    }
-}
-
 struct NanaAvatarView: View {
     let title: String
     let assetKey: String?
