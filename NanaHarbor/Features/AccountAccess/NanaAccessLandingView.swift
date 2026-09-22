@@ -62,6 +62,7 @@ struct NanaAccessLandingView: View {
         .background { AccountArtworkSurface(artworkName: "NanaAccountArtwork") }
         .background(.black)
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
+        .disabled(entryNotice != nil || isAppleLoading)
         .overlay {
             if let entryNotice {
                 AccountConsentNotice(notice: entryNotice) { self.entryNotice = nil }
@@ -69,7 +70,6 @@ struct NanaAccessLandingView: View {
                 AccountSubmissionProgress()
             }
         }
-        .disabled(entryNotice != nil || isAppleLoading)
     }
 
     private func requireAgreementConsent() -> Bool {

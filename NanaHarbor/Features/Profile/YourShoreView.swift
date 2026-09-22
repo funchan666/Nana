@@ -586,7 +586,7 @@ struct NanaWalletView: View {
                         }
                         NanaSectionTitle(eyebrow: "Coin map", title: "What uses coins")
                         VStack(alignment: .leading, spacing: 9) {
-                            coinUseRow(title: "Room gifts", detail: "Send a gift to a live room host", cost: "18–128")
+                            coinUseRow(title: "Room gifts", detail: "Send a gift to a live room host", cost: "Free / 29–79")
                             coinUseRow(title: "Room effects", detail: "Coming with a published write contract", cost: "—")
                             coinUseRow(title: "Chat", detail: "Messages never spend coins", cost: "Free")
                         }

@@ -27,12 +27,12 @@ struct NanaHarborShellView: View {
         }
         .background(NanaPalette.tabBarBackground)
         .preferredColorScheme(.dark)
+        .disabled(contentStore.actionNotice != nil)
         .overlay {
             if let notice = contentStore.actionNotice {
                 AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
             }
         }
-        .disabled(contentStore.actionNotice != nil)
     }
 }
 

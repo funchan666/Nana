@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */; };
 		022ECD668282A5AEC45B4C2F /* NanaLiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DFD2A4ECB3DC9A235416614 /* NanaLiveModels.swift */; };
 		059DC4BD98310B88212328D5 /* NanaLiveComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */; };
 		0673C9DFF604D2881E64DD08 /* NanaHarborShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF0564D9D0BEB4944CB2702 /* NanaHarborShellView.swift */; };
@@ -39,6 +38,9 @@
 		B9CE65DA430A5369D5141C03 /* AccountEntryDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E89FD14C95B5F89D3454CA /* AccountEntryDraft.swift */; };
 		C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */; };
 		D674ACA9771757901FE767AB /* photos in Resources */ = {isa = PBXBuildFile; fileRef = BE26AE3C52C9BCD3329FDC87 /* photos */; };
+		DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */; };
+		DA5F3A50C1234E6AB0000003 /* NanaRoomReplayActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000004 /* NanaRoomReplayActivityView.swift */; };
+		DA5F3A50C1234E6AB0000005 /* NanaLiveCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000006 /* NanaLiveCreationView.swift */; };
 		DAABB175EDB9B33E1503972D /* NanaSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */; };
 		E6256002F1AFC3C830C55EE6 /* pics in Resources */ = {isa = PBXBuildFile; fileRef = 2B4500966D2E4847511F0487 /* pics */; };
 		F3C21557A0944C5C42E7D2F0 /* AccountConsentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */; };
@@ -46,7 +48,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveRoomView.swift; sourceTree = "<group>"; };
 		17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaSessionStore.swift; sourceTree = "<group>"; };
 		1F48A0CDD1C137F08BD7AD78 /* NanaAccessLandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAccessLandingView.swift; sourceTree = "<group>"; };
 		26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourShoreView.swift; sourceTree = "<group>"; };
@@ -76,6 +77,9 @@
 		BCB3DE978120188D83EC8E8F /* NanaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaApp.swift; sourceTree = "<group>"; };
 		BE26AE3C52C9BCD3329FDC87 /* photos */ = {isa = PBXFileReference; lastKnownFileType = folder; name = photos; path = assets/photos; sourceTree = SOURCE_ROOT; };
 		D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveComponents.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveRoomView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000004 /* NanaRoomReplayActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomReplayActivityView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000006 /* NanaLiveCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveCreationView.swift; sourceTree = "<group>"; };
 		E3EE88EF1ECDA612A8ABA18A /* NanaEntryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaEntryCoordinator.swift; sourceTree = "<group>"; };
 		E7595FC1A6D3979EF407E8ED /* NanaCredentialAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaCredentialAccessView.swift; sourceTree = "<group>"; };
 		F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAuthenticationBoundary.swift; sourceTree = "<group>"; };
@@ -169,6 +173,8 @@
 				493AD74E302A039E8BF3BB85 /* NanaDiscoveryViews.swift */,
 				A26C7BEB00CEE7A012CEF6F8 /* WaterlineWelcomeView.swift */,
 				DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */,
+				DA5F3A50C1234E6AB0000004 /* NanaRoomReplayActivityView.swift */,
+				DA5F3A50C1234E6AB0000006 /* NanaLiveCreationView.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -313,7 +319,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2700;
 			};
 			buildConfigurationList = 76E607A1903962C46D746953 /* Build configuration list for PBXProject "Nana" */;
 			compatibilityVersion = "Xcode 14.0";
@@ -383,6 +389,8 @@
 				AACA8C2956A3AE7524052368 /* WarmThreadsView.swift in Sources */,
 				0E6769F110AE93D51C71FB8D /* WaterlineWelcomeView.swift in Sources */,
 				DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */,
+				DA5F3A50C1234E6AB0000003 /* NanaRoomReplayActivityView.swift in Sources */,
+				DA5F3A50C1234E6AB0000005 /* NanaLiveCreationView.swift in Sources */,
 				C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -428,6 +436,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -442,6 +451,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -543,6 +553,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -564,6 +575,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;

@@ -21,7 +21,7 @@ struct HarborGatheringView: View {
 
     var body: some View {
         // Allocate before category/search filtering so a portrait keeps its room.
-        let roomCoverPhotos = NanaVoiceRoomCoverAllocator.photosByRoom(
+        let roomCoverPhotos = NanaRoomPortraitAllocator.photosByRoom(
             rooms: contentStore.payload.rooms,
             profiles: contentStore.payload.profiles,
             seats: contentStore.payload.roomSeats,
@@ -150,8 +150,8 @@ struct HarborGatheringView: View {
 }
 
 /// Allocate across the complete room collection, never independently per card.
-/// Extra artwork decorates covers only and does not create live members or seats.
-private enum NanaVoiceRoomCoverAllocator {
+/// Extra artwork decorates covers and replay previews; it never creates live members or seats.
+enum NanaRoomPortraitAllocator {
     private static let coverPhotoKeys = [
         "nana.pic.Dc6OjcqAodc", "nana.pic.DdJ2uSSDENz",
         "nana.pic.DczCXb6HMNj", "nana.pic.DdTY1ZoDJ_o",

@@ -103,6 +103,7 @@ struct NanaCredentialAccessView: View {
         .background { AccountArtworkSurface(artworkName: "NanaAccountArtwork") }
         .background(.black)
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
+        .disabled(entryNotice != nil || isSubmitting)
         .overlay {
             if let entryNotice {
                 AccountConsentNotice(notice: entryNotice) { self.entryNotice = nil }
@@ -110,7 +111,6 @@ struct NanaCredentialAccessView: View {
                 AccountSubmissionProgress()
             }
         }
-        .disabled(entryNotice != nil || isSubmitting)
         .onDisappear {
             submissionTask?.cancel()
             submissionTask = nil

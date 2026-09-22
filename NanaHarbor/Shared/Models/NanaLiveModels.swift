@@ -97,6 +97,21 @@ struct NanaGift: Identifiable, Codable, Hashable {
     var assetKey: String?
 }
 
+extension NanaGift {
+    /// The A-side gift catalog matches the supplied artwork and prices. Legacy
+    /// photo-based feed gifts are not purchase identifiers for these room gifts.
+    static let roomCatalog: [NanaGift] = [
+        NanaGift(id: "gift-music-note", title: "Music note", coinCost: 0, assetKey: "nana.voice.voice_asset_077"),
+        NanaGift(id: "gift-gamepad", title: "Gamepad", coinCost: 0, assetKey: "nana.voice.voice_asset_088"),
+        NanaGift(id: "gift-karaoke", title: "Karaoke", coinCost: 29, assetKey: "nana.voice.voice_asset_089"),
+        NanaGift(id: "gift-drum", title: "Drum", coinCost: 39, assetKey: "nana.voice.voice_asset_122"),
+        NanaGift(id: "gift-headphones", title: "Headphones", coinCost: 49, assetKey: "nana.voice.voice_asset_090"),
+        NanaGift(id: "gift-microphone", title: "Microphone", coinCost: 59, assetKey: "nana.voice.voice_asset_118"),
+        NanaGift(id: "gift-record", title: "Record", coinCost: 69, assetKey: "nana.voice.voice_asset_091"),
+        NanaGift(id: "gift-keyboard", title: "Keyboard", coinCost: 79, assetKey: "nana.voice.voice_asset_164")
+    ]
+}
+
 struct NanaRoomChatMessage: Identifiable, Codable, Hashable {
     let id: String
     let roomID: String
@@ -206,12 +221,7 @@ extension NanaContentSnapshot {
             NanaMessage(id: "message-1", conversationID: "conversation-ava", senderID: "profile-ava", senderName: "Ava Monroe", body: "I saved you a seat in the afterglow room.", sentAtLabel: "8 min", isFromCurrentUser: false),
             NanaMessage(id: "message-2", conversationID: "conversation-ava", senderID: "local", senderName: "You", body: "I will be there soon.", sentAtLabel: "6 min", isFromCurrentUser: true)
         ]
-        let gifts = [
-            NanaGift(id: "gift-star", title: "Star note", coinCost: 18, assetKey: "nana.pic.Dc6Dfy6jSal"),
-            NanaGift(id: "gift-lumen", title: "Lumen", coinCost: 66, assetKey: "nana.pic.Dc6OjcqAodc"),
-            NanaGift(id: "gift-trophy", title: "Trophy", coinCost: 128, assetKey: "nana.pic.Dc_JVYmiG2t"),
-            NanaGift(id: "gift-heart", title: "Warm signal", coinCost: 36, assetKey: "nana.pic.DctNjXIAIkT")
-        ]
+        let gifts = NanaGift.roomCatalog
         let roomMessages = [
             NanaRoomChatMessage(id: "room-message-1", roomID: "room-aurora", senderName: "Mira", body: "This question is staying with me.", sentAtLabel: "now"),
             NanaRoomChatMessage(id: "room-message-2", roomID: "room-aurora", senderName: "Jules", body: "Same here. I like how slow this room feels.", sentAtLabel: "now")

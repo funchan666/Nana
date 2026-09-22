@@ -5,6 +5,7 @@ struct WaterlineWelcomeView: View {
     @State private var isLoading = true
     @State private var showingSearch = false
     @State private var showingRanking = false
+    @State private var showingLiveCreation = false
     @State private var selectedRoom: NanaLiveRoom?
     @State private var selectedVideo: NanaBundledVideo?
     @State private var selectedHomeCategory = "All"
@@ -102,6 +103,7 @@ struct WaterlineWelcomeView: View {
                 isLoading = false
             }
             .sheet(isPresented: $showingSearch) { NanaDiscoverySearchView() }
+            .fullScreenCover(isPresented: $showingLiveCreation) { NanaLiveCreationView() }
             .fullScreenCover(isPresented: $showingRanking) { NanaRankingView() }
             .fullScreenCover(item: $selectedRoom) { room in NanaLiveRoomView(room: room) }
             .fullScreenCover(item: $selectedVideo) { clip in NanaVideoPlayerView(clip: clip) }
@@ -123,7 +125,7 @@ struct WaterlineWelcomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Ranking")
             .accessibilityHint("Open the ranking list")
-            Button { contentStore.explainUnavailable("Starting a live room") } label: {
+            Button { showingLiveCreation = true } label: {
                 NanaAssetImage(assetKey: "nana.voice.voice_asset_054", contentMode: .fit)
                     .frame(width: 70, height: 34)
                     .frame(height: 44)
@@ -301,24 +303,15 @@ struct WaterlineWelcomeView: View {
     private func feedModeButton(_ title: String) -> some View {
         Button { feedMode = title } label: {
             VStack(spacing: 5) {
-                Group {
-                    if title == "Recommend", let artwork = NanaAssetLibrary.image(for: "nana.voice.voice_asset_160") {
-                        Image(uiImage: artwork)
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 82, height: 16)
-                    } else {
-                        Text(title)
-                            .font(.system(size: 12, weight: .heavy).italic())
-                            .frame(height: 16)
-                    }
-                }
-                .foregroundStyle(feedMode == title ? NanaPalette.warmWhite : NanaPalette.mutedWhite)
+                Text(title)
+                    .font(.system(size: 14, weight: .heavy).italic())
+                    .lineLimit(1)
+                    .frame(height: 20)
+                    .foregroundStyle(feedMode == title ? NanaPalette.warmWhite : NanaPalette.mutedWhite)
                 Capsule().fill(feedMode == title ? NanaPalette.violet : .clear)
                     .frame(width: 20, height: 3)
             }
-            .frame(minHeight: 44)
+            .frame(width: 96, height: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
