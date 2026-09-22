@@ -72,7 +72,7 @@ final class NanaCoinStore: ObservableObject {
             if let record = ledger.accounts[accountID] {
                 balance = record.balance
             } else {
-                let gift = NanaWelcomeGift(amount: 1_200, title: "First light unlocked", detail: "A welcome signal for your first room.")
+                let gift = NanaWelcomeGift(amount: 1_200, title: "Your first spark.", detail: "A little gift to light up your first day.")
                 ledger.accounts[accountID] = NanaCoinAccountRecord(balance: gift.amount, receivedWelcomeGift: true, processedTransactionIDs: [])
                 balance = gift.amount
                 welcomeGift = gift
@@ -253,54 +253,111 @@ private enum NanaCoinPurchaseError: Error {
 struct NanaWelcomeGiftOverlay: View {
     let gift: NanaWelcomeGift
     let dismiss: () -> Void
-    @State private var isPulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasAppeared = false
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.8).ignoresSafeArea()
-            VStack(spacing: 18) {
-                ZStack {
-                    Circle()
-                        .stroke(AngularGradient(colors: [NanaPalette.neonPink, NanaPalette.electricLilac, NanaPalette.violet, NanaPalette.neonPink], center: .center), lineWidth: 3)
-                        .frame(width: 170, height: 170)
-                        .rotationEffect(.degrees(isPulsing ? 360 : 0))
-                    Image("NanaWalletArtwork")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 122, height: 86)
-                        .scaleEffect(isPulsing ? 1.06 : 0.96)
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.76).ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    card(artworkSize: geometry.size.height < 700 ? 180 : 220)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 24)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: geometry.size.height)
                 }
-                Text("FIRST LIGHT")
-                    .font(NanaType.stamp)
-                    .tracking(2.2)
-                    .foregroundStyle(NanaPalette.softPink)
-                Text(gift.title)
-                    .font(NanaType.hero)
-                    .foregroundStyle(NanaPalette.warmWhite)
-                    .multilineTextAlignment(.center)
-                Text("+\(gift.amount.formatted()) coins")
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                    .foregroundStyle(NanaPalette.electricLilac)
-                Text(gift.detail)
-                    .font(NanaType.body)
-                    .foregroundStyle(NanaPalette.mutedWhite)
-                    .multilineTextAlignment(.center)
-                Button("Enter Nana") { dismiss() }
-                    .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.violet))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 4)
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .padding(26)
-            .frame(maxWidth: 350)
-            .background(NanaPalette.deepSpace, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(NanaPalette.electricLilac.opacity(0.5), lineWidth: 1))
-            .shadow(color: NanaPalette.neonPink.opacity(0.3), radius: 32, y: 12)
-            .padding(24)
         }
-        .task {
-            withAnimation(.linear(duration: 5).repeatForever(autoreverses: false)) { isPulsing = true }
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.55)) {
+                hasAppeared = true
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
+    }
+
+    private func card(artworkSize: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Text("WELCOME TO NANA")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .tracking(2.6)
+                .foregroundStyle(NanaPalette.electricLilac)
+                .padding(.top, 28)
+
+            Image("NanaWelcomeCoin")
+                .resizable()
+                .scaledToFit()
+                .frame(width: artworkSize, height: artworkSize)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+                .scaleEffect(hasAppeared || reduceMotion ? 1 : 0.9)
+                .offset(y: hasAppeared || reduceMotion ? 0 : 10)
+                .accessibilityHidden(true)
+
+            Text(gift.title)
+                .font(.system(size: 25, weight: .semibold, design: .rounded))
+                .foregroundStyle(NanaPalette.warmWhite)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+
+            VStack(spacing: 4) {
+                Text("+\(gift.amount.formatted())")
+                    .font(.system(size: 52, weight: .bold, design: .rounded))
+                    .tracking(-1.5)
+                    .foregroundStyle(Color(red: 1, green: 0.85, blue: 0.56))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                Text("COINS ADDED")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(2)
+                    .foregroundStyle(NanaPalette.electricLilac)
+            }
+            .padding(.top, 14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(gift.amount.formatted()) coins added")
+
+            Text(gift.detail)
+                .font(.system(size: 14))
+                .foregroundStyle(NanaPalette.mutedWhite)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 16)
+
+            Button(action: dismiss) {
+                Text("Let's explore")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.violet))
+            .padding(.top, 24)
+            .padding(.bottom, 28)
+        }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: 350)
+        .background {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [Color(red: 0.12, green: 0.055, blue: 0.22), NanaPalette.deepSpace],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .strokeBorder(LinearGradient(
+                    colors: [NanaPalette.electricLilac.opacity(0.45), NanaPalette.electricLilac.opacity(0.08)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .shadow(color: .black.opacity(0.4), radius: 24, y: 16)
+        .opacity(hasAppeared || reduceMotion ? 1 : 0)
+        .offset(y: hasAppeared || reduceMotion ? 0 : 16)
     }
 }
