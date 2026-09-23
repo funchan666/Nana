@@ -11,8 +11,7 @@ struct YourShoreView: View {
     @State private var showingEdit = false
     @State private var showingWallet = false
     @State private var showingCheckIn = false
-    @State private var showingCollection = false
-    @State private var collectionTitle = "Backpack"
+    @State private var collectionDestination: NanaCollectionDestination?
     @State private var showingLevel = false
     @State private var showingFeedback = false
     @State private var showingConnections = false
@@ -55,7 +54,7 @@ struct YourShoreView: View {
             .fullScreenCover(isPresented: $showingEdit) { NanaEditProfileView() }
             .fullScreenCover(isPresented: $showingWallet) { NanaWalletView() }
             .fullScreenCover(isPresented: $showingCheckIn) { NanaCheckInView() }
-            .fullScreenCover(isPresented: $showingCollection) { NanaCollectionView(title: collectionTitle) }
+            .fullScreenCover(item: $collectionDestination) { NanaCollectionView(destination: $0) }
             .fullScreenCover(isPresented: $showingLevel) { NanaLevelView() }
             .fullScreenCover(isPresented: $showingFeedback) { NanaFeedbackView() }
             .fullScreenCover(isPresented: $showingConnections) { NanaConnectionsView(profile: localProfile, initialTab: connectionCategory) }
@@ -282,8 +281,8 @@ struct YourShoreView: View {
 
     private var profileMenu: some View {
         VStack(spacing: 8) {
-            menuRow(title: "Shop", icon: "storefront.fill") { collectionTitle = "Store"; showingCollection = true }
-            menuRow(title: "Backpack", icon: "backpack.fill") { collectionTitle = "Backpack"; showingCollection = true }
+            menuRow(title: "Shop", icon: "storefront.fill") { collectionDestination = .store }
+            menuRow(title: "Backpack", icon: "backpack.fill") { collectionDestination = .backpack }
             menuRow(title: "My level", icon: "diamond.fill") { showingLevel = true }
             menuRow(title: "Feedback", icon: "questionmark.bubble.fill") { showingFeedback = true }
             menuRow(title: "Blacklist", icon: "person.crop.circle.badge.xmark") { showingBlacklist = true }
@@ -342,82 +341,401 @@ struct NanaUserProfileView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var showingCall = false
     @State private var safetyAction: NanaPostSafetyAction?
-    @State private var showingAlbum = false
     @State private var conversation: NanaConversation?
+    @State private var selectedVideo: NanaBundledVideo?
+    @State private var selectedPost: NanaPost?
+    @State private var selectedRoom: NanaLiveRoom?
+    @State private var photoSelection: NanaPublicPhotoSelection?
+    @State private var showsAlbum = false
 
     private var liveProfile: NanaProfile { contentStore.profile(with: profile.id) ?? profile }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                NanaBackdrop()
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        NanaAvatarView(title: liveProfile.displayName, assetKey: liveProfile.avatarAssetKey, size: 108)
-                        Text(liveProfile.displayName).font(NanaType.hero).foregroundStyle(NanaPalette.warmWhite)
-                        if contentStore.isWelcomeFollower(profile.id) {
-                            Text("Welcome interaction · simulated locally")
-                                .font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
-                        }
-                        Text("@\(liveProfile.handle) · \(liveProfile.region)").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
-                        Text(liveProfile.introduction).font(NanaType.body).foregroundStyle(NanaPalette.mutedWhite).multilineTextAlignment(.center).padding(.horizontal, 16)
-                        HStack(spacing: 10) {
-                            Button(liveProfile.isConnected ? "Following" : "Follow") { contentStore.toggleConnection(for: liveProfile.id) }
-                                .buttonStyle(NanaPrimaryButtonStyle(tint: liveProfile.isConnected ? NanaPalette.cardStrong : NanaPalette.violet))
-                            Button { showingCall = true } label: { Label("Video", systemImage: "video.fill") }
-                                .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.neonPink))
-                        }
-                        HStack(spacing: 0) { stat("Follower", "\(liveProfile.followerCount)"); stat("Following", "\(liveProfile.followingCount)"); stat("Level", "Lv.\(liveProfile.level)") }
-                            .padding(.vertical, 15).nanaCard()
-                        VStack(alignment: .leading, spacing: 11) {
-                            NanaSectionTitle(eyebrow: "Private album", title: "Friends only")
-                            Button { showingAlbum = true } label: {
-                                HStack(spacing: 12) {
-                                    NanaAssetImage(assetKey: "nana.pic.Dc0SA4UiUy3", contentMode: .fill)
-                                        .frame(width: 78, height: 78)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text("Personal Album")
-                                            .font(NanaType.bodyMedium)
-                                            .foregroundStyle(NanaPalette.warmWhite)
-                                        Text("View shared moments")
-                                            .font(NanaType.caption)
-                                            .foregroundStyle(NanaPalette.mutedWhite)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundStyle(NanaPalette.electricLilac)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(16).nanaCard()
-                        HStack {
-                            Button("Private message") { conversation = contentStore.conversation(for: liveProfile) }.buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.neonPink))
-                        }
-                        NanaSafetyOptionsButton(subject: "profile") { safetyAction = $0 }
-                    }
-                    .padding(22)
-                }
-            }
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
-            .sheet(isPresented: $showingCall) { NanaVideoCallView(profile: liveProfile) }
-            .fullScreenCover(isPresented: $showingAlbum) { NanaAlbumGalleryView(profile: liveProfile) }
-            .fullScreenCover(item: $conversation) { NanaConversationView(conversation: $0) }
-            .sheet(item: $safetyAction) { action in
-                NanaPostSafetySheet(context: contentStore.discussion(for: profile), initialAction: action) { dismiss() }
-            }
-            .onChange(of: contentStore.safetyDismissalID) { _, _ in
-                if contentStore.hiddenAuthorIDs.contains(profile.id) { dismiss() }
-            }
-            .task { if liveProfile.id == "profile-ava" { await contentStore.refresh(.avaProfile) } }
-            .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
+    private var following: Bool { contentStore.isFollowing(profile.id) }
+    private var videos: [NanaBundledVideo] {
+        NanaAssetLibrary.videoClips.filter {
+            contentStore.discussion(for: $0).authorID == profile.id && contentStore.isVideoVisible($0)
         }
-        .preferredColorScheme(.dark)
+    }
+    private var posts: [NanaPost] {
+        contentStore.posts().filter { $0.authorID == profile.id && $0.coverAssetKey?.hasPrefix("nana.video.") != true }
+    }
+    private var photos: [String] {
+        var seen = Set<String>()
+        let publishedPhotos = (liveProfile.publicPhotoAssetKeys ?? []) + posts.compactMap(\.coverAssetKey)
+        return publishedPhotos.filter {
+            !$0.hasPrefix("nana.video.") && NanaAssetLibrary.image(for: $0) != nil && seen.insert($0).inserted
+        }
+    }
+    private var cover: String? { liveProfile.avatarAssetKey ?? photos.first }
+    private var room: NanaLiveRoom? {
+        let visible = contentStore.payload.rooms.filter { contentStore.isRoomVisible($0) }
+        return visible.first { $0.hostID == profile.id } ?? visible.first
+    }
+    private var interests: [String] {
+        var categories = posts.map(\.category)
+        if let room, room.hostID == profile.id { categories.insert(room.category, at: 0) }
+        if categories.isEmpty && !videos.isEmpty { categories = ["Video creator"] }
+        var seen = Set<String>()
+        return Array(categories.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(3))
+    }
+    private var metadata: String {
+        [liveProfile.age > 0 ? String(liveProfile.age) : nil,
+         liveProfile.region.isEmpty ? nil : liveProfile.region,
+         liveProfile.level > 0 ? "Lv.\(liveProfile.level)" : nil].compactMap { $0 }.joined(separator: " · ")
     }
 
-    private func stat(_ title: String, _ value: String) -> some View { VStack(spacing: 5) { Text(value).font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite); Text(title).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite) }.frame(maxWidth: .infinity) }
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                Color.black.ignoresSafeArea()
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        hero(width: geometry.size.width, height: max(440, min(570, geometry.size.width * 1.34)))
+                        VStack(alignment: .leading, spacing: 12) {
+                            if let room { roomCard(room) }
+                            contentTabs
+                            if showsAlbum { albumGrid } else { postGrid }
+                        }
+                        .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 100)
+                    }
+                }
+                .ignoresSafeArea(edges: .top)
+                HStack {
+                    Button { dismiss() } label: {
+                        NanaAssetImage(assetKey: "nana.voice.voice_asset_030", contentMode: .fit)
+                            .frame(width: 25, height: 25).frame(width: 44, height: 44)
+                    }.accessibilityLabel("Back")
+                    Spacer()
+                    Button { safetyAction = .options } label: {
+                        NanaAssetImage(assetKey: "nana.voice.voice_asset_119", contentMode: .fit)
+                            .frame(width: 27, height: 27).frame(width: 44, height: 44)
+                    }.accessibilityLabel("More profile options")
+                }
+                .buttonStyle(.plain).padding(.horizontal, 12)
+            }
+            .overlay(alignment: .bottom) { contactActions }
+        }
+        .foregroundStyle(NanaPalette.warmWhite)
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingCall) { NanaVideoCallView(profile: liveProfile) }
+        .fullScreenCover(item: $conversation) { NanaConversationView(conversation: $0, recipientProfile: liveProfile) }
+        .fullScreenCover(item: $selectedVideo) { NanaVideoPlayerView(clip: $0) }
+        .fullScreenCover(item: $selectedPost) { NanaPostDetailView(post: $0) }
+        .fullScreenCover(item: $selectedRoom) { NanaLiveRoomView(room: $0) }
+        .fullScreenCover(item: $photoSelection) { NanaPublicPhotoViewer(profile: liveProfile, selection: $0) }
+        .sheet(item: $safetyAction) { action in
+            NanaPostSafetySheet(context: contentStore.discussion(for: liveProfile), initialAction: action) { dismiss() }
+        }
+        .onChange(of: contentStore.safetyDismissalID) { _, _ in
+            if contentStore.hiddenAuthorIDs.contains(profile.id) { dismiss() }
+        }
+        .task { if profile.id == "profile-ava" { await contentStore.refresh(.avaProfile) } }
+        .overlay {
+            if let notice = contentStore.actionNotice {
+                AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
+            }
+        }
+    }
+
+    private func hero(width: CGFloat, height: CGFloat) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            Button {
+                if let cover { photoSelection = NanaPublicPhotoSelection(assets: [cover] + photos.filter { $0 != cover }, index: 0) }
+            } label: {
+                Group {
+                    if let cover { NanaAssetImage(assetKey: cover) }
+                    else { NanaAvatarView(title: liveProfile.displayName, assetKey: nil, size: 140) }
+                }
+                .frame(width: width, height: height).clipped()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).accessibilityLabel("View \(liveProfile.displayName)'s photo")
+            LinearGradient(stops: [.init(color: .clear, location: 0.48), .init(color: .black.opacity(0.28), location: 0.68), .init(color: .black, location: 1)], startPoint: .top, endPoint: .bottom)
+                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(liveProfile.displayName).font(.system(size: 18, weight: .semibold)).lineLimit(2)
+                        if !metadata.isEmpty { Text(metadata).font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    NanaProfileArtworkButton(asset: following ? "101" : "100", label: following ? "Unfollow" : "Follow", height: 32) {
+                        contentStore.toggleConnection(for: liveProfile)
+                    }.frame(width: 92)
+                }
+                if liveProfile.hasCompleteDetails != false {
+                    HStack(spacing: 20) {
+                        Text("\(liveProfile.followerCount) Follower")
+                        Text("\(liveProfile.followingCount) Following")
+                    }.font(.system(size: 12, weight: .medium)).foregroundStyle(NanaPalette.mutedWhite)
+                }
+                if !interests.isEmpty {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) { ForEach(interests, id: \.self) { interestTag($0) } }
+                        interestTag(interests[0])
+                    }
+                }
+                if !liveProfile.introduction.isEmpty {
+                    Text(liveProfile.introduction).font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
+                        .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                }
+                if contentStore.isWelcomeFollower(profile.id) {
+                    Text("Welcome interaction · simulated locally").font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
+                }
+            }.padding(.horizontal, 20).padding(.bottom, 12)
+        }
+        .frame(width: width, height: height)
+    }
+
+    private func interestTag(_ title: String) -> some View {
+        Text("# " + title).font(.system(size: 11, weight: .medium))
+            .foregroundStyle(NanaPalette.electricLilac)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .overlay(Capsule().strokeBorder(NanaPalette.electricLilac.opacity(0.7), lineWidth: 0.7))
+    }
+
+    private func roomCard(_ room: NanaLiveRoom) -> some View {
+        Button { selectedRoom = room } label: {
+            HStack(spacing: 10) {
+                NanaAssetImage(assetKey: room.hostAvatarAssetKey ?? NanaAccountAvatarView.defaultAssetKey)
+                    .frame(width: 72, height: 94).clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 6) {
+                        Text(room.hostName).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Text(room.streamSourceType == "simulatedReplay" ? "Replay" : room.roomState)
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(NanaPalette.neonPink)
+                    }
+                    Text(room.hostID == profile.id ? "Hosted room" : "Recommended room")
+                        .font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
+                    interestTag(room.category)
+                    HStack(spacing: 6) {
+                        Text(room.title).font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite).lineLimit(1)
+                        Spacer(minLength: 0)
+                        NanaAssetImage(assetKey: "nana.voice.voice_asset_033", contentMode: .fit).frame(width: 8, height: 12)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(8)
+                .background { NanaAssetImage(assetKey: "nana.voice.voice_asset_042") }
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain)
+    }
+
+    private var contentTabs: some View {
+        HStack(spacing: 28) {
+            tab("Posts", selected: !showsAlbum) { showsAlbum = false }
+            tab("Photo album", selected: showsAlbum) { showsAlbum = true }
+        }
+    }
+
+    private func tab(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 17, weight: .heavy).italic())
+                .foregroundStyle(selected ? .white : NanaPalette.mutedWhite)
+                .padding(.vertical, 12)
+                .overlay(alignment: .bottom) {
+                    if selected { Image("NanaCheckInGuideButton").resizable().frame(width: 28, height: 3).accessibilityHidden(true) }
+                }
+                .frame(minHeight: 44)
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @ViewBuilder private var postGrid: some View {
+        if videos.isEmpty && posts.isEmpty { emptyContent("No posts yet", detail: "Shared posts will appear here.") }
+        LazyVStack(spacing: 12) {
+            ForEach(videos) { video in
+                Button { selectedVideo = video } label: {
+                    NanaMediaPreview(assetKey: video.assetKey).frame(height: 260).clipped()
+                        .overlay(alignment: .bottomTrailing) {
+                            NanaAssetImage(assetKey: "nana.voice.voice_asset_011", contentMode: .fit)
+                                .frame(width: 30, height: 30).padding(10)
+                        }.clipShape(RoundedRectangle(cornerRadius: 13))
+                }.buttonStyle(.plain).accessibilityLabel("Play video by \(liveProfile.displayName)")
+            }
+        }
+        ForEach(posts) { post in
+            VStack(alignment: .leading, spacing: 10) {
+                if let asset = post.coverAssetKey, NanaAssetLibrary.image(for: asset) != nil {
+                    Button { openPhoto(asset) } label: {
+                        NanaMediaPreview(assetKey: asset).frame(height: 260).clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 13))
+                    }.buttonStyle(.plain).accessibilityLabel("View photo by \(liveProfile.displayName)")
+                }
+                Button { selectedPost = post } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(post.title).font(.system(size: 16, weight: .semibold))
+                        Text(post.body).font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite).lineLimit(3)
+                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityHint("Read the post and its comments")
+            }
+        }
+    }
+
+    private func openPhoto(_ asset: String) {
+        let album = photos.contains(asset) ? photos : [asset] + photos
+        photoSelection = NanaPublicPhotoSelection(assets: album, index: album.firstIndex(of: asset) ?? 0)
+    }
+
+    @ViewBuilder private var albumGrid: some View {
+        if photos.isEmpty { emptyContent("No shared photos yet", detail: "This person's public photos will appear here.") }
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            ForEach(Array(photos.enumerated()), id: \.element) { index, asset in
+                Button { photoSelection = NanaPublicPhotoSelection(assets: photos, index: index) } label: {
+                    NanaMediaPreview(assetKey: asset).frame(height: 220).clipped().clipShape(RoundedRectangle(cornerRadius: 13))
+                }.buttonStyle(.plain).accessibilityLabel("View photo \(index + 1)")
+            }
+        }
+    }
+
+    private func emptyContent(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 16, weight: .semibold))
+            Text(detail).font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
+        }.frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
+    }
+
+    private var contactActions: some View {
+        GeometryReader { geometry in
+            let available = max(0, geometry.size.width - 12)
+            let height = min(56, available * 114 / 674)
+            HStack(spacing: 12) {
+                NanaProfileArtworkButton(asset: "152", label: "Chat", height: height) {
+                    conversation = contentStore.conversation(for: liveProfile)
+                }.frame(width: available * 260 / 674)
+                NanaProfileArtworkButton(asset: "145", label: "Start video", height: height) { showingCall = true }
+                    .frame(width: available * 414 / 674)
+            }
+        }
+        .frame(height: 56)
+        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 10)
+        .background {
+            LinearGradient(colors: [.clear, .black.opacity(0.72)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .bottom)
+        }
+    }
+}
+
+private struct NanaProfileArtworkButton: View {
+    let asset: String
+    let label: String
+    var height: CGFloat = 44
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            NanaAssetImage(assetKey: "nana.voice.voice_asset_\(asset)", contentMode: .fit)
+                .frame(height: height).frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(label)
+    }
+}
+
+private struct NanaPublicPhotoSelection: Identifiable {
+    let id = UUID()
+    let assets: [String]
+    let index: Int
+}
+
+private struct NanaPublicPhotoViewer: View {
+    let profile: NanaProfile
+    let selection: NanaPublicPhotoSelection
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var index: Int
+    @State private var safetyAction: NanaPostSafetyAction?
+
+    init(profile: NanaProfile, selection: NanaPublicPhotoSelection) {
+        self.profile = profile
+        self.selection = selection
+        _index = State(initialValue: min(max(0, selection.index), max(0, selection.assets.count - 1)))
+    }
+    private var following: Bool { contentStore.isFollowing(profile.id) }
+    private var currentAsset: String? { selection.assets.indices.contains(index) ? selection.assets[index] : nil }
+    private var likeKey: String { "profile-photo-like-\(profile.id)-\(currentAsset ?? "")" }
+    private var isLiked: Bool { contentStore.preference(likeKey, default: false) }
+    private var visiblePageIndices: Range<Int> {
+        let start = max(0, min(index - 3, selection.assets.count - 7))
+        return start..<min(selection.assets.count, start + 7)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            GeometryReader { geometry in
+                TabView(selection: $index) {
+                    ForEach(Array(selection.assets.enumerated()), id: \.offset) { position, asset in
+                        NanaMediaPreview(assetKey: asset)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped().tag(position)
+                            .accessibilityLabel("Photo \(position + 1) of \(selection.assets.count)")
+                    }
+                }.tabViewStyle(.page(indexDisplayMode: .never))
+            }.ignoresSafeArea()
+            LinearGradient(stops: [
+                .init(color: .black.opacity(0.38), location: 0),
+                .init(color: .clear, location: 0.22),
+                .init(color: .clear, location: 0.65),
+                .init(color: .black.opacity(0.55), location: 1)
+            ], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea().allowsHitTesting(false)
+            VStack(spacing: 0) {
+                photoToolbar
+                Spacer()
+                if selection.assets.count > 1 {
+                    VStack(spacing: 10) {
+                        Text("Swipe left or right to view photos").font(.system(size: 12))
+                            .shadow(color: .black.opacity(0.7), radius: 3, y: 1)
+                        HStack(spacing: 6) {
+                            ForEach(visiblePageIndices, id: \.self) { page in
+                                Image("NanaCheckInGuideButton").resizable()
+                                    .frame(width: page == index ? 16 : 6, height: 6)
+                                    .clipShape(Capsule()).opacity(page == index ? 1 : 0.4)
+                            }
+                        }.accessibilityHidden(true)
+                    }.padding(.bottom, 24).allowsHitTesting(false)
+                }
+                photoActions
+            }
+        }
+        .buttonStyle(.plain).foregroundStyle(.white).preferredColorScheme(.dark)
+        .sheet(item: $safetyAction) { action in
+            NanaPostSafetySheet(context: contentStore.discussion(for: profile), initialAction: action) { dismiss() }
+        }
+        .onChange(of: contentStore.safetyDismissalID) { _, _ in
+            if contentStore.hiddenAuthorIDs.contains(profile.id) { dismiss() }
+        }
+        .overlay {
+            if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } }
+        }
+    }
+
+    private var photoToolbar: some View {
+        ZStack {
+            Text("\(selection.assets.isEmpty ? 0 : index + 1)/\(selection.assets.count)")
+                .font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                .accessibilityLabel("Photo \(selection.assets.isEmpty ? 0 : index + 1) of \(selection.assets.count)")
+            HStack {
+                Button { dismiss() } label: {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_030", contentMode: .fit)
+                        .frame(width: 26, height: 26).frame(width: 44, height: 44).contentShape(Rectangle())
+                }.accessibilityLabel("Back")
+                Spacer()
+                Button { safetyAction = .options } label: {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_119", contentMode: .fit)
+                        .frame(width: 27, height: 27).frame(width: 44, height: 44).contentShape(Rectangle())
+                }.accessibilityLabel("More profile options")
+            }
+        }.padding(.horizontal, 12).padding(.top, 4)
+    }
+
+    private var photoActions: some View {
+        HStack(spacing: 12) {
+            NanaProfileArtworkButton(asset: isLiked ? "167" : "098", label: isLiked ? "Unlike photo" : "Like photo", height: 50) {
+                guard currentAsset != nil else { return }
+                contentStore.setPreference(likeKey, value: !isLiked)
+            }.frame(width: 94).disabled(currentAsset == nil)
+            NanaProfileArtworkButton(asset: following ? "150" : "137", label: following ? "Unfollow" : "Follow", height: 50) {
+                contentStore.toggleConnection(for: profile)
+            }.frame(maxWidth: .infinity)
+        }.frame(maxWidth: 360).padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
+    }
 }
 
 private struct NanaEditProfileView: View {
@@ -1362,17 +1680,23 @@ private struct NanaCheckInView: View {
     }
 }
 
+private enum NanaCollectionDestination: String, Identifiable {
+    case store, backpack
+    var id: String { rawValue }
+    var title: String { self == .store ? "Store" : "Backpack" }
+}
+
 private struct NanaCollectionView: View {
-    let title: String
+    let destination: NanaCollectionDestination
     @EnvironmentObject private var contentStore: NanaContentStore
     @EnvironmentObject private var coinStore: NanaCoinStore
     @State private var selectedGiftID = NanaGift.roomCatalog[0].id
     @State private var quantity = 1
     private var selectedGift: NanaGift { NanaGift.roomCatalog.first { $0.id == selectedGiftID } ?? NanaGift.roomCatalog[0] }
-    private var isStore: Bool { title == "Store" }
+    private var isStore: Bool { destination == .store }
 
     var body: some View {
-        NanaProfilePage(title) {
+        NanaProfilePage(destination.title) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 28) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 22) {

@@ -240,7 +240,7 @@ struct NanaLiveRoomView: View {
             roomMusic.pause()
         }
         .sheet(isPresented: $showingWallet) { NanaWalletView() }
-        .sheet(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
+        .fullScreenCover(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
         .fullScreenCover(item: $conversation) { NanaConversationView(conversation: $0) }
         .alert("More coins needed", isPresented: $showingInsufficientCoins) {
             Button("Open Wallet") { showingWallet = true }

@@ -110,7 +110,7 @@ struct NanaRankingView: View {
         .foregroundStyle(NanaPalette.warmWhite)
         .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
+        .fullScreenCover(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
         .sheet(isPresented: $showingRules) {
             NanaRankingGuideView(category: category, showsSampleRankings: showsSampleRankings)
         }

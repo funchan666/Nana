@@ -29,6 +29,9 @@ enum NanaAssetLibrary {
     }
 
     static func image(for assetKey: String) -> UIImage? {
+        if assetKey.hasPrefix("nana.video.") {
+            return videoCover(for: assetKey)
+        }
         if assetKey.hasPrefix("nana.pic.") {
             guard let url = bundledPictures[assetKey] else { return nil }
             return UIImage(contentsOfFile: url.path)
@@ -43,6 +46,31 @@ enum NanaAssetLibrary {
             return UIImage(contentsOfFile: url.path)
         }
         return UIImage(named: assetKey)
+    }
+
+    // User-approved sample portraits for bundled creators without a supplied profile photo.
+    // Key by creator handle so multiple clips and saved identities keep the same portrait.
+    static func sampleCreatorPortrait(for handle: String) -> String? {
+        let portraits = [
+            "@ariffathulhakim": "DdUCdcjCBlJ",
+            "@berniemor": "DdTNJvtjogw",
+            "@capt.carterbrown": "DdE-UZfnG_R",
+            "@coletrotta": "DdRrLB4DED5",
+            "@escapetolandscapes": "DdBLxdkjQZi",
+            "@harvon.x": "DcuZZmSliO1",
+            "@iangblack": "Dcz55LfiUxQ",
+            "@inga_galeeva": "Dc2AwHAjPnJ",
+            "@josee.steelman": "DdOkklBgBAh",
+            "@lilyrowland1": "DdeJda-FZ6L",
+            "@maialopezr": "DdV5DG4DAsC",
+            "@mark_pnw": "DdZdzhTjEWz",
+            "@matti_af": "DctrZb7jKiH",
+            "@megaamerican": "DcuIUt0EfAG",
+            "@mickjaggedd": "DdTY1ZoDJ_o",
+            "@mkaaloha": "DdT-9kziCLE",
+            "@radovantravels": "DdbslWbiDao"
+        ]
+        return portraits[handle.lowercased()].map { "nana.pic." + $0 }
     }
 
     /// Every supplied video participates in the feed, independent of the server's room count.

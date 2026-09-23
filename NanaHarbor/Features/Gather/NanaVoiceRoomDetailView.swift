@@ -49,9 +49,13 @@ struct NanaVoiceStageView: View {
                 }
             }
         }
-        .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
-        .sheet(item: $selectedMember) { member in
-            NanaVoiceMemberDetails(member: member, roomName: room.title)
+        .fullScreenCover(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
+        .fullScreenCover(item: $selectedMember) { member in
+            NanaUserProfileView(profile: NanaProfile(
+                id: member.id, displayName: member.displayName, handle: "", region: "", language: "", gender: "", age: 0,
+                introduction: "On microphone · \(room.title)", avatarAssetKey: member.avatarAssetKey,
+                isConnected: false, followerCount: 0, followingCount: 0, level: 0, hasCompleteDetails: false
+            ))
         }
     }
 
@@ -96,36 +100,5 @@ struct NanaVoiceStageView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(occupied ? "\(name), \(isHost ? "host" : "speaker")\(seat.isMuted ? ", muted" : "")" : "Join microphone \(seat.position + 1)")
-    }
-}
-
-private struct NanaVoiceMemberDetails: View {
-    let member: NanaReplayAudienceMember
-    let roomName: String
-    @Environment(\.dismiss) private var dismiss
-    @State private var safetyAction: NanaPostSafetyAction?
-
-    var body: some View {
-        VStack(spacing: 16) {
-            NanaAvatarView(title: member.displayName, assetKey: member.avatarAssetKey, size: 76)
-            Text(member.displayName).font(.system(size: 22, weight: .semibold))
-            Text("On microphone · \(roomName)")
-                .font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
-                .multilineTextAlignment(.center)
-            NanaSafetyOptionsButton(subject: "profile") { safetyAction = $0 }
-            Button("Done") { dismiss() }.font(.system(size: 14, weight: .semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(NanaPalette.violet, in: Capsule()).buttonStyle(.plain)
-        }
-        .padding(24).foregroundStyle(.white)
-        .presentationDetents([.height(340)])
-        .presentationDragIndicator(.visible).presentationBackground(NanaPalette.deepSpace)
-        .sheet(item: $safetyAction) { action in
-            NanaPostSafetySheet(context: NanaPostDiscussion(
-                key: member.id, title: member.displayName, authorID: member.id,
-                authorName: member.displayName, authorAvatar: member.avatarAssetKey,
-                videoAssetKey: nil, kind: .profile
-            ), initialAction: action) { dismiss() }
-        }
     }
 }

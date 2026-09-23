@@ -726,7 +726,7 @@ struct NanaFriendsListView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
+            .fullScreenCover(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
             .sheet(item: $callProfile) { NanaVideoCallView(profile: $0) }
             .fullScreenCover(item: $selectedConversation) { NanaConversationView(conversation: $0) }
             .overlay {
@@ -1062,6 +1062,7 @@ private struct NanaPersonalPhotoImage: View {
 
 struct NanaConversationView: View {
     let conversation: NanaConversation
+    var recipientProfile: NanaProfile? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var draft = ""
@@ -1074,7 +1075,7 @@ struct NanaConversationView: View {
     @FocusState private var composerFocused: Bool
 
     private var messages: [NanaMessage] { contentStore.conversationMessages(for: conversation.id) }
-    private var profile: NanaProfile? { contentStore.profile(with: conversation.profileID) }
+    private var profile: NanaProfile? { contentStore.profile(with: conversation.profileID) ?? recipientProfile }
     private var hasDraft: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var draftKey: String { "conversation.\(conversation.id)" }
 
@@ -1107,7 +1108,7 @@ struct NanaConversationView: View {
                     AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
                 }
             }
-            .sheet(isPresented: $showingProfile) {
+            .fullScreenCover(isPresented: $showingProfile) {
                 if let profile { NanaUserProfileView(profile: profile) }
             }
             .sheet(isPresented: $showingCall) {
@@ -1165,7 +1166,7 @@ struct NanaConversationView: View {
                                     .frame(width: 30, height: 12)
                             }
                         }
-                        if let profile {
+                        if let profile, profile.hasCompleteDetails != false {
                             HStack(spacing: 7) {
                                 Text("Lv.\(profile.level)")
                                     .padding(.horizontal, 5).padding(.vertical, 2)
@@ -1186,7 +1187,7 @@ struct NanaConversationView: View {
             }
             .buttonStyle(.plain)
             .disabled(profile == nil)
-            if let profile {
+            if let profile, profile.hasCompleteDetails != false {
                 HStack(spacing: 10) {
                     profileStat("Follower", value: "\(profile.followerCount)", color: .green)
                     profileStat("Friends", value: "—", color: .cyan)

@@ -42,7 +42,7 @@ struct NanaDiscoverySearchView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingFilters) { NanaSearchFilterView(filter: $filter) }
-            .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
+            .fullScreenCover(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
             .fullScreenCover(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
             .sheet(item: $selectedPost) { post in NanaPostDetailView(post: post) }
             .task { await contentStore.refresh(.search) }

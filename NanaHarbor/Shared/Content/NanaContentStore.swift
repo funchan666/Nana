@@ -55,9 +55,9 @@ final class NanaContentStore: ObservableObject {
     var activityPoints: Int { personal.checkInDays.count * 10 }
     var activityLevel: Int { 1 + activityPoints / 200 }
     var followedProfiles: [NanaProfile] {
-        personal.followedProfiles.values.filter { !hiddenAuthorIDs.contains($0.id) }.sorted { $0.displayName < $1.displayName }
+        personal.followedProfiles.values.map(resolvingCreatorPortrait).filter { !hiddenAuthorIDs.contains($0.id) }.sorted { $0.displayName < $1.displayName }
     }
-    var hiddenProfiles: [NanaProfile] { personal.hiddenProfiles.values.sorted { $0.displayName < $1.displayName } }
+    var hiddenProfiles: [NanaProfile] { personal.hiddenProfiles.values.map(resolvingCreatorPortrait).sorted { $0.displayName < $1.displayName } }
     var hiddenAuthorIDs: Set<String> {
         var ids = blockedProfileIDs.union(personal.reportedProfileIDs ?? [])
         for id in Array(ids) { ids.formUnion(personal.safetyAuthorAliases?[id] ?? []) }
@@ -441,9 +441,14 @@ final class NanaContentStore: ObservableObject {
     func room(with id: String) -> NanaLiveRoom? { payload.rooms.first { $0.id == id && isRoomVisible($0) } }
     func profile(with id: String) -> NanaProfile? {
         guard !hiddenAuthorIDs.contains(id) else { return nil }
-        guard var profile = (mutualFriends + newFollowers + visibleProfiles + followedProfiles).first(where: { $0.id == id }) else { return nil }
-        profile.isConnected = isFollowing(id)
-        return profile
+        if var profile = (mutualFriends + newFollowers + visibleProfiles + followedProfiles).first(where: { $0.id == id }) {
+            profile.isConnected = isFollowing(id)
+            return resolvingCreatorPortrait(profile)
+        }
+        if let clip = NanaAssetLibrary.videoClips.first(where: { videoCreatorID($0) == id }) {
+            return bundledCreatorProfile(for: clip)
+        }
+        return nil
     }
     func post(with id: String) -> NanaPost? { posts().first { $0.id == id } }
     func posts(for filter: NanaSearchFilter? = nil) -> [NanaPost] {
@@ -541,7 +546,14 @@ final class NanaContentStore: ObservableObject {
     func dismissActionNotice() { actionNotice = nil }
     func completeSafetyAction() { safetyDismissalID = UUID() }
     func toggleConnection(for profileID: String) {
-        guard var profile = self.profile(with: profileID) ?? personal.followedProfiles[profileID] else { return }
+        guard let profile = self.profile(with: profileID) ?? personal.followedProfiles[profileID] else { return }
+        toggleConnection(for: profile)
+    }
+
+    func toggleConnection(for suppliedProfile: NanaProfile) {
+        let profileID = suppliedProfile.id
+        guard !hiddenAuthorIDs.contains(profileID) else { return }
+        var profile = self.profile(with: profileID) ?? suppliedProfile
         var updated = personal
         let following = !isFollowing(profileID)
         updated.following[profileID] = following
@@ -612,7 +624,35 @@ final class NanaContentStore: ObservableObject {
     func discussion(for clip: NanaBundledVideo) -> NanaPostDiscussion {
         if let post = payload.posts.first(where: { $0.coverAssetKey == clip.assetKey }) { return discussion(for: post) }
         return NanaPostDiscussion(key: clip.id, title: clip.creatorLabel, authorID: videoCreatorID(clip),
-                                  authorName: clip.creatorLabel, authorAvatar: nil, videoAssetKey: clip.assetKey)
+                                  authorName: clip.creatorLabel, authorAvatar: NanaAssetLibrary.sampleCreatorPortrait(for: clip.creatorLabel), videoAssetKey: clip.assetKey)
+    }
+
+    func creatorProfile(for clip: NanaBundledVideo) -> NanaProfile {
+        let identity = discussion(for: clip)
+        if let known = profile(with: identity.authorID) { return known }
+        return bundledCreatorProfile(for: clip)
+    }
+
+    private func bundledCreatorProfile(for clip: NanaBundledVideo) -> NanaProfile {
+        // Read the identity directly: discussion(post:) resolves profiles and must not recurse here.
+        let post = payload.posts.first { $0.coverAssetKey == clip.assetKey }
+        let authorID = post?.authorID ?? videoCreatorID(clip)
+        return NanaProfile(id: authorID, displayName: post?.authorName ?? clip.creatorLabel,
+                           handle: String(clip.creatorLabel.dropFirst()), region: "", language: "", gender: "", age: 0,
+                           introduction: "", avatarAssetKey: NanaAssetLibrary.sampleCreatorPortrait(for: clip.creatorLabel),
+                           isConnected: isFollowing(authorID), followerCount: 0, followingCount: 0, level: 0,
+                           hasCompleteDetails: false)
+    }
+
+    private func resolvingCreatorPortrait(_ profile: NanaProfile) -> NanaProfile {
+        var resolved = profile
+        // Keep genuine profile photos. Replace only missing photos or old video-cover avatars.
+        guard resolved.avatarAssetKey == nil || resolved.avatarAssetKey?.hasPrefix("nana.video.") == true else { return resolved }
+        let handle = profile.id.hasPrefix("video-creator-")
+            ? String(profile.id.dropFirst("video-creator-".count))
+            : (profile.handle.hasPrefix("@") ? profile.handle : "@" + profile.handle)
+        if let portrait = NanaAssetLibrary.sampleCreatorPortrait(for: handle) { resolved.avatarAssetKey = portrait }
+        return resolved
     }
 
     private func videoCreatorID(_ clip: NanaBundledVideo) -> String { "video-creator-" + clip.creatorLabel.lowercased() }
