@@ -1,0 +1,372 @@
+[
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaPasswordHidden.imageset/NanaPasswordHidden.png",
+    "size": [
+      40,
+      40
+    ],
+    "bytes": 1191,
+    "rgba_sha256": "c655c8ece472dc2ed7a89f0be1a618441ee3c31dac059b0a89b13058825a0f86",
+    "optimized_bytes": 567
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaAppleAction.imageset/NanaAppleAction.png",
+    "size": [
+      588,
+      108
+    ],
+    "bytes": 12911,
+    "rgba_sha256": "cebf6d473071ac502097736c798d0dd828ad762aa146e89d325649f12d6cd151",
+    "optimized_bytes": 7351
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaCheckInGuideSurface.imageset/NanaCheckInGuideSurface.png",
+    "size": [
+      1024,
+      1536
+    ],
+    "bytes": 1547656,
+    "rgba_sha256": "fd62874fb30302abe0a3ac61c762ba64ad47fb4225324ab703f83a1380c1742f",
+    "optimized_bytes": 1318719
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaEmptyFriendsLive.imageset/empty-friends-live.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 1110293,
+    "rgba_sha256": "1bb62a54222de2122b841ad27ae72fdb819a9bec36e03204d6d7df2435688e32",
+    "optimized_bytes": 984420
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaAccountArtwork.imageset/NanaAccountArtwork.png",
+    "size": [
+      780,
+      1688
+    ],
+    "bytes": 277134,
+    "rgba_sha256": "f43ceb57db83219a872b911ded2fdd973b4265e34f140db8eab4487047458838",
+    "optimized_bytes": 127346
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaFilterIllustration.imageset/NanaFilterIllustration.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 594883,
+    "rgba_sha256": "e9a08093332852a57b1787a64ba56a466ed67eaa06b58e0f8c38b3a775f5d058",
+    "optimized_bytes": 528482
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaWelcomeCoin.imageset/NanaWelcomeCoin.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 1849110,
+    "rgba_sha256": "1d232add5103084787db1e8422de30447fb3867538321f0c879f39dfa5830fc8",
+    "optimized_bytes": 1771518
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaLaunchArtwork.imageset/NanaLaunchArtwork.png",
+    "size": [
+      780,
+      1688
+    ],
+    "bytes": 280685,
+    "rgba_sha256": "d8cdacc5d9e2212264d949eac9d91399a5399e8819e46cefa2e7c93e41daf28d",
+    "optimized_bytes": 131366
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaSearchIllustration.imageset/NanaSearchIllustration.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 928647,
+    "rgba_sha256": "cf1eda85308301687b6256204c8c0ebf1ff611b6bd991df552ddeef2e03b1b16",
+    "optimized_bytes": 847382
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaPasswordVisible.imageset/NanaPasswordVisible.png",
+    "size": [
+      40,
+      40
+    ],
+    "bytes": 1889,
+    "rgba_sha256": "8591a630fc23e6767508466d258d41a3d3f53c034e46af4e26e2e9d2b72e49ff",
+    "optimized_bytes": 866
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaEmptyConversations.imageset/empty-conversations.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 751793,
+    "rgba_sha256": "702c3d3023a55eafc47eff3da7dae8c1cedcce9934e407ca1ad20972760cc16a",
+    "optimized_bytes": 649537
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaLoginAction.imageset/NanaLoginAction.png",
+    "size": [
+      588,
+      108
+    ],
+    "bytes": 6230,
+    "rgba_sha256": "33e5d34faa266735930602d67d84fe8ec01ce06351243817815bb187446528cd",
+    "optimized_bytes": 2725
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaWalletGuideIllustration.imageset/NanaWalletGuideIllustration.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 1922725,
+    "rgba_sha256": "2b9f3591a8fa197f2c5b83aa65cfba7840e02f169b7ab5212d12c13687fb241e",
+    "optimized_bytes": 1660744
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaClearEntry.imageset/NanaClearEntry.png",
+    "size": [
+      40,
+      40
+    ],
+    "bytes": 1353,
+    "rgba_sha256": "e66586692c04c013ab7dd87246813a8d110538d55315e65dc938b542f9daeab1",
+    "optimized_bytes": 779
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaCheckInArtwork.imageset/NanaCheckInArtwork.png",
+    "size": [
+      700,
+      1238
+    ],
+    "bytes": 322185,
+    "rgba_sha256": "5b5fd1b5379292a6231bcfcb37039c8388cd5fb1c80d5e1ca2ef52e648058832",
+    "optimized_bytes": 194212
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaSettingsCardSurface.imageset/settings-card.png",
+    "size": [
+      1024,
+      1536
+    ],
+    "bytes": 1547656,
+    "rgba_sha256": "fd62874fb30302abe0a3ac61c762ba64ad47fb4225324ab703f83a1380c1742f",
+    "optimized_bytes": 1318719
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaLevelGem.imageset/NanaLevelGem.png",
+    "size": [
+      264,
+      220
+    ],
+    "bytes": 88494,
+    "rgba_sha256": "90c868e97b8fa8226e5243944151c2ea34cb627f141cd4fe72ae06a305b0afde",
+    "optimized_bytes": 62176
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaBrandIcon.imageset/NanaBrandIcon.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "bytes": 729879,
+    "rgba_sha256": "9d07be0885ac8293c2d76df7816ae437f0d676ef906d561286e1f73036cda520",
+    "optimized_bytes": 518909
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/AppIcon.appiconset/NanaAppIcon.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "bytes": 729879,
+    "rgba_sha256": "9d07be0885ac8293c2d76df7816ae437f0d676ef906d561286e1f73036cda520",
+    "optimized_bytes": 518909
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaChatEmojiIcon.imageset/NanaChatEmojiIcon.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 386366,
+    "rgba_sha256": "7fc4fc6a3c556ea96fcadc4d612e24b300f0a946d942957b5ea72e285f6342a4",
+    "optimized_bytes": 327800
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaStoreCheckoutSurface.imageset/NanaStoreCheckoutSurface.png",
+    "size": [
+      2172,
+      724
+    ],
+    "bytes": 727711,
+    "rgba_sha256": "94ffd72bc45bbf161cc21288a9e912b89fb6ddb883ff4c49ff377cea07400cb1",
+    "optimized_bytes": 566808
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaProfileEditorButton.imageset/NanaProfileEditorButton.png",
+    "size": [
+      2172,
+      724
+    ],
+    "bytes": 610064,
+    "rgba_sha256": "8d50129a08471ba4f2aa0c6f13410017eba723e63edc03d4ea9ccd6faa659ea4",
+    "optimized_bytes": 482471
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaProfileEditorHero.imageset/NanaProfileEditorHero.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 2028340,
+    "rgba_sha256": "23a583d9adab325945c06a689297715545c7001f25930ea0f36330826d6608fb",
+    "optimized_bytes": 1608034
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaChatPhotoIcon.imageset/NanaChatPhotoIcon.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 257314,
+    "rgba_sha256": "aa4761651269b0a6819af5cd208a562f9be72f3eeb017a07c12e1a32810c147c",
+    "optimized_bytes": 205001
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaWalletArtwork.imageset/NanaWalletArtwork.png",
+    "size": [
+      700,
+      260
+    ],
+    "bytes": 216565,
+    "rgba_sha256": "3eb67d829236224f4d3ad450ca4ad09a494f37481fe0e98a4350c73592e9746c",
+    "optimized_bytes": 110090
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaSettingsSecurity.imageset/NanaSettingsSecurity.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 1639051,
+    "rgba_sha256": "208538d9afa402375969c0eb0638fe19e788ef913ce46e9124d45697faee2057",
+    "optimized_bytes": 1364806
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaCheckInGuideCalendar.imageset/NanaCheckInGuideCalendar.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 1776193,
+    "rgba_sha256": "d0ab8e4190059be88b09a81d8edfe227d3e0d00bc443da4cbc89b7de6b5bb3f7",
+    "optimized_bytes": 1559459
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaPlainArtwork.imageset/NanaPlainArtwork.png",
+    "size": [
+      780,
+      1688
+    ],
+    "bytes": 245068,
+    "rgba_sha256": "96f0e4a46ad482f240287e89bb41e955964e151147d5cecb4c4f58dbe5efeef9",
+    "optimized_bytes": 106509
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaCheckInGuideButton.imageset/NanaCheckInGuideButton.png",
+    "size": [
+      2172,
+      724
+    ],
+    "bytes": 1047200,
+    "rgba_sha256": "6368aebb16aea707ac1b319d2ae121b32adb46c0c01d8438e6c94c7a2fd3444d",
+    "optimized_bytes": 870832
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaSettingsAccounts.imageset/NanaSettingsAccounts.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 1759149,
+    "rgba_sha256": "5e41c418ca5916166635d2b39d626c938920193c13b62cabbad483454c1dcc24",
+    "optimized_bytes": 1507104
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaSettingsNotifications.imageset/NanaSettingsNotifications.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 1257883,
+    "rgba_sha256": "ed7258c10f7bb6350bbc3e5710d9bb4732a663128a2a7ad95d9eef3881782dd9",
+    "optimized_bytes": 1017510
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaGiftArtwork.imageset/NanaGiftArtwork.png",
+    "size": [
+      200,
+      148
+    ],
+    "bytes": 30446,
+    "rgba_sha256": "09284dd58da57f4226d96793b316ca9adbbcc4ee6afce32b36d9ca6b0548e7e7",
+    "optimized_bytes": 19482
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaSettingsStorage.imageset/NanaSettingsStorage.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 1459027,
+    "rgba_sha256": "2938b075b492273a8a0145b226c11a9a245fdbe1f741334fc95c0d16aa327814",
+    "optimized_bytes": 1236790
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaMutualCallIllustration.imageset/NanaMutualCallIllustration.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "bytes": 913536,
+    "rgba_sha256": "0602a10d1272c093a78b6dda258a006a0da27ca1d5201baa879b602a0795ffdb",
+    "optimized_bytes": 806521
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaSettingsPrivacy.imageset/NanaSettingsPrivacy.png",
+    "size": [
+      1536,
+      1024
+    ],
+    "bytes": 1486054,
+    "rgba_sha256": "0f38fd6128b6ce88b446c6fcd81127ed0f4bcc56a8ba0802e3954a45d0e65ed3",
+    "optimized_bytes": 1272795
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaRegistrationAction.imageset/NanaRegistrationAction.png",
+    "size": [
+      588,
+      108
+    ],
+    "bytes": 6072,
+    "rgba_sha256": "c1f3067c19b73efab6080bce763f92a1cc232744541178c5af7d839771a370d3",
+    "optimized_bytes": 2610
+  },
+  {
+    "path": "NanaHarbor/Assets.xcassets/NanaLiveBackdrop.imageset/NanaLiveBackdrop.png",
+    "size": [
+      572,
+      1688
+    ],
+    "bytes": 175911,
+    "rgba_sha256": "6f76b1f33c863bb83609da9d633b2d62df38ea40e38a77da35a3f7db4eacfdfd",
+    "optimized_bytes": 84140
+  }
+]
