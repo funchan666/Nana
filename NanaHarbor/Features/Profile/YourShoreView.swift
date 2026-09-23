@@ -392,7 +392,7 @@ struct NanaUserProfileView: View {
                         hero(width: geometry.size.width, height: max(440, min(570, geometry.size.width * 1.34)))
                         VStack(alignment: .leading, spacing: 12) {
                             if let room { roomCard(room) }
-                            contentTabs
+                            contentTabs.zIndex(1)
                             if showsAlbum { albumGrid } else { postGrid }
                         }
                         .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 100)
@@ -515,8 +515,9 @@ struct NanaUserProfileView: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.padding(8)
-                .background { NanaAssetImage(assetKey: "nana.voice.voice_asset_042") }
+                .background { NanaAssetImage(assetKey: "nana.voice.voice_asset_042").allowsHitTesting(false) }
                 .clipShape(RoundedRectangle(cornerRadius: 14))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
         }.buttonStyle(.plain)
     }
 
@@ -533,9 +534,10 @@ struct NanaUserProfileView: View {
                 .foregroundStyle(selected ? .white : NanaPalette.mutedWhite)
                 .padding(.vertical, 12)
                 .overlay(alignment: .bottom) {
-                    if selected { Image("NanaCheckInGuideButton").resizable().frame(width: 28, height: 3).accessibilityHidden(true) }
+                    if selected { Image("NanaCheckInGuideButton").resizable().frame(width: 28, height: 3).allowsHitTesting(false).accessibilityHidden(true) }
                 }
                 .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -547,8 +549,9 @@ struct NanaUserProfileView: View {
                     NanaMediaPreview(assetKey: video.assetKey).frame(height: 260).clipped()
                         .overlay(alignment: .bottomTrailing) {
                             NanaAssetImage(assetKey: "nana.voice.voice_asset_011", contentMode: .fit)
-                                .frame(width: 30, height: 30).padding(10)
+                                .frame(width: 30, height: 30).padding(10).allowsHitTesting(false)
                         }.clipShape(RoundedRectangle(cornerRadius: 13))
+                            .contentShape(RoundedRectangle(cornerRadius: 13))
                 }.buttonStyle(.plain).accessibilityLabel("Play video by \(liveProfile.displayName)")
             }
         }
@@ -558,6 +561,7 @@ struct NanaUserProfileView: View {
                     Button { openPhoto(asset) } label: {
                         NanaMediaPreview(assetKey: asset).frame(height: 260).clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 13))
+                            .contentShape(RoundedRectangle(cornerRadius: 13))
                     }.buttonStyle(.plain).accessibilityLabel("View photo by \(liveProfile.displayName)")
                 }
                 Button { selectedPost = post } label: {
@@ -581,6 +585,7 @@ struct NanaUserProfileView: View {
             ForEach(Array(photos.enumerated()), id: \.element) { index, asset in
                 Button { photoSelection = NanaPublicPhotoSelection(assets: photos, index: index) } label: {
                     NanaMediaPreview(assetKey: asset).frame(height: 220).clipped().clipShape(RoundedRectangle(cornerRadius: 13))
+                            .contentShape(RoundedRectangle(cornerRadius: 13))
                 }.buttonStyle(.plain).accessibilityLabel("View photo \(index + 1)")
             }
         }

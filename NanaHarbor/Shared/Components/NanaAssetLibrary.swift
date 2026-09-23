@@ -141,7 +141,10 @@ struct NanaMediaPreview: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
+            // Aspect-fill cropping does not constrain hit testing by itself.
+            .contentShape(Rectangle())
         }
+        .contentShape(Rectangle())
     }
 }
 

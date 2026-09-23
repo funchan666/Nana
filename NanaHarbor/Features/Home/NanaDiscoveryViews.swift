@@ -27,16 +27,25 @@ struct NanaDiscoverySearchView: View {
                 NanaBackdrop()
                 VStack(spacing: 0) {
                     searchHeader
+                    VStack(spacing: 12) {
+                        searchField
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(NanaSearchFilter.SearchKind.allCases, id: \.self) { kind in
+                                    NanaChip(title: kind.rawValue, isSelected: filter.kind == kind) { filter.kind = kind }
+                                }
+                            }
+                        }.frame(height: 44)
+                    }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 14)
                     ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 18) {
-                            searchField
-                            ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(NanaSearchFilter.SearchKind.allCases, id: \.self) { kind in NanaChip(title: kind.rawValue, isSelected: filter.kind == kind) { filter.kind = kind } } } }
+                        LazyVStack(alignment: .leading, spacing: 16) {
                             if filter.kind == .all || filter.kind == .people { resultGroup(title: "People", profiles: matchingProfiles) }
                             if filter.kind == .all || filter.kind == .rooms { roomResults }
                             if filter.kind == .all || filter.kind == .posts { postResults }
                         }
-                        .padding(20)
+                        .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 24)
                     }
+                    .clipped()
                     .scrollDismissesKeyboard(.interactively)
                 }
             }
@@ -48,6 +57,11 @@ struct NanaDiscoverySearchView: View {
             .task { await contentStore.refresh(.search) }
         }
         .preferredColorScheme(.dark)
+        .overlay {
+            if let notice = contentStore.actionNotice {
+                AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
+            }
+        }
     }
 
     private var searchHeader: some View {
@@ -109,35 +123,106 @@ struct NanaDiscoverySearchView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(NanaPalette.border, lineWidth: 0.7))
     }
 
-    @ViewBuilder private func resultGroup(title: String, profiles: [NanaProfile]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NanaSectionTitle(eyebrow: "Search", title: title)
-            if profiles.isEmpty { Text("No people match these filters.").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite) }
+    private func resultGroup(title: String, profiles: [NanaProfile]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            resultHeading(title, count: profiles.count)
+            if profiles.isEmpty { emptyResults("No people match these filters.") }
             ForEach(profiles) { profile in
-                Button { selectedProfile = profile } label: { NanaPersonRow(profile: profile, trailingTitle: profile.isConnected ? "Connected" : "Connect") { contentStore.toggleConnection(for: profile.id) } }
-                    .buttonStyle(.plain)
+                HStack(spacing: 10) {
+                    Button { searchFocused = false; selectedProfile = profile } label: {
+                        HStack(spacing: 10) {
+                            NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 48)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(profile.displayName).font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(NanaPalette.warmWhite).lineLimit(2)
+                                Text(profile.region.isEmpty ? "@" + profile.handle.trimmingCharacters(in: CharacterSet(charactersIn: "@")) : profile.region)
+                                    .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite).lineLimit(1)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                    Button { contentStore.toggleConnection(for: profile.id) } label: {
+                        NanaAssetImage(assetKey: contentStore.isFollowing(profile.id) ? "nana.voice.voice_asset_101" : "nana.voice.voice_asset_100", contentMode: .fit)
+                            .frame(width: 74, height: 30).frame(minHeight: 44).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(contentStore.isFollowing(profile.id) ? "Unfollow \(profile.displayName)" : "Follow \(profile.displayName)")
+                }.padding(.vertical, 4)
             }
         }
-        .padding(15)
-        .nanaCard()
+        .frame(maxWidth: .infinity, alignment: .leading).padding(14).nanaCard()
     }
 
     private var roomResults: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NanaSectionTitle(eyebrow: "Search", title: "Rooms")
-            ForEach(matchingRooms) { room in Button { selectedRoom = room } label: { HStack { NanaRoomArtwork(room: room, height: 72).frame(width: 108); VStack(alignment: .leading, spacing: 4) { Text(room.title).font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite); Text(room.hostName).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite) }; Spacer() }.padding(.vertical, 5) }.buttonStyle(.plain) }
+        VStack(alignment: .leading, spacing: 12) {
+            resultHeading("Rooms", count: matchingRooms.count)
+            if matchingRooms.isEmpty { emptyResults("No rooms match these filters.") }
+            ForEach(matchingRooms) { room in
+                Button { searchFocused = false; selectedRoom = room } label: {
+                    HStack(alignment: .center, spacing: 12) {
+                        roomThumbnail(room)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(room.title).font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(NanaPalette.warmWhite).lineLimit(2)
+                            Text(room.hostName).font(.system(size: 12))
+                                .foregroundStyle(NanaPalette.mutedWhite).lineLimit(1)
+                            Text(room.streamSourceType == "simulatedReplay" ? "Replay · \(room.category)" : "\(room.roomState) · \(room.category)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(NanaPalette.electricLilac).lineLimit(1)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+                    .padding(.vertical, 4).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
         }
-        .padding(15)
-        .nanaCard()
+        .frame(maxWidth: .infinity, alignment: .leading).padding(14).nanaCard()
+    }
+
+    private func roomThumbnail(_ room: NanaLiveRoom) -> some View {
+        Group {
+            if let asset = room.streamAssetKey ?? room.hostAvatarAssetKey {
+                NanaMediaPreview(assetKey: asset)
+            } else {
+                NanaAvatarView(title: room.hostName, assetKey: nil, size: 64)
+            }
+        }
+        .frame(width: 76, height: 88).clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .accessibilityHidden(true)
     }
 
     private var postResults: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            NanaSectionTitle(eyebrow: "Search", title: "Posts")
-            ForEach(matchingPosts) { post in Button { selectedPost = post } label: { VStack(alignment: .leading, spacing: 5) { Text(post.title).font(NanaType.bodyMedium).foregroundStyle(NanaPalette.warmWhite); Text(post.body).font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite).lineLimit(2) }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5) }.buttonStyle(.plain) }
+        VStack(alignment: .leading, spacing: 12) {
+            resultHeading("Posts", count: matchingPosts.count)
+            if matchingPosts.isEmpty { emptyResults("No posts match your search.") }
+            ForEach(matchingPosts) { post in
+                Button { searchFocused = false; selectedPost = post } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(post.title).font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(NanaPalette.warmWhite).lineLimit(2)
+                        Text(post.body).font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite).lineLimit(2)
+                        Text(post.authorName).font(.system(size: 11)).foregroundStyle(NanaPalette.electricLilac).lineLimit(1)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 5).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
         }
-        .padding(15)
-        .nanaCard()
+        .frame(maxWidth: .infinity, alignment: .leading).padding(14).nanaCard()
+    }
+
+    private func resultHeading(_ title: String, count: Int) -> some View {
+        HStack {
+            Text(title).font(.system(size: 18, weight: .bold))
+                .foregroundStyle(NanaPalette.warmWhite).accessibilityAddTraits(.isHeader)
+            Spacer()
+            Text("\(count)").font(.system(size: 12, weight: .medium)).monospacedDigit()
+                .foregroundStyle(NanaPalette.mutedWhite)
+        }.padding(.bottom, 2)
+    }
+
+    private func emptyResults(_ message: String) -> some View {
+        Text(message).font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
     }
 }
 
