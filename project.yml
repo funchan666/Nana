@@ -42,7 +42,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nanalantern.harbortide
         INFOPLIST_KEY_CFBundleDisplayName: Nana
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.lifestyle
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
         SUPPORTS_MACCATALYST: false
         SWIFT_EMIT_LOC_STRINGS: true
@@ -52,6 +52,7 @@ targets:
       path: NanaHarbor/Support/AppInfo.plist
       properties:
         CFBundleDisplayName: Nana
+        LSApplicationCategoryType: public.app-category.lifestyle
         UILaunchStoryboardName: NanaLaunchScreen
         UIStatusBarStyle: UIStatusBarStyleLightContent
         NSCameraUsageDescription: "Nana uses the camera to take photos, record videos, and preview yourself before a video call."

@@ -16,6 +16,10 @@ Nana Music and Moments
 
 22 个字符，名称限额为 30。设备桌面显示名称仍为 Nana。
 
+## 主要分类
+
+Lifestyle 生活。工程分类已统一；App Store Connect 的主要分类需要在后台单独选择。
+
 ## 应用描述
 
 Nana brings music and everyday expression into one welcoming space. Explore short videos and recorded rooms, from relaxed listening to creative inspiration.

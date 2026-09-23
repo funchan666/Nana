@@ -20,6 +20,8 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.lifestyle</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Nana uses the camera to take photos, record videos, and preview yourself before a video call.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -49,3 +49,9 @@ App Store Connect 9 个商品的存在、金额、地区和审核关联状态尚
 通过工程及 Info.plist 的 plutil 语法检查、diff 空白检查、37 张图片像素核对、17 个原视频完整性核对、资源路径检查。依据 AGENTS.md，没有编译、运行、启动模拟器、执行应用测试或 Archive，因此没有实际 IPA 数字和真实内购验证结果。
 
 参考：[Apple 官方沙盒说明](https://developer.apple.com/help/app-store-connect/test-in-app-purchases/overview-of-testing-in-sandbox)、[内购提交要求](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-in-app-purchase)。
+
+## 文档与资源检查更新
+
+开发文档与资源核对记录已归档到 docs，根目录保留 README.md 和 AGENTS.md。project.yml、Xcode 目标和源 Info.plist 的应用分类现已统一为 Lifestyle；App Store Connect 分类仍需在后台单独选择。
+
+新增只读脚本 scripts/audit_release_resources.py，支持工程静态资源检查和导出 App/IPA 内容检查。本次工程静态扫描覆盖 372 个文件，约 142.26 MB，未发现脚本规则覆盖的开发文件或本机路径混入资源；工程与 Info.plist 语法检查通过。没有编译、运行、执行应用测试或导出 IPA，也没有对新增脚本的 App/IPA 分支进行产物验证。

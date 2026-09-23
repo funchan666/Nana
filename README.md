@@ -26,7 +26,7 @@ Nana is a SwiftUI iOS 17 live-room social prototype. The A-side follows the purp
 - `NanaContentSnapshot.sample` — development-only fixture compiled under `DEBUG` and enabled only with `-NanaDevelopmentFixtures`.
 - `NanaHarbor/Assets.xcassets/` — existing entry artwork plus selected 88-直播3 slices with semantic asset names.
 
-`project.yml` is the XcodeGen source of truth. The Bundle ID is `com.nanalantern.harbortide`. The project does not add B-side WebPortal, H5 or realtime dependencies. Coin purchases use the native StoreKit 2 framework; see `coin-pack-catalog.md` for product setup.
+`project.yml` is the XcodeGen source of truth. The Bundle ID is `com.nanalantern.harbortide`. The project does not add B-side WebPortal, H5 or realtime dependencies. Coin purchases use the native StoreKit 2 framework; see [coin pack catalog](docs/coin-pack-catalog.md) for product setup.
 
 ## A-side read service
 
@@ -60,4 +60,8 @@ The friend rail requires confirmed mutual friendship and an active live room, ex
 
 ## Release preparation
 
-See `release-readiness.md` for resource sizes and outstanding service requirements, `app-store-metadata.md` for accurate listing copy, and `coin-pack-catalog.md` for all nine IAP entries. Real review credentials and App Store Connect product availability remain unverified.
+See [release readiness record](docs/release-readiness.md) for resource sizes and outstanding service requirements, [App Store metadata](docs/app-store-metadata.md) for accurate listing copy, and [coin pack catalog](docs/coin-pack-catalog.md) for all nine IAP entries. Real review credentials and App Store Connect product availability remain unverified.
+
+Development documents and resource inventories live in [docs](docs/README.md). README.md and AGENTS.md stay at the project root. Documentation and scripts are not application resources.
+
+Before distribution, run the read-only [release resource audit](docs/release-resource-audit.md) against the exported App or IPA. This checks the artifact without building or launching the app.
