@@ -26,7 +26,7 @@ Nana is a SwiftUI iOS 17 live-room social prototype. The A-side follows the purp
 - `NanaContentSnapshot.sample` — development-only fixture compiled under `DEBUG` and enabled only with `-NanaDevelopmentFixtures`.
 - `NanaHarbor/Assets.xcassets/` — existing entry artwork plus selected 88-直播3 slices with semantic asset names.
 
-`project.yml` is the XcodeGen source of truth. The Bundle ID is `com.nanalantern.harbortide`. The project does not add B-side WebPortal, H5, StoreKit or realtime dependencies.
+`project.yml` is the XcodeGen source of truth. The Bundle ID is `com.nanalantern.harbortide`. The project does not add B-side WebPortal, H5 or realtime dependencies. Coin purchases use the native StoreKit 2 framework; see `coin-pack-catalog.md` for product setup.
 
 ## A-side read service
 
@@ -57,3 +57,7 @@ Apple sign-in requires the developer team's `com.nanalantern.harbortide` App ID 
 Messages renders only `NanaAccountInboxSnapshot`, separate from the public bootstrap, anonymous conversation endpoint and their cached examples. The published contract currently supplies neither authenticated private messages nor confirmed mutual-follow relationships, so the inbox starts empty. A future authenticated messaging integration must pass its account-specific snapshot to `replaceAccountInbox`; no endpoint or successful delivery is invented here. Switching accounts or signing out clears the private snapshot.
 
 The friend rail requires confirmed mutual friendship and an active live room, excludes bundled replays and locally unfollowed/hidden authors, and shows each host once. Tapping a friend opens the room. Conversations and message bodies share the private source and retain local hide/block/read handling. Each section has its own empty state; anonymous catalog refreshes and old cached examples cannot populate either section. These changes were inspected statically without building, running or testing the app.
+
+## Release preparation
+
+See `release-readiness.md` for resource sizes and outstanding service requirements, `app-store-metadata.md` for accurate listing copy, and `coin-pack-catalog.md` for all nine IAP entries. Real review credentials and App Store Connect product availability remain unverified.
