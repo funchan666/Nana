@@ -39,7 +39,7 @@ Each card uses the matching first decoded frame from `videos/covers`, centered a
 ### Published endpoints
 
 - Platform app: `67746202`; main domain: `https://nanacc.top`; configured API HTTPS origin: `https://lantern.nanacc.top`.
-- On launch, GET `/harbortide/v1/bootstrap` refreshes the complete baseline. The home, rooms, messages, wallet, search and room detail screens revalidate their matching published read endpoint when opened.
+- On launch, GET `/harbortide/v1/bootstrap` refreshes the complete public baseline. The home, rooms, wallet, search and room detail screens revalidate their matching published read endpoint when opened. Messages does not treat the public conversation examples as an account inbox.
 - The client declares all 12 read operations from the exported template, including literal detail routes. No endpoint outside that export is constructed.
 - Requests accept JSON, include `nanaReleaseVersion`, and have bounded timeouts. There is no fabricated login Token or server authentication claim. The app's signed-in navigation gate remains independent of these fixed responses.
 - On transport, HTTP or decoding failure, the current persisted data remains available and the page exposes a retry state. The repository records a sanitized error; it never stores or prints a raw response.
@@ -51,3 +51,9 @@ Each card uses the matching first decoded frame from `videos/covers`, centered a
 The user confirmed platform publication and supplied the new main and API domains. The platform screenshot marks the main domain as active. The A-side client now uses `https://lantern.nanacc.top`, preserving all published paths, methods and fields. The main domain is recorded here; the current A-side app has no separate main-domain consumer. Live device decoding and reachability still need verification. No app build or tests were run, as requested.
 
 Apple sign-in requires the developer team's `com.nanalantern.harbortide` App ID and provisioning profile to enable Sign in with Apple. The project already includes the entitlement. Authorization, cancellation, credential revocation and cold-launch restoration still require device verification; this change was reviewed at source level only.
+
+### Account inbox
+
+Messages renders only `NanaAccountInboxSnapshot`, separate from the public bootstrap, anonymous conversation endpoint and their cached examples. The published contract currently supplies neither authenticated private messages nor confirmed mutual-follow relationships, so the inbox starts empty. A future authenticated messaging integration must pass its account-specific snapshot to `replaceAccountInbox`; no endpoint or successful delivery is invented here. Switching accounts or signing out clears the private snapshot.
+
+The friend rail requires confirmed mutual friendship and an active live room, excludes bundled replays and locally unfollowed/hidden authors, and shows each host once. Tapping a friend opens the room. Conversations and message bodies share the private source and retain local hide/block/read handling. Each section has its own empty state; anonymous catalog refreshes and old cached examples cannot populate either section. These changes were inspected statically without building, running or testing the app.

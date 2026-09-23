@@ -11,9 +11,11 @@ struct NanaVideoPlayerView: View {
     @StateObject private var playback = NanaVideoDetailPlayback()
     @State private var showingComment = false
     @State private var fillsScreen = true
-    @State private var commentDraft = ""
-    @State private var savedComment = false
-    @FocusState private var commentFocused: Bool
+    @State private var focusCommentComposer = false
+    @State private var safetyAction: NanaPostSafetyAction?
+
+    private var discussion: NanaPostDiscussion { contentStore.discussion(for: clip) }
+    private var commentDraft: String { contentStore.draft(for: "post-comment-\(discussion.key)") }
 
     private var linkedPost: NanaPost? { contentStore.payload.posts.first { $0.coverAssetKey == clip.assetKey } }
     private var author: NanaProfile? { linkedPost.flatMap { contentStore.profile(with: $0.authorID) } }
@@ -35,14 +37,22 @@ struct NanaVideoPlayerView: View {
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .task(id: clip.id) {
-            commentDraft = contentStore.draft(for: "video-comment-\(clip.id)")
             updatePlaybackActivity()
             await playback.load(NanaAssetLibrary.videoURL(for: clip.assetKey))
         }
         .onDisappear { playback.stop() }
+        .onChange(of: contentStore.safetyDismissalID) { _, _ in
+            if !contentStore.isVideoVisible(clip) { playback.stop(); dismiss() }
+        }
         .onChange(of: scenePhase) { _, _ in updatePlaybackActivity() }
         .onChange(of: showingComment) { _, _ in updatePlaybackActivity() }
-        .sheet(isPresented: $showingComment, onDismiss: { commentFocused = false }) { commentSheet }
+        .onChange(of: safetyAction) { _, _ in updatePlaybackActivity() }
+        .sheet(isPresented: $showingComment) {
+            NanaPostCommentsSheet(context: discussion, focusComposer: focusCommentComposer)
+        }
+        .sheet(item: $safetyAction) { action in
+            NanaPostSafetySheet(context: discussion, initialAction: action) { playback.stop(); dismiss() }
+        }
         .overlay {
             if let notice = contentStore.actionNotice {
                 AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
@@ -81,6 +91,9 @@ struct NanaVideoPlayerView: View {
     private var videoChrome: some View {
         VStack(spacing: 0) {
             topBar
+            NanaPostSafetyButtons { safetyAction = $0 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 18).padding(.top, 6)
             Spacer(minLength: 24)
             HStack(alignment: .bottom, spacing: 14) {
                 authorDetails
@@ -105,19 +118,19 @@ struct NanaVideoPlayerView: View {
     }
 
     private var topBar: some View {
-        HStack {
-            Button { playback.stop(); dismiss() } label: {
-                toolbarIcon("chevron.left")
-            }.accessibilityLabel("Back")
-            Spacer()
+        ZStack {
             VStack(spacing: 4) {
                 Text("Video post").font(.system(size: 16, weight: .heavy).italic())
                 Capsule().fill(NanaPalette.violet).frame(width: 22, height: 3)
             }
-            Spacer()
-            Button { playback.toggleMute() } label: {
-                toolbarIcon(playback.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-            }.accessibilityLabel(playback.isMuted ? "Turn sound on" : "Mute video")
+            HStack {
+                Button { playback.stop(); dismiss() } label: { toolbarIcon("chevron.left") }
+                    .accessibilityLabel("Back")
+                Spacer()
+                Button { playback.toggleMute() } label: {
+                    toolbarIcon(playback.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                }.accessibilityLabel(playback.isMuted ? "Turn sound on" : "Mute video")
+            }
         }
         .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 4)
     }
@@ -170,8 +183,8 @@ struct NanaVideoPlayerView: View {
             Button { contentStore.setPreference("video-like-\(clip.id)", value: !isLiked) } label: {
                 railLabel(isLiked ? "heart.fill" : "heart", title: isLiked ? "Liked" : "Like", selected: isLiked)
             }.accessibilityHint("Saved on this device")
-            Button { savedComment = false; showingComment = true } label: {
-                railLabel("text.bubble", title: "Comment")
+            Button { focusCommentComposer = false; showingComment = true } label: {
+                railLabel("text.bubble", title: "\(contentStore.comments(for: discussion).count) comments")
             }
             Button { contentStore.setPreference("video-save-\(clip.id)", value: !isSaved) } label: {
                 railLabel(isSaved ? "bookmark.fill" : "bookmark", title: isSaved ? "Saved" : "Save", selected: isSaved)
@@ -217,7 +230,7 @@ struct NanaVideoPlayerView: View {
     }
 
     private var commentEntry: some View {
-        Button { savedComment = false; showingComment = true } label: {
+        Button { focusCommentComposer = true; showingComment = true } label: {
             HStack(spacing: 10) {
                 Image(systemName: "text.bubble").font(.system(size: 17))
                 Text(commentDraft.isEmpty ? "Write a comment…" : "Continue your comment…")
@@ -231,52 +244,8 @@ struct NanaVideoPlayerView: View {
         }.buttonStyle(.plain)
     }
 
-    private var commentSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Your comment").font(.system(size: 18, weight: .heavy).italic())
-                Spacer()
-                Button { saveCommentAndClose() } label: {
-                    Image(systemName: "xmark").frame(width: 44, height: 44)
-                }.accessibilityLabel("Save draft and close")
-            }
-            TextEditor(text: $commentDraft).scrollContentBackground(.hidden)
-                .font(.system(size: 15)).padding(10).frame(height: 130)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-                .focused($commentFocused).accessibilityLabel("Comment draft")
-            Text("Drafts stay on this device. Posting comments is not available yet.")
-                .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
-            Button {
-                savedComment = contentStore.saveDraft(commentDraft, for: "video-comment-\(clip.id)")
-                commentFocused = false
-            } label: {
-                Text(savedComment ? "Draft saved" : "Save draft").font(.system(size: 14, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 48).background(NanaPalette.violet, in: Capsule())
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(20).foregroundStyle(.white).buttonStyle(.plain)
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-        .presentationBackground(NanaPalette.deepSpace)
-        .interactiveDismissDisabled()
-        .onChange(of: commentDraft) { _, text in
-            commentDraft = String(text.prefix(500)); savedComment = false
-        }
-        .overlay {
-            if let notice = contentStore.actionNotice {
-                AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
-            }
-        }
-    }
-
-    private func saveCommentAndClose() {
-        guard contentStore.saveDraft(commentDraft, for: "video-comment-\(clip.id)") else { return }
-        commentFocused = false
-        showingComment = false
-    }
-
     private func updatePlaybackActivity() {
-        playback.setActive(scenePhase == .active && !showingComment)
+        playback.setActive(scenePhase == .active && !showingComment && safetyAction == nil)
     }
 
     private func timeLabel(_ seconds: Double) -> String {

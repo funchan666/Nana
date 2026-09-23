@@ -26,12 +26,14 @@ final class NanaContentStore: ObservableObject {
     @Published private(set) var states: [NanaReadEndpoint: NanaReadState] = [:]
     @Published private(set) var blockedProfileIDs: Set<String> = []
     @Published private(set) var accountScope: String?
+    @Published private(set) var accountInbox: NanaAccountInboxSnapshot?
     @Published var selectedCategory = "For you"
     @Published var searchFilter = NanaSearchFilter()
     @Published var actionNotice: AccountEntryNotice?
     @Published private(set) var assetManifest: [NanaAssetDescriptor] = []
 
     @Published private(set) var personal = NanaPersonalState()
+    @Published private(set) var safetyDismissalID = UUID()
     private var personalURL: URL?
     private var personalStorageReady = false
 
@@ -50,15 +52,133 @@ final class NanaContentStore: ObservableObject {
     var activityPoints: Int { personal.checkInDays.count * 10 }
     var activityLevel: Int { 1 + activityPoints / 200 }
     var followedProfiles: [NanaProfile] {
-        personal.followedProfiles.values.filter { !blockedProfileIDs.contains($0.id) }.sorted { $0.displayName < $1.displayName }
+        personal.followedProfiles.values.filter { !hiddenAuthorIDs.contains($0.id) }.sorted { $0.displayName < $1.displayName }
     }
     var hiddenProfiles: [NanaProfile] { personal.hiddenProfiles.values.sorted { $0.displayName < $1.displayName } }
+    var hiddenAuthorIDs: Set<String> {
+        var ids = blockedProfileIDs.union(personal.reportedProfileIDs ?? [])
+        for id in Array(ids) { ids.formUnion(personal.safetyAuthorAliases?[id] ?? []) }
+        return relatedAuthorIDs(ids)
+    }
+    var visibleProfiles: [NanaProfile] { payload.profiles.filter { !hiddenAuthorIDs.contains($0.id) } }
+    var hiddenPortraitAssetKeys: Set<String> {
+        let hiddenIDs = hiddenAuthorIDs
+        var photos = Set(payload.profiles.filter { hiddenIDs.contains($0.id) }.compactMap(\.avatarAssetKey))
+        photos.formUnion(payload.rooms.filter { hiddenIDs.contains($0.hostID) }.compactMap(\.hostAvatarAssetKey))
+        for id in blockedProfileIDs.union(personal.reportedProfileIDs ?? []) {
+            photos.formUnion(personal.safetyPortraits?[id] ?? [])
+            if let photo = personal.hiddenProfiles[id]?.avatarAssetKey { photos.insert(photo) }
+        }
+        return photos
+    }
+
+    private func safetyPortraits(for context: NanaPostDiscussion) -> Set<String> {
+        let ids = relatedAuthorIDs([context.authorID])
+        var photos = Set(payload.profiles.filter { ids.contains($0.id) }.compactMap(\.avatarAssetKey))
+        photos.formUnion(payload.rooms.filter { ids.contains($0.hostID) }.compactMap(\.hostAvatarAssetKey))
+        if let photo = context.authorAvatar { photos.insert(photo) }
+        return photos
+    }
+
+    private func relatedAuthorIDs(_ initial: Set<String>) -> Set<String> {
+        var ids = initial
+        var pairs: [(String, String)] = payload.rooms.compactMap { room in
+            guard let asset = room.streamAssetKey, asset.hasPrefix("nana.video.") else { return nil }
+            return (room.hostID, videoCreatorID(NanaBundledVideo(assetKey: asset)))
+        }
+        pairs += payload.posts.compactMap { post in
+            guard let asset = post.coverAssetKey, asset.hasPrefix("nana.video.") else { return nil }
+            return (post.authorID, videoCreatorID(NanaBundledVideo(assetKey: asset)))
+        }
+        var previousCount = -1
+        while previousCount != ids.count {
+            previousCount = ids.count
+            for (profileID, creatorID) in pairs where ids.contains(profileID) || ids.contains(creatorID) {
+                ids.insert(profileID); ids.insert(creatorID)
+            }
+        }
+        return ids
+    }
+
+    func isRoomVisible(_ room: NanaLiveRoom) -> Bool {
+        guard !hiddenAuthorIDs.contains(room.hostID), !(personal.hiddenRoomIDs ?? []).contains(room.id) else { return false }
+        guard let asset = room.streamAssetKey else { return true }
+        return !(personal.hiddenPostKeys ?? []).contains(asset)
+    }
+
+    func roomMessages(for roomID: String) -> [NanaRoomChatMessage] {
+        let hiddenNames = Set((payload.profiles + Array(personal.hiddenProfiles.values))
+            .filter { hiddenAuthorIDs.contains($0.id) }.flatMap {
+                [$0.displayName.lowercased(), $0.displayName.components(separatedBy: " ").first?.lowercased() ?? "", $0.handle.lowercased()]
+            })
+        // Legacy room messages carry only a sender name, so filter those conservatively.
+        return payload.roomMessages.filter { message in
+            guard message.roomID == roomID else { return false }
+            if let id = message.senderID { return !hiddenAuthorIDs.contains(id) }
+            return !hiddenNames.contains(message.senderName.lowercased())
+        }
+    }
     var visibleConversations: [NanaConversation] {
-        payload.conversations.filter { !blockedProfileIDs.contains($0.profileID) && !personal.hiddenConversationIDs.contains($0.id) }.map {
+        guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
+        return accountInbox.conversations.filter { !hiddenAuthorIDs.contains($0.profileID) && !personal.hiddenConversationIDs.contains($0.id) }.map {
             var conversation = $0
             if personal.readConversations[$0.id] == conversationRevision($0) { conversation.unreadCount = 0 }
             return conversation
         }
+    }
+
+    var liveFriendRooms: [NanaLiveRoom] {
+        guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
+        let friends = Set(accountInbox.mutualFriends.filter {
+            !hiddenAuthorIDs.contains($0.id) && personal.following[$0.id] != false
+        }.map(\.id))
+        var shownHosts = Set<String>()
+        return accountInbox.liveRooms.filter { room in
+            friends.contains(room.hostID) && isRoomVisible(room)
+                && room.streamSourceType != "simulatedReplay"
+                && room.streamAssetKey?.hasPrefix("nana.video.") != true
+                && ["live", "live now"].contains(room.roomState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                && shownHosts.insert(room.hostID).inserted
+        }
+    }
+
+    var mutualFriends: [NanaProfile] {
+        guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
+        return accountInbox.mutualFriends.filter {
+            !hiddenAuthorIDs.contains($0.id) && personal.following[$0.id] != false
+        }.map {
+            var profile = $0
+            profile.isConnected = true
+            return profile
+        }
+    }
+
+    var newFollowers: [NanaProfile] {
+        guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
+        return accountInbox.newFollowers.filter { !hiddenAuthorIDs.contains($0.id) }
+    }
+
+    var accountFollowers: [NanaProfile] {
+        guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
+        var seen = Set<String>()
+        return (accountInbox.followers + accountInbox.mutualFriends + accountInbox.newFollowers).filter {
+            !hiddenAuthorIDs.contains($0.id) && seen.insert($0.id).inserted
+        }
+    }
+
+    func conversationMessages(for conversationID: String) -> [NanaMessage] {
+        guard let accountInbox, accountInbox.accountID == accountScope,
+              visibleConversations.contains(where: { $0.id == conversationID }) else { return [] }
+        return accountInbox.messages.filter {
+            $0.conversationID == conversationID && !hiddenAuthorIDs.contains($0.senderID)
+        }
+    }
+
+    /// Integration boundary for a future authenticated messaging service. The
+    /// current anonymous read-only export must never populate a private inbox.
+    func replaceAccountInbox(_ snapshot: NanaAccountInboxSnapshot) {
+        guard snapshot.accountID == accountScope else { return }
+        accountInbox = snapshot
     }
 
     func beginSession(accountID: String?) {
@@ -68,6 +188,7 @@ final class NanaContentStore: ObservableObject {
         requests.values.forEach { $0.cancel() }
         requests.removeAll()
         payload = .empty
+        accountInbox = nil
         states = [:]
         fetchedAt = [:]
         blockedProfileIDs = []
@@ -94,6 +215,7 @@ final class NanaContentStore: ObservableObject {
             cacheURL = directory.appendingPathComponent("NanaReadCache", isDirectory: true).appendingPathComponent(digest + ".json")
             personalURL = directory.appendingPathComponent("NanaPersonalData", isDirectory: true).appendingPathComponent(digest, isDirectory: true).appendingPathComponent("personal.json")
         }
+        let shouldMigrateLegacySafety = personalURL.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
         if let personalURL {
             do {
                 if FileManager.default.fileExists(atPath: personalURL.path) {
@@ -111,10 +233,10 @@ final class NanaContentStore: ObservableObject {
               cache.version == 1 else { return }
         payload = cache.snapshot
         fetchedAt = cache.fetchedAt
-        blockedProfileIDs.formUnion(cache.hiddenProfiles)
+        if shouldMigrateLegacySafety { blockedProfileIDs.formUnion(cache.hiddenProfiles) }
         if personalStorageReady {
             var migrated = personal
-            for id in cache.hiddenProfiles {
+            for id in cache.hiddenProfiles where shouldMigrateLegacySafety {
                 if let profile = cache.snapshot.profiles.first(where: { $0.id == id }) { migrated.hiddenProfiles[id] = profile }
             }
             migrated.drafts.merge(cache.drafts, uniquingKeysWith: { current, _ in current })
@@ -225,16 +347,27 @@ final class NanaContentStore: ObservableObject {
         else { items.append(item) }
     }
 
-    func room(with id: String) -> NanaLiveRoom? { payload.rooms.first { $0.id == id && !blockedProfileIDs.contains($0.hostID) } }
-    func profile(with id: String) -> NanaProfile? { payload.profiles.first { $0.id == id && !blockedProfileIDs.contains($0.id) } }
-    func post(with id: String) -> NanaPost? { payload.posts.first { $0.id == id && !blockedProfileIDs.contains($0.authorID) } }
+    func room(with id: String) -> NanaLiveRoom? { payload.rooms.first { $0.id == id && isRoomVisible($0) } }
+    func profile(with id: String) -> NanaProfile? {
+        guard !hiddenAuthorIDs.contains(id) else { return nil }
+        guard var profile = (mutualFriends + newFollowers + visibleProfiles).first(where: { $0.id == id }) else { return nil }
+        if let following = personal.following[id] { profile.isConnected = following }
+        return profile
+    }
+    func post(with id: String) -> NanaPost? { posts().first { $0.id == id } }
     func posts(for filter: NanaSearchFilter? = nil) -> [NanaPost] {
         if let filter, filter.kind == .people || filter.kind == .rooms { return [] }
-        return payload.posts.filter { !blockedProfileIDs.contains($0.authorID) && !(personal.hiddenPostKeys ?? []).contains($0.id) }
+        return payload.posts.filter { post in
+            guard !hiddenAuthorIDs.contains(post.authorID), !(personal.hiddenPostKeys ?? []).contains(post.id) else { return false }
+            if let asset = post.coverAssetKey, asset.hasPrefix("nana.video.") {
+                return isVideoVisible(NanaBundledVideo(assetKey: asset))
+            }
+            return true
+        }
     }
     func filteredProfiles(for filter: NanaSearchFilter) -> [NanaProfile] {
         payload.profiles.filter { profile in
-            !blockedProfileIDs.contains(profile.id) && profile.age >= filter.minimumAge && profile.age <= filter.maximumAge &&
+            !hiddenAuthorIDs.contains(profile.id) && profile.age >= filter.minimumAge && profile.age <= filter.maximumAge &&
             (filter.region == "All regions" || profile.region == filter.region) &&
             (filter.language == "All languages" || profile.language == filter.language) &&
             (filter.gender == "Any" || profile.gender == filter.gender)
@@ -244,7 +377,7 @@ final class NanaContentStore: ObservableObject {
         guard filter.kind != .people && filter.kind != .posts else { return [] }
         let filteringPeople = filter.minimumAge != 18 || filter.maximumAge != 45 || filter.region != "All regions" || filter.language != "All languages" || filter.gender != "Any"
         let hosts = Set(filteredProfiles(for: filter).map(\.id))
-        return payload.rooms.filter { !blockedProfileIDs.contains($0.hostID) && (!filteringPeople || hosts.contains($0.hostID)) }
+        return payload.rooms.filter { isRoomVisible($0) && (!filteringPeople || hosts.contains($0.hostID)) }
     }
 
     func replayAudience(for room: NanaLiveRoom) -> [NanaReplayAudienceMember] {
@@ -252,7 +385,7 @@ final class NanaContentStore: ObservableObject {
         let reservedPhotos = Set(payload.profiles.compactMap(\.avatarAssetKey) + payload.rooms.compactMap(\.hostAvatarAssetKey))
         let allocatedPhotos = NanaRoomPortraitAllocator.photosByRoom(
             rooms: payload.rooms, profiles: payload.profiles, seats: payload.roomSeats,
-            blockedProfileIDs: blockedProfileIDs
+            blockedProfileIDs: [], excludedPhotoKeys: []
         )[room.id] ?? []
         let photos = allocatedPhotos.filter { !reservedPhotos.contains($0) }
         let names: [String]
@@ -265,23 +398,59 @@ final class NanaContentStore: ObservableObject {
         case "room-outdoors": names = ["Freya", "Arlo", "Isla", "Ben", "Daisy", "Max", "Mae", "Rhys"]
         default: names = ["Alex", "Sam", "Charlie", "Robin", "Rowan", "Jamie", "Casey", "Taylor"]
         }
+        let hiddenIDs = hiddenAuthorIDs
+        let hiddenPhotos = hiddenPortraitAssetKeys
         return zip(names, photos).map { name, asset in
             NanaReplayAudienceMember(id: "\(room.id)-\(asset)", displayName: name, avatarAssetKey: asset)
+        }.filter { !hiddenIDs.contains($0.id) && !hiddenPhotos.contains($0.avatarAssetKey) }
+    }
+
+    /// Local replay seats reuse the room's stable audience, without changing a
+    /// published seat response or claiming a microphone transport is connected.
+    func voiceRoomSeats(for room: NanaLiveRoom) -> [NanaRoomSeat] {
+        let capacity = min(12, max(1, room.seatCapacity))
+        let published = payload.roomSeats.filter { $0.roomID == room.id }
+        let hiddenIDs = hiddenAuthorIDs
+        var seats = (0..<capacity).map { position in
+            if let seat = published.first(where: { $0.position == position }),
+               seat.profileID.map({ !hiddenIDs.contains($0) }) ?? true { return seat }
+            let hostFallback = position == 0 && published.isEmpty && !hiddenIDs.contains(room.hostID)
+            return NanaRoomSeat(id: "\(room.id)-seat-\(position)", roomID: room.id, position: position,
+                                profileID: hostFallback ? room.hostID : nil,
+                                displayName: hostFallback ? room.hostName : nil,
+                                role: hostFallback ? "Host" : "Listener", isMuted: false, isInvited: false)
         }
+        guard room.streamSourceType == "simulatedReplay" else { return seats }
+        let occupied = Set(seats.compactMap(\.profileID))
+        var members = replayAudience(for: room).filter { !occupied.contains($0.id) }.makeIterator()
+        // Keep a joinable seat in larger rooms. Small three-seat rooms use both
+        // guest positions so the second row is not an empty stage.
+        for index in seats.indices where index > 0 && seats[index].profileID == nil {
+            if capacity >= 6 && index == capacity - 1 { continue }
+            guard let member = members.next() else { break }
+            seats[index] = NanaRoomSeat(id: seats[index].id, roomID: room.id, position: index,
+                                       profileID: member.id, displayName: member.displayName,
+                                       role: "Speaker", isMuted: index.isMultiple(of: 3), isInvited: false)
+        }
+        return seats
     }
 
     func displayedViewerCount(for room: NanaLiveRoom) -> Int {
         // A replay count must match its complete sample roster, not the four-image
         // header preview or an unrelated viewer total from the feed fixture.
-        room.streamSourceType == "simulatedReplay" ? replayAudience(for: room).count : room.viewerCount
+        guard room.streamSourceType == "simulatedReplay" else { return room.viewerCount }
+        let publishedIDs = payload.roomSeats.filter { $0.roomID == room.id }.compactMap(\.profileID)
+            .filter { $0 != room.hostID && !hiddenAuthorIDs.contains($0) }
+        return Set(replayAudience(for: room).map(\.id) + publishedIDs).count
     }
 
     func explainUnavailable(_ action: String) {
         actionNotice = AccountEntryNotice(title: "\(action) isn't available yet", explanation: NanaAServiceError.writeUnavailable.localizedDescription)
     }
     func dismissActionNotice() { actionNotice = nil }
+    func completeSafetyAction() { safetyDismissalID = UUID() }
     func toggleConnection(for profileID: String) {
-        guard var profile = payload.profiles.first(where: { $0.id == profileID }) ?? personal.followedProfiles[profileID] else { return }
+        guard var profile = self.profile(with: profileID) ?? personal.followedProfiles[profileID] else { return }
         var updated = personal
         let following = !(personal.following[profileID] ?? profile.isConnected)
         updated.following[profileID] = following
@@ -302,15 +471,10 @@ final class NanaContentStore: ObservableObject {
         }
     }
 
-    /// A device-only safety preference; never described as a submitted report/server block.
-    func block(profileID: String) {
-        guard let profile = payload.profiles.first(where: { $0.id == profileID }) else { return }
-        var updated = personal
-        updated.hiddenProfiles[profileID] = profile
-        if savePersonal(updated) {
-            blockedProfileIDs.insert(profileID)
-            actionNotice = AccountEntryNotice(title: "Profile hidden", explanation: "This profile and its activity are hidden from your view.")
-        }
+    @discardableResult
+    func block(profileID: String) -> Bool {
+        guard let profile = self.profile(with: profileID) ?? personal.followedProfiles[profileID] else { return false }
+        return blockPostAuthor(discussion(for: profile))
     }
     func draft(for key: String) -> String { drafts[key] ?? "" }
 
@@ -318,6 +482,21 @@ final class NanaContentStore: ObservableObject {
         NanaPostDiscussion(key: post.id, title: post.title, authorID: post.authorID,
                            authorName: post.authorName, authorAvatar: profile(with: post.authorID)?.avatarAssetKey,
                            videoAssetKey: post.coverAssetKey?.hasPrefix("nana.video.") == true ? post.coverAssetKey : nil)
+    }
+
+    func discussion(for profile: NanaProfile) -> NanaPostDiscussion {
+        NanaPostDiscussion(key: profile.id, title: profile.displayName, authorID: profile.id,
+                           authorName: profile.displayName, authorAvatar: profile.avatarAssetKey, videoAssetKey: nil, kind: .profile)
+    }
+
+    func discussion(for room: NanaLiveRoom) -> NanaPostDiscussion {
+        NanaPostDiscussion(key: room.id, title: room.title, authorID: room.hostID,
+                           authorName: room.hostName, authorAvatar: room.hostAvatarAssetKey, videoAssetKey: room.streamAssetKey, kind: .room)
+    }
+
+    func discussion(for conversation: NanaConversation) -> NanaPostDiscussion {
+        NanaPostDiscussion(key: conversation.id, title: conversation.displayName, authorID: conversation.profileID,
+                           authorName: conversation.displayName, authorAvatar: conversation.avatarAssetKey, videoAssetKey: nil, kind: .conversation)
     }
 
     func discussion(for clip: NanaBundledVideo) -> NanaPostDiscussion {
@@ -331,13 +510,13 @@ final class NanaContentStore: ObservableObject {
     func isVideoVisible(_ clip: NanaBundledVideo) -> Bool {
         let context = discussion(for: clip)
         let hidden = personal.hiddenPostKeys ?? []
-        return !blockedProfileIDs.contains(context.authorID) && !blockedProfileIDs.contains(videoCreatorID(clip))
+        return !hiddenAuthorIDs.contains(context.authorID) && !hiddenAuthorIDs.contains(videoCreatorID(clip))
             && !hidden.contains(context.key) && !hidden.contains(clip.id)
     }
 
     func comments(for context: NanaPostDiscussion) -> [NanaPostComment] {
         let samples = NanaPostCommentSamples.comments(for: context)
-        return (samples + (personal.postComments?[context.key] ?? [])).filter { !blockedProfileIDs.contains($0.authorID) }
+        return (samples + (personal.postComments?[context.key] ?? [])).filter { !hiddenAuthorIDs.contains($0.authorID) }
     }
 
     @discardableResult
@@ -357,13 +536,26 @@ final class NanaContentStore: ObservableObject {
     }
 
     @discardableResult
-    func reportPost(_ context: NanaPostDiscussion, reason: String) -> Bool {
+    func reportContent(_ context: NanaPostDiscussion, reason: String) -> Bool {
         var updated = personal
-        var reports = updated.postReports ?? []
-        reports.removeAll { $0.contentKey == context.key }
-        reports.append(NanaPostReport(contentKey: context.key, reason: reason, createdAt: Date()))
-        updated.postReports = reports
-        updated.hiddenPostKeys = (updated.hiddenPostKeys ?? []).union([context.key])
+        var reports = updated.safetyReports ?? []
+        reports.removeAll { $0.contentKey == context.key && $0.kind == context.kind }
+        reports.append(NanaSafetyReport(contentKey: context.key, kind: context.kind, authorID: context.authorID, reason: reason, createdAt: Date()))
+        updated.safetyReports = reports
+        switch context.kind {
+        case .post: updated.hiddenPostKeys = (updated.hiddenPostKeys ?? []).union([context.key])
+        case .room: updated.hiddenRoomIDs = (updated.hiddenRoomIDs ?? []).union([context.key])
+        case .conversation: updated.hiddenConversationIDs.insert(context.key)
+        case .profile:
+            updated.reportedProfileIDs = (updated.reportedProfileIDs ?? []).union([context.authorID])
+            var aliases = updated.safetyAuthorAliases ?? [:]
+            aliases[context.authorID] = relatedAuthorIDs([context.authorID])
+            updated.safetyAuthorAliases = aliases
+            var portraits = updated.safetyPortraits ?? [:]
+            portraits[context.authorID] = safetyPortraits(for: context)
+            updated.safetyPortraits = portraits
+        }
+        if updated.hiddenPostKeys == nil { updated.hiddenPostKeys = [] }
         if let asset = context.videoAssetKey { updated.hiddenPostKeys?.insert(asset) }
         return savePersonal(updated)
     }
@@ -376,6 +568,12 @@ final class NanaContentStore: ObservableObject {
             isConnected: false, followerCount: 0, followingCount: 0, level: 0)
         var updated = personal
         updated.hiddenProfiles[author.id] = author
+        var aliases = updated.safetyAuthorAliases ?? [:]
+        aliases[author.id] = relatedAuthorIDs([author.id])
+        updated.safetyAuthorAliases = aliases
+        var portraits = updated.safetyPortraits ?? [:]
+        portraits[author.id] = safetyPortraits(for: context)
+        updated.safetyPortraits = portraits
         guard savePersonal(updated) else { return false }
         blockedProfileIDs.insert(author.id)
         return true
@@ -402,6 +600,29 @@ final class NanaContentStore: ObservableObject {
         _ = savePersonal(updated)
     }
 
+    func markNotificationsRead(_ ids: [String]) {
+        var updated = personal
+        for id in ids { updated.preferences["notification.read.\(id)"] = true }
+        _ = savePersonal(updated)
+    }
+
+    @discardableResult
+    func saveFeedback(topic: String, message: String) -> Bool {
+        let subject = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !subject.isEmpty, !body.isEmpty, subject.count <= 80, body.count <= 2000 else { return false }
+        var updated = personal
+        var feedback = updated.feedbackSubmissions ?? []
+        feedback.append(NanaSavedFeedback(id: UUID().uuidString, topic: subject, message: body, createdAt: Date()))
+        updated.feedbackSubmissions = feedback
+        updated.drafts.removeValue(forKey: "feedback.topic")
+        updated.drafts.removeValue(forKey: "feedback")
+        guard savePersonal(updated) else { return false }
+        drafts = updated.drafts
+        actionNotice = AccountEntryNotice(title: "Feedback saved", explanation: "Your feedback has been saved on this device.")
+        return true
+    }
+
     func dayKey(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -422,12 +643,15 @@ final class NanaContentStore: ObservableObject {
         _ = savePersonal(updated)
     }
 
-    func clearConversationList() {
+    @discardableResult
+    func clearConversationList(showNotice: Bool = true) -> Bool {
         var updated = personal
-        updated.hiddenConversationIDs.formUnion(payload.conversations.map(\.id))
-        if savePersonal(updated) {
+        updated.hiddenConversationIDs.formUnion(visibleConversations.map(\.id))
+        guard savePersonal(updated) else { return false }
+        if showNotice {
             actionNotice = AccountEntryNotice(title: "Messages cleared", explanation: "This device's message list has been cleared.")
         }
+        return true
     }
 
     func clearCache() {
@@ -556,7 +780,10 @@ final class NanaContentStore: ObservableObject {
 
     @discardableResult
     private func savePersonal(_ updated: NanaPersonalState) -> Bool {
-        guard personalStorageReady, let personalURL else { return false }
+        guard personalStorageReady, let personalURL else {
+            actionNotice = AccountEntryNotice(title: "Changes not saved", explanation: "Your local storage isn't ready. Please reopen Nana and try again.")
+            return false
+        }
         do {
             var directory = personalURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -600,6 +827,12 @@ private struct NanaReadCache: Codable {
 
 /// Separate from disposable JSON snapshots; never sent to the content service.
 struct NanaPersonalState: Codable {
+    var feedbackSubmissions: [NanaSavedFeedback]? = nil
+    var safetyPortraits: [String: Set<String>]? = nil
+    var safetyReports: [NanaSafetyReport]? = nil
+    var hiddenRoomIDs: Set<String>? = nil
+    var reportedProfileIDs: Set<String>? = nil
+    var safetyAuthorAliases: [String: Set<String>]? = nil
     var postComments: [String: [NanaPostComment]]? = nil
     var postReports: [NanaPostReport]? = nil
     var hiddenPostKeys: Set<String>? = nil
@@ -612,6 +845,13 @@ struct NanaPersonalState: Codable {
     var preferences: [String: Bool] = [:]
     var drafts: [String: String] = [:]
     var photos: [NanaPersonalPhoto] = []
+}
+
+struct NanaSavedFeedback: Codable, Identifiable {
+    let id: String
+    let topic: String
+    let message: String
+    let createdAt: Date
 }
 
 struct NanaPersonalPhoto: Codable, Identifiable {

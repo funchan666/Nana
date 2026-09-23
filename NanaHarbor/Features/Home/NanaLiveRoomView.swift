@@ -14,6 +14,7 @@ struct NanaLiveRoomView: View {
     @EnvironmentObject private var coinStore: NanaCoinStore
     @EnvironmentObject private var sessionStore: NanaSessionStore
     @StateObject private var voiceConnection = NanaVoiceConnectionSession()
+    @StateObject private var roomMusic = NanaRoomMusicPlayer()
     @State private var player: AVQueuePlayer?
     @State private var looper: AVPlayerLooper?
     @State private var panel: RoomPanel?
@@ -34,6 +35,7 @@ struct NanaLiveRoomView: View {
     @State private var moreRoomCategory = "All"
     @State private var reportReason = "Harassment"
     @State private var showingBlockConfirmation = false
+    @State private var moderationSuccess: AccountEntryNotice?
     @FocusState private var composerFocused: Bool
 
     init(room: NanaLiveRoom, presentation: Presentation = .video) {
@@ -52,13 +54,13 @@ struct NanaLiveRoomView: View {
     private var host: NanaProfile? { contentStore.profile(with: room.hostID) }
     private var isFollowing: Bool { contentStore.personal.following[room.hostID] ?? room.isFollowingHost }
     private var messages: [NanaRoomChatMessage] {
-        let published = contentStore.payload.roomMessages.filter { $0.roomID == room.id }
+        let published = contentStore.roomMessages(for: room.id)
         let sent = coinStore.roomGiftReceipts.filter { $0.roomID == room.id }.map(\.chatMessage)
         return published + sent
     }
     private var participants: [NanaProfile] {
         let ids = Set(contentStore.payload.roomSeats.filter { $0.roomID == room.id }.compactMap(\.profileID))
-        return contentStore.payload.profiles.filter { ids.contains($0.id) && !contentStore.blockedProfileIDs.contains($0.id) }
+        return contentStore.payload.profiles.filter { ids.contains($0.id) && !contentStore.hiddenAuthorIDs.contains($0.id) }
     }
     private struct AudiencePortrait: Identifiable {
         let id: String
@@ -84,11 +86,11 @@ struct NanaLiveRoomView: View {
     }
 
     private var showsReplayActivity: Bool {
-        // startPlayback creates a player only for bundled replay files.
-        presentation == .video && player != nil
+        room.streamSourceType == "simulatedReplay" && (presentation == .voice || player != nil)
     }
     private var replayActivityIsActive: Bool {
-        scenePhase == .active && player != nil && isPlaying && panel == nil
+        scenePhase == .active && showsReplayActivity && (presentation == .voice || isPlaying) && panel == nil
+            && pendingGiftReceipt == nil && moderationSuccess == nil
             && !composerFocused && !showingWallet && conversation == nil
     }
     private var gifts: [NanaGift] { NanaGift.roomCatalog }
@@ -109,7 +111,7 @@ struct NanaLiveRoomView: View {
                     if presentation == .voice && !composerFocused {
                         voiceThemeBar
                         NanaVoiceStageView(room: room) { open(.connection) }
-                            .frame(height: min(360, geometry.size.height * 0.43))
+                            .frame(height: min(300, geometry.size.height * 0.34))
                     }
                     if presentation == .video && voiceConnection.isActive && !composerFocused {
                         HStack {
@@ -127,11 +129,12 @@ struct NanaLiveRoomView: View {
                             .id(receipt.id)
                             .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
                     }
-                    if showsReplayActivity && player != nil && !composerFocused {
+                    if showsReplayActivity && !composerFocused {
                         NanaRoomReplayActivityView(
                             room: room, recordedMessages: messages,
                             audience: replayAudience, isActive: replayActivityIsActive,
-                            hidesGiftEffects: sentGiftReceipt != nil
+                            hidesGiftEffects: sentGiftReceipt != nil,
+                            isVoiceRoom: presentation == .voice
                         )
                             .id(room.id)
                     } else {
@@ -157,9 +160,18 @@ struct NanaLiveRoomView: View {
                             .padding(.horizontal, 24)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    } else if panel == .more && presentation == .voice {
+                        NanaMoreVoiceRoomsView(currentRoomID: room.id, selectRoom: { nextRoom in
+                            guard contentStore.saveDraft(messageDraft, for: "live-room-\(room.id)") else { return }
+                            self.panel = nil
+                            room = nextRoom
+                        }, close: { self.panel = nil })
+                        .frame(height: geometry.size.height * 0.82)
+                        .frame(maxWidth: .infinity)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     } else if panel == .more || panel == .music {
                         roomPanel(panel, availableHeight: geometry.size.height)
-                            .frame(width: geometry.size.width * 0.8)
+                            .frame(width: panel == .music ? min(440, geometry.size.width * 0.9) : geometry.size.width * 0.8)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     } else {
@@ -198,7 +210,13 @@ struct NanaLiveRoomView: View {
                 voiceConnection.advance()
             }
         }
-        .onChange(of: isMuted) { _, muted in player?.isMuted = muted }
+        .onChange(of: isMuted) { _, muted in
+            player?.isMuted = muted
+            roomMusic.setMuted(muted)
+        }
+        .onChange(of: contentStore.safetyDismissalID) { _, _ in
+            if !contentStore.isRoomVisible(room) { stopPlayback(); dismiss() }
+        }
         .task(id: sentGiftReceipt?.id) {
             guard let receiptID = sentGiftReceipt?.id else { return }
             do { try await Task.sleep(for: .seconds(6)) }
@@ -208,26 +226,41 @@ struct NanaLiveRoomView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && isPlaying { player?.play() } else { player?.pause() }
+            if phase != .active { roomMusic.pause() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
+            guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
+            roomMusic.pause()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+            guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
+            roomMusic.pause()
         }
         .sheet(isPresented: $showingWallet) { NanaWalletView() }
-        .sheet(item: $conversation) { NanaConversationView(conversation: $0) }
+        .fullScreenCover(item: $conversation) { NanaConversationView(conversation: $0) }
         .alert("More coins needed", isPresented: $showingInsufficientCoins) {
             Button("Open Wallet") { showingWallet = true }
             Button("Cancel", role: .cancel) { }
         } message: { Text("You need \(giftTotal) coins. Your balance is \(coinStore.balance).") }
         .alert("Block this host?", isPresented: $showingBlockConfirmation) {
             Button("Block", role: .destructive) {
-                guard host != nil else { contentStore.explainUnavailable("Blocking this host"); return }
-                contentStore.block(profileID: room.hostID)
-                if contentStore.blockedProfileIDs.contains(room.hostID) {
+                if contentStore.blockPostAuthor(contentStore.discussion(for: room)) {
                     stopPlayback()
-                    dismiss()
+                    panel = nil
+                    moderationSuccess = AccountEntryNotice(title: "User blocked", explanation: "\(room.hostName) and their related content are now hidden. Your choice has been saved.")
                 }
             }
             Button("Cancel", role: .cancel) { }
         } message: { Text("This host and their rooms will be hidden on this device.") }
         .overlay {
-            if let notice = contentStore.actionNotice {
+            if let moderationSuccess {
+                AccountConsentNotice(notice: moderationSuccess, dismissNotice: {
+                    contentStore.completeSafetyAction()
+                    dismiss()
+                }, dimsBackground: false)
+            } else if let notice = contentStore.actionNotice {
                 AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
             }
         }
@@ -336,23 +369,27 @@ struct NanaLiveRoomView: View {
 
     private var voiceThemeBar: some View {
         HStack(spacing: 8) {
-            Text(room.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-            Text(room.subtitle).font(.system(size: 10)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(room.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                Text(roomMusic.selectedTrack.map { "\($0.title) · \(roomMusic.isPlaying ? "Playing" : "Paused")" } ?? room.subtitle)
+                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+            }
             Spacer(minLength: 0)
             Button { open(.music) } label: {
-                NanaAssetImage(assetKey: "nana.voice.voice_asset_077", contentMode: .fit)
-                    .frame(width: 22, height: 22).frame(width: 44, height: 44)
+                HStack(spacing: 5) {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_077", contentMode: .fit)
+                        .frame(width: 22, height: 22)
+                    Text("Music").font(.system(size: 12, weight: .semibold))
+                }
+                .padding(.horizontal, 10).frame(height: 36)
+                .background(NanaPalette.violet.opacity(0.35), in: Capsule())
+                .frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("Music on demand")
         }
     }
 
     private var musicPanel: some View {
-        VStack(spacing: 18) {
-            NanaAssetImage(assetKey: "nana.voice.voice_asset_065", contentMode: .fit)
-                .frame(width: 72, height: 72).padding(.top, 28)
-            Text("No tracks available yet").font(.system(size: 15, weight: .semibold))
-            panelNote("The room music library is not available yet. Tracks will appear here when the service provides them.")
-        }
+        NanaRoomMusicPanel(player: roomMusic)
     }
 
     private func chatOverlay(maxHeight: CGFloat) -> some View {
@@ -528,25 +565,57 @@ struct NanaLiveRoomView: View {
 
     private var audiencePanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if room.streamSourceType == "simulatedReplay" {
-                Text("Sample audience · \(audienceCount) viewers")
-                    .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
-                ForEach(replayAudience) { member in
-                    audienceMemberRow(name: member.displayName, assetKey: member.avatarAssetKey, detail: "Viewer")
-                }
-                if replayAudience.isEmpty { panelNote("No sample viewers in this replay.") }
+            if presentation == .voice && room.streamSourceType == "simulatedReplay" {
+                voiceAudiencePanel
             } else {
-                Text("\(audienceCount) viewers").font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
-                panelNote("The complete viewer list is not available yet.")
+                if room.streamSourceType == "simulatedReplay" {
+                    Text("Sample audience · \(audienceCount) viewers")
+                        .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
+                    ForEach(replayAudience) { member in
+                        audienceMemberRow(name: member.displayName, assetKey: member.avatarAssetKey, detail: "Viewer")
+                    }
+                    if replayAudience.isEmpty { panelNote("No sample viewers in this replay.") }
+                } else {
+                    Text("\(audienceCount) viewers").font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
+                    panelNote("The complete viewer list is not available yet.")
+                }
+                if !participants.isEmpty {
+                    Text("On stage").font(.system(size: 11)).foregroundStyle(NanaPalette.electricLilac)
+                        .padding(.top, 4)
+                    ForEach(participants) { profile in
+                        audienceMemberRow(
+                            name: profile.displayName, assetKey: profile.avatarAssetKey,
+                            detail: "\(profile.region) · Lv.\(profile.level)"
+                        )
+                    }
+                }
             }
-            if !participants.isEmpty {
-                Text("On stage").font(.system(size: 11)).foregroundStyle(NanaPalette.electricLilac)
+        }
+    }
+
+    private var voiceAudiencePanel: some View {
+        let seats = contentStore.voiceRoomSeats(for: room).filter { $0.profileID != nil }
+        let onStageIDs = Set(seats.compactMap(\.profileID))
+        let listeners = replayAudience.filter { !onStageIDs.contains($0.id) }
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("\(audienceCount) guests + host")
+                .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
+            Text("On stage · \(seats.count)").font(.system(size: 11)).foregroundStyle(NanaPalette.electricLilac)
+            ForEach(seats) { seat in
+                let profile = seat.profileID.flatMap { contentStore.profile(with: $0) }
+                let member = replayAudience.first { $0.id == seat.profileID }
+                let isHost = seat.profileID == room.hostID
+                audienceMemberRow(
+                    name: profile?.displayName ?? member?.displayName ?? seat.displayName ?? "Guest",
+                    assetKey: profile?.avatarAssetKey ?? member?.avatarAssetKey ?? (isHost ? room.hostAvatarAssetKey : nil),
+                    detail: isHost ? "Host" : (seat.isMuted ? "On microphone · Muted" : "On microphone")
+                )
+            }
+            if !listeners.isEmpty {
+                Text("Listening").font(.system(size: 11)).foregroundStyle(NanaPalette.electricLilac)
                     .padding(.top, 4)
-                ForEach(participants) { profile in
-                    audienceMemberRow(
-                        name: profile.displayName, assetKey: profile.avatarAssetKey,
-                        detail: "\(profile.region) · Lv.\(profile.level)"
-                    )
+                ForEach(listeners) { member in
+                    audienceMemberRow(name: member.displayName, assetKey: member.avatarAssetKey, detail: "Listener")
                 }
             }
         }
@@ -567,7 +636,7 @@ struct NanaLiveRoomView: View {
     private func rankingPanel(isHeat: Bool) -> some View {
         let category: NanaRankingCategory = isHeat ? .popularity : (presentation == .voice ? .voiceRoom : .liveRoom)
         let entries = NanaRankingSamples.entries(for: category)
-            .filter { !contentStore.blockedProfileIDs.contains($0.profileID) }
+            .filter { !contentStore.hiddenAuthorIDs.contains($0.profileID) }
         let hostEntry = entries.first { $0.profileID == room.hostID }
         let previewHeat = 280 + Int(room.id.utf8.reduce(UInt32(5381)) { ($0 &* 33) &+ UInt32($1) } % 420)
         return VStack(alignment: .leading, spacing: 10) {
@@ -749,7 +818,7 @@ struct NanaLiveRoomView: View {
     }
 
     private var moreRoomsPanel: some View {
-        let available = contentStore.payload.rooms.filter { $0.id != room.id && !contentStore.blockedProfileIDs.contains($0.hostID) }
+        let available = contentStore.payload.rooms.filter { $0.id != room.id && contentStore.isRoomVisible($0) }
         let filtered = available.filter { moreRoomCategory == "All" || $0.category == moreRoomCategory }
         let categories = ["All"] + Array(Set(available.map(\.category))).sorted()
         return VStack(spacing: 10) {
@@ -874,7 +943,13 @@ struct NanaLiveRoomView: View {
                         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                 }.buttonStyle(.plain)
             }
-            Button { contentStore.explainUnavailable("Submitting a report") } label: {
+            Button {
+                if contentStore.reportContent(contentStore.discussion(for: room), reason: reportReason) {
+                    panel = nil
+                    stopPlayback()
+                    moderationSuccess = AccountEntryNotice(title: "Report saved", explanation: "Your report has been saved. This room is now hidden from your lists.")
+                }
+            } label: {
                 Text("Submit report").font(.system(size: 12, weight: .semibold))
                     .frame(maxWidth: .infinity).frame(height: 44).background(NanaPalette.violet, in: Capsule())
             }.buttonStyle(.plain)
@@ -993,6 +1068,7 @@ struct NanaLiveRoomView: View {
         queue.play()
     }
     private func stopPlayback() {
+        roomMusic.stop()
         player?.pause()
         looper?.disableLooping()
         looper = nil

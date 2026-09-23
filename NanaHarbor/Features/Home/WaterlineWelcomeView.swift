@@ -2,6 +2,10 @@ import SwiftUI
 
 struct WaterlineWelcomeView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @GestureState private var isDraggingFeaturedRoom = false
     @State private var isLoading = true
     @State private var showingSearch = false
     @State private var showingRanking = false
@@ -19,6 +23,24 @@ struct WaterlineWelcomeView: View {
     }
 
     private var featuredRoom: NanaLiveRoom? { featuredRooms.first }
+
+    private struct FeaturedRoomRotation: Equatable {
+        let roomIDs: [String]
+        let selectedID: String
+        let isPaused: Bool
+    }
+
+    private var featuredRoomRotation: FeaturedRoomRotation {
+        FeaturedRoomRotation(
+            roomIDs: featuredRooms.map(\.id),
+            selectedID: featuredRoomID,
+            isPaused: scenePhase != .active || isDraggingFeaturedRoom
+                || reduceMotion || voiceOverEnabled
+                || showingSearch || showingRanking || showingLiveCreation
+                || selectedRoom != nil || selectedVideo != nil
+                || contentStore.actionNotice != nil
+        )
+    }
 
     private var filteredRooms: [NanaLiveRoom] {
         let rooms = feedMode == "Follow"
@@ -46,7 +68,7 @@ struct WaterlineWelcomeView: View {
     }
 
     private var creators: [NanaProfile] {
-        let profiles = contentStore.payload.profiles
+        let profiles = contentStore.visibleProfiles
         if !profiles.isEmpty { return Array(profiles.prefix(4)) }
         return filteredRooms.prefix(4).map {
             NanaProfile(id: $0.hostID, displayName: $0.hostName, handle: $0.hostName.lowercased().replacingOccurrences(of: " ", with: "."), region: "", language: "", gender: "", age: 0, introduction: "", avatarAssetKey: $0.hostAvatarAssetKey, isConnected: false, followerCount: 0, followingCount: 0, level: 0)
@@ -170,6 +192,10 @@ struct WaterlineWelcomeView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: 188)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 10)
+                    .updating($isDraggingFeaturedRoom) { _, isDragging, _ in isDragging = true }
+            )
             .accessibilityValue("Room \(selectedIndex + 1) of \(rooms.count)")
 
             if rooms.count > 1 {
@@ -188,6 +214,19 @@ struct WaterlineWelcomeView: View {
         .onChange(of: rooms.map(\.id), initial: true) { _, ids in
             // Keep the visible room stable after refresh; reset only if it disappeared.
             if !ids.contains(featuredRoomID) { featuredRoomID = ids.first ?? "" }
+        }
+        .task(id: featuredRoomRotation) {
+            let rotation = featuredRoomRotation
+            guard !rotation.isPaused, rotation.roomIDs.count > 1,
+                  let index = rotation.roomIDs.firstIndex(of: rotation.selectedID) else { return }
+            // A single cancellable delay restarts after each page change or drag.
+            // SwiftUI also cancels it when this carousel leaves the view hierarchy.
+            do { try await Task.sleep(for: .seconds(4)) }
+            catch { return }
+            guard !Task.isCancelled, featuredRoomRotation == rotation else { return }
+            withAnimation(.easeInOut(duration: 0.4)) {
+                featuredRoomID = rotation.roomIDs[(index + 1) % rotation.roomIDs.count]
+            }
         }
     }
 

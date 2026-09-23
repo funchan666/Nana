@@ -14,6 +14,7 @@ struct NanaAccountProfile: Codable, Equatable {
     var avatarData: Data?
     let signInMethod: String
     let appleUserID: String?
+    var introduction: String? = nil
 
     /// Apple identities never share a local account with the email-only entry flow.
     var localAccountScope: String {
@@ -175,14 +176,29 @@ final class NanaSessionStore: ObservableObject {
         } catch { showStorageNotice() }
     }
 
-    func updateActiveProfile(displayName: String, country: String) {
-        guard var profile = activeProfile else { return }
+    @discardableResult
+    func updateActiveProfile(displayName: String, country: String, avatarData: Data? = nil, accountScope: String,
+                             gender: String? = nil, birthDate: Date? = nil, interests: [String]? = nil,
+                             introduction: String? = nil, resetAvatar: Bool = false) -> Bool {
+        guard var profile = activeProfile, profile.localAccountScope == accountScope else { return false }
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let region = country.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !region.isEmpty else { return }
+        guard !name.isEmpty else { return false }
         profile.displayName = name
         profile.country = region
-        do { try activate(profile) } catch { showStorageNotice() }
+        if resetAvatar { profile.avatarData = nil }
+        else if let avatarData { profile.avatarData = avatarData }
+        if let gender { profile.gender = gender }
+        if let birthDate { profile.birthDate = birthDate }
+        if let interests { profile.interests = interests }
+        if let introduction { profile.introduction = String(introduction.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160)) }
+        do {
+            try activate(profile)
+            return true
+        } catch {
+            showStorageNotice()
+            return false
+        }
     }
 
     /// Check the real Apple credential on cold launch and foreground return.

@@ -78,6 +78,21 @@ struct NanaConversation: Identifiable, Codable, Hashable {
     var avatarAssetKey: String?
 }
 
+/// Account-authenticated inbox data, kept separate from the public catalog/cache.
+/// Only a private messaging transport may provide this snapshot. Public fixture
+/// profiles, follow flags and conversation examples are not evidence of friendship.
+struct NanaAccountInboxSnapshot {
+    let accountID: String
+    let mutualFriends: [NanaProfile]
+    let liveRooms: [NanaLiveRoom]
+    let conversations: [NanaConversation]
+    let messages: [NanaMessage]
+    var newFollowers: [NanaProfile] = []
+    var followers: [NanaProfile] = []
+    var totalCallDurationSeconds: Int? = nil
+    var missedCallCount: Int? = nil
+}
+
 struct NanaPostDiscussion {
     let key: String
     let title: String
@@ -85,6 +100,17 @@ struct NanaPostDiscussion {
     let authorName: String
     let authorAvatar: String?
     let videoAssetKey: String?
+    var kind: NanaSafetyContentKind = .post
+}
+
+enum NanaSafetyContentKind: String, Codable { case post, room, profile, conversation }
+
+struct NanaSafetyReport: Codable {
+    let contentKey: String
+    let kind: NanaSafetyContentKind
+    let authorID: String
+    let reason: String
+    let createdAt: Date
 }
 
 struct NanaPostComment: Identifiable, Codable {
@@ -149,6 +175,7 @@ struct NanaRoomChatMessage: Identifiable, Codable, Hashable {
     let senderName: String
     let body: String
     let sentAtLabel: String
+    var senderID: String? = nil
 }
 
 /// A local room gift receipt. This is separate from server chat and gift delivery.

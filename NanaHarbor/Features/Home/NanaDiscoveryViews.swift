@@ -9,6 +9,7 @@ struct NanaDiscoverySearchView: View {
     @State private var selectedProfile: NanaProfile?
     @State private var selectedRoom: NanaLiveRoom?
     @State private var selectedPost: NanaPost?
+    @FocusState private var searchFocused: Bool
 
     private var matchingProfiles: [NanaProfile] {
         contentStore.filteredProfiles(for: filter).filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) || $0.handle.localizedCaseInsensitiveContains(query) }
@@ -24,24 +25,22 @@ struct NanaDiscoverySearchView: View {
         NavigationStack {
             ZStack {
                 NanaBackdrop()
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HStack(spacing: 10) {
-                            TextField("Search people, rooms, posts", text: $query)
-                                .foregroundStyle(.white)
-                                .nanaGlassField()
-                            Button { showingFilters = true } label: { Image(systemName: "slider.horizontal.3").foregroundStyle(.white).frame(width: 45, height: 45).background(NanaPalette.violet, in: RoundedRectangle(cornerRadius: 14)) }
-                                .buttonStyle(.plain)
+                VStack(spacing: 0) {
+                    searchHeader
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 18) {
+                            searchField
+                            ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(NanaSearchFilter.SearchKind.allCases, id: \.self) { kind in NanaChip(title: kind.rawValue, isSelected: filter.kind == kind) { filter.kind = kind } } } }
+                            if filter.kind == .all || filter.kind == .people { resultGroup(title: "People", profiles: matchingProfiles) }
+                            if filter.kind == .all || filter.kind == .rooms { roomResults }
+                            if filter.kind == .all || filter.kind == .posts { postResults }
                         }
-                        ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(NanaSearchFilter.SearchKind.allCases, id: \.self) { kind in NanaChip(title: kind.rawValue, isSelected: filter.kind == kind) { filter.kind = kind } } } }
-                        if filter.kind == .all || filter.kind == .people { resultGroup(title: "People", profiles: matchingProfiles) }
-                        if filter.kind == .all || filter.kind == .rooms { roomResults }
-                        if filter.kind == .all || filter.kind == .posts { postResults }
+                        .padding(20)
                     }
-                    .padding(20)
+                    .scrollDismissesKeyboard(.interactively)
                 }
             }
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingFilters) { NanaSearchFilterView(filter: $filter) }
             .sheet(item: $selectedProfile) { profile in NanaUserProfileView(profile: profile) }
             .fullScreenCover(item: $selectedRoom) { room in NanaVoiceRoomDetailView(room: room) }
@@ -49,6 +48,65 @@ struct NanaDiscoverySearchView: View {
             .task { await contentStore.refresh(.search) }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var searchHeader: some View {
+        HStack(spacing: 12) {
+            Button {
+                searchFocused = false
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .background(.white.opacity(0.07), in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.10), lineWidth: 0.5))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Back from search")
+            Spacer(minLength: 0)
+            Text("Search").font(.system(size: 17, weight: .semibold))
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+            Button {
+                searchFocused = false
+                showingFilters = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(NanaPalette.electricLilac)
+                    .frame(width: 36, height: 36)
+                    .background(NanaPalette.violet.opacity(0.16), in: Circle())
+                    .overlay(Circle().strokeBorder(NanaPalette.electricLilac.opacity(0.20), lineWidth: 0.5))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Search filters")
+        }
+        .buttonStyle(.plain).foregroundStyle(.white)
+        .padding(.horizontal, 16).padding(.top, 12)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").font(.system(size: 15))
+                .foregroundStyle(NanaPalette.mutedWhite).accessibilityHidden(true)
+            TextField("Search people, rooms, posts", text: $query)
+                .font(.system(size: 14)).foregroundStyle(.white)
+                .focused($searchFocused).submitLabel(.search)
+                .onSubmit { searchFocused = false }
+                .accessibilityLabel("Search people, rooms and posts")
+            if !query.isEmpty {
+                Button { query = ""; searchFocused = true } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 15))
+                        .foregroundStyle(NanaPalette.mutedWhite)
+                        .frame(width: 44, height: 44)
+                }.buttonStyle(.plain).accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.leading, 14).padding(.trailing, query.isEmpty ? 14 : 2)
+        .frame(minHeight: 50)
+        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(NanaPalette.border, lineWidth: 0.7))
     }
 
     @ViewBuilder private func resultGroup(title: String, profiles: [NanaProfile]) -> some View {
@@ -118,7 +176,10 @@ struct NanaPostDetailView: View {
     let post: NanaPost
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
-    @State private var comment = ""
+    @State private var showingComments = false
+    @State private var safetyAction: NanaPostSafetyAction?
+    private var discussion: NanaPostDiscussion { contentStore.discussion(for: post) }
+    private var comments: [NanaPostComment] { contentStore.comments(for: discussion) }
 
     var body: some View {
         NavigationStack {
@@ -130,21 +191,36 @@ struct NanaPostDetailView: View {
                             Text(post.category.uppercased()).font(NanaType.stamp).tracking(1.2).foregroundStyle(NanaPalette.softPink)
                             Text(post.title).font(NanaType.hero).foregroundStyle(NanaPalette.warmWhite)
                             Text("By \(post.authorName) · \(post.publishedLabel)").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+                            NanaPostSafetyButtons { safetyAction = $0 }
                             Text(post.body).font(NanaType.body).foregroundStyle(.white.opacity(0.82)).lineSpacing(5)
                             Divider().overlay(NanaPalette.border).padding(.vertical, 8)
                             NanaSectionTitle(eyebrow: "Community", title: "Responses")
-                            NanaEmptyState(title: "Responses unavailable", detail: "The published A-side contract provides post content only; no comment read or write endpoint is connected.", actionTitle: nil, action: nil)
+                            ForEach(comments) { comment in NanaPostCommentRow(comment: comment) }
+                            Button("View all \(comments.count) comments") { showingComments = true }
+                                .font(NanaType.caption).foregroundStyle(NanaPalette.electricLilac).frame(minHeight: 44)
                         }
                         .padding(20)
                     }
-                    HStack(spacing: 8) {
-                        TextField("Add a response…", text: $comment).foregroundStyle(.white).nanaGlassField()
-                        Button { contentStore.explainUnavailable("Post responses") } label: { Image(systemName: "paperplane.fill").foregroundStyle(.white).frame(width: 44, height: 44).background(NanaPalette.violet, in: Circle()) }.buttonStyle(.plain)
-                    }
-                    .padding(12).background(NanaPalette.deepSpace.opacity(0.96))
+                    Button { showingComments = true } label: {
+                        HStack {
+                            Image(systemName: "text.bubble")
+                            Text("Add a comment…")
+                            Spacer()
+                            Text("\(comments.count)")
+                        }.padding(16).foregroundStyle(.white)
+                    }.buttonStyle(.plain).background(NanaPalette.deepSpace)
                 }
             }
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) }
+            }
+            .sheet(isPresented: $showingComments) { NanaPostCommentsSheet(context: discussion) }
+            .sheet(item: $safetyAction) { action in
+                NanaPostSafetySheet(context: discussion, initialAction: action) { dismiss() }
+            }
+            .onChange(of: contentStore.safetyDismissalID) { _, _ in
+                if contentStore.post(with: post.id) == nil { dismiss() }
+            }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
             .task { if post.id == "post-echoes" { await contentStore.refresh(.echoesPost) } }
         }

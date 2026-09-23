@@ -86,7 +86,7 @@ struct NanaRankingView: View {
     private var showsSampleRankings: Bool { publishedCategoryEntries.isEmpty }
     private var visibleEntries: [NanaRankingEntry] {
         let categoryEntries = showsSampleRankings ? NanaRankingSamples.entries(for: category) : publishedCategoryEntries
-        return categoryEntries.filter { !contentStore.blockedProfileIDs.contains($0.profileID) }
+        return categoryEntries.filter { !contentStore.hiddenAuthorIDs.contains($0.profileID) }
             .sorted { $0.rank == $1.rank ? $0.id < $1.id : $0.rank < $1.rank }
     }
     private var personalEntry: NanaRankingEntry? {
@@ -107,10 +107,8 @@ struct NanaRankingView: View {
         .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
-        .alert("About rankings", isPresented: $showingRules) {
-            Button("Got it", role: .cancel) { }
-        } message: {
-            Text("Each category shows its own gift ranking. Sample rankings are shown until published results are available; sample gifts do not affect balances or your personal rank. A dash means your personal ranking is unavailable.")
+        .sheet(isPresented: $showingRules) {
+            NanaRankingGuideView(category: category, showsSampleRankings: showsSampleRankings)
         }
     }
 
@@ -299,6 +297,143 @@ struct NanaRankingView: View {
         .background(Color(red: 0.15, green: 0.13, blue: 0.23), in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.28), lineWidth: 0.6))
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct NanaRankingGuideView: View {
+    let category: NanaRankingCategory
+    let showsSampleRankings: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    private let surface = Color(red: 0.075, green: 0.055, blue: 0.105)
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    categories
+                    explanation(number: "02", title: "Reading the list",
+                                detail: "Rank 1 is the highest position. The gift total is shown on the right; K means thousand. Hidden profiles are removed without changing the remaining ranks.")
+                    explanation(number: "03", title: "Your place",
+                                detail: "The card at the bottom shows your position in the selected category. A dash (—) means no personal result is available, not a score of zero.")
+                    if showsSampleRankings { sampleNote }
+                }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 20)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            footer
+        }
+        .foregroundStyle(NanaPalette.warmWhite)
+        .background(surface)
+        .preferredColorScheme(.dark)
+        .presentationDetents([.fraction(0.84), .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+        .presentationBackground(surface)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("THE RANKING GUIDE")
+                    .font(.system(size: 10, weight: .semibold)).tracking(1.7)
+                    .foregroundStyle(NanaPalette.electricLilac)
+                Text("About rankings")
+                    .font(.system(size: 24, weight: .bold)).accessibilityAddTraits(.isHeader)
+                Text("Find your way around the leaderboard.")
+                    .font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 6) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 13, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                        .background(.white.opacity(0.07), in: Circle())
+                }
+                .buttonStyle(.plain).accessibilityLabel("Close ranking guide")
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_008", contentMode: .fit)
+                    .frame(width: 62, height: 46).accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 22).padding(.top, 28).padding(.bottom, 22)
+    }
+
+    private var categories: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeading("01", title: "Three separate lists")
+            VStack(alignment: .leading, spacing: 14) {
+                categoryRow(.popularity, detail: "The overall popularity list.")
+                categoryRow(.liveRoom, detail: "Rankings for live rooms.")
+                categoryRow(.voiceRoom, detail: "Rankings for voice rooms.")
+            }
+            Text("Each category has its own results. A position in one list does not carry over to another.")
+                .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .background(NanaPalette.violet.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(NanaPalette.electricLilac.opacity(0.18), lineWidth: 1))
+    }
+
+    private func categoryRow(_ item: NanaRankingCategory, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(item.rawValue).font(.system(size: 14, weight: .semibold))
+                if category == item {
+                    Text("Viewing").font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(NanaPalette.electricLilac)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(NanaPalette.violet.opacity(0.2), in: Capsule())
+                }
+            }
+            Text(detail).font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func explanation(number: String, title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeading(number, title: title)
+            Text(detail).font(.system(size: 13)).lineSpacing(4)
+                .foregroundStyle(NanaPalette.mutedWhite)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func sectionHeading(_ number: String, title: String) -> some View {
+        HStack(spacing: 9) {
+            Text(number).font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(NanaPalette.electricLilac)
+            Text(title).font(.system(size: 15, weight: .semibold)).accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    private var sampleNote: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("About the current results").font(.system(size: 12, weight: .semibold))
+            Text("This category currently shows sample results. These totals do not change your coin balance or establish your personal rank.")
+                .font(.system(size: 12)).lineSpacing(3).foregroundStyle(NanaPalette.mutedWhite)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4).padding(.top, 4)
+    }
+
+    private var footer: some View {
+        Button { dismiss() } label: {
+            Text("Got it").font(.system(size: 16, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(NanaPalette.violet, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 22).padding(.vertical, 14)
+        .background(surface)
+        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.07)).frame(height: 0.5) }
     }
 }
 

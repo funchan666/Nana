@@ -7,9 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DA5F3A50C1234E6AB000000B /* NanaRoomGiftViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */; };
-        DA5F3A50C1234E6AB0000009 /* NanaVoiceConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */; };
-		DA5F3A50C1234E6AB0000007 /* NanaVideoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */; };
 		022ECD668282A5AEC45B4C2F /* NanaLiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DFD2A4ECB3DC9A235416614 /* NanaLiveModels.swift */; };
 		059DC4BD98310B88212328D5 /* NanaLiveComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */; };
 		0673C9DFF604D2881E64DD08 /* NanaHarborShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF0564D9D0BEB4944CB2702 /* NanaHarborShellView.swift */; };
@@ -44,6 +41,12 @@
 		DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */; };
 		DA5F3A50C1234E6AB0000003 /* NanaRoomReplayActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000004 /* NanaRoomReplayActivityView.swift */; };
 		DA5F3A50C1234E6AB0000005 /* NanaLiveCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000006 /* NanaLiveCreationView.swift */; };
+		DA5F3A50C1234E6AB0000007 /* NanaVideoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */; };
+		DA5F3A50C1234E6AB0000009 /* NanaVoiceConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */; };
+		DA5F3A50C1234E6AB000000B /* NanaRoomGiftViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */; };
+		DA5F3A50C1234E6AB000000D /* NanaPostDiscussionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000E /* NanaPostDiscussionViews.swift */; };
+		DA5F3A50C1234E6AB000000F /* NanaRoomMusicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000010 /* NanaRoomMusicView.swift */; };
+		DA5F3A50C1234E6AB0000011 /* room-music in Resources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000012 /* room-music */; };
 		DAABB175EDB9B33E1503972D /* NanaSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */; };
 		E6256002F1AFC3C830C55EE6 /* pics in Resources */ = {isa = PBXBuildFile; fileRef = 2B4500966D2E4847511F0487 /* pics */; };
 		F3C21557A0944C5C42E7D2F0 /* AccountConsentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */; };
@@ -51,9 +54,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomGiftViews.swift; sourceTree = "<group>"; };
-        DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVoiceConnectionView.swift; sourceTree = "<group>"; };
-		DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVideoDetailView.swift; sourceTree = "<group>"; };
 		17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaSessionStore.swift; sourceTree = "<group>"; };
 		1F48A0CDD1C137F08BD7AD78 /* NanaAccessLandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAccessLandingView.swift; sourceTree = "<group>"; };
 		26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourShoreView.swift; sourceTree = "<group>"; };
@@ -86,6 +86,12 @@
 		DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveRoomView.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000004 /* NanaRoomReplayActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomReplayActivityView.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000006 /* NanaLiveCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveCreationView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVideoDetailView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVoiceConnectionView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomGiftViews.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB000000E /* NanaPostDiscussionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaPostDiscussionViews.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000010 /* NanaRoomMusicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomMusicView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000012 /* room-music */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "room-music"; path = "assets/room-music"; sourceTree = SOURCE_ROOT; };
 		E3EE88EF1ECDA612A8ABA18A /* NanaEntryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaEntryCoordinator.swift; sourceTree = "<group>"; };
 		E7595FC1A6D3979EF407E8ED /* NanaCredentialAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaCredentialAccessView.swift; sourceTree = "<group>"; };
 		F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAuthenticationBoundary.swift; sourceTree = "<group>"; };
@@ -184,6 +190,8 @@
 				DA5F3A50C1234E6AB0000008 /* NanaVideoDetailView.swift */,
 				DA5F3A50C1234E6AB000000A /* NanaVoiceConnectionView.swift */,
 				DA5F3A50C1234E6AB000000C /* NanaRoomGiftViews.swift */,
+				DA5F3A50C1234E6AB000000E /* NanaPostDiscussionViews.swift */,
+				DA5F3A50C1234E6AB0000010 /* NanaRoomMusicView.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -288,6 +296,7 @@
 			children = (
 				BE26AE3C52C9BCD3329FDC87 /* photos */,
 				4C776CD160331BF7646627E4 /* voice-room-slices */,
+				DA5F3A50C1234E6AB0000012 /* room-music */,
 			);
 			path = assets;
 			sourceTree = "<group>";
@@ -359,6 +368,7 @@
 				E6256002F1AFC3C830C55EE6 /* pics in Resources */,
 				AE8D2B8FA6F0DC0D814DED24 /* videos in Resources */,
 				77C1B52861E9D86F1C4B1002 /* voice-room-slices in Resources */,
+				DA5F3A50C1234E6AB0000011 /* room-music in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -403,6 +413,8 @@
 				DA5F3A50C1234E6AB0000007 /* NanaVideoDetailView.swift in Sources */,
 				DA5F3A50C1234E6AB0000009 /* NanaVoiceConnectionView.swift in Sources */,
 				DA5F3A50C1234E6AB000000B /* NanaRoomGiftViews.swift in Sources */,
+				DA5F3A50C1234E6AB000000D /* NanaPostDiscussionViews.swift in Sources */,
+				DA5F3A50C1234E6AB000000F /* NanaRoomMusicView.swift in Sources */,
 				C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -481,7 +493,7 @@
 				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = NanaHarbor/Support/AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Nana;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -509,7 +521,7 @@
 				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = NanaHarbor/Support/AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Nana;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

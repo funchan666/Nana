@@ -1,0 +1,30 @@
+{
+  "type": "Original sculptural 3D empty-state illustration for the Nana social iOS app",
+  "goal": "Create an original small app illustration, not a UI mockup. Authored specifically for Nana; not stock art or a copy of any existing mascot.",
+  "style": {
+    "rendering": "Soft handcrafted ceramic and satin resin, editorial miniature sculpture, rounded asymmetrical shapes, crisp readable silhouette at 100pt, restrained glossy edges",
+    "color_palette": "violet #8B32FF, pale lavender #DCC8FF, warm ivory #FFF8EF, tiny muted coral accent",
+    "lighting": "soft studio key light from upper left, subtle lilac reflected edge light, no heavy glow"
+  },
+  "background": {
+    "type": "Genuinely transparent alpha, no background plane, no white square, no checkerboard, no vignette"
+  },
+  "format": {
+    "aspect_ratio": "1:1",
+    "composition_safety": "Centered isolated cluster taking 78% of square canvas; all objects entirely inside frame with 10% clear margins"
+  },
+  "constraints": {
+    "avoid": [
+      "any words, letters, numbers or labels",
+      "logos or watermark",
+      "SF Symbols or flat outline icons",
+      "sad faces, error badges, red alert dots",
+      "busy confetti, ornate framing",
+      "UI card or phone frame"
+    ]
+  },
+  "character": {
+    "subject": "A tiny inviting live studio waiting for friends",
+    "metaphor_object": "A sculptural pale-lavender retro video camera, viewed three-quarter, with a large layered violet circular lens and small ivory handle; perched on a low soft violet pebble-shaped studio platform. Beside it rests one rounded ivory speech bubble sculpture tilted gently toward the lens, its face entirely blank. One small coral four-point sparkle floating above."
+  }
+}

@@ -116,6 +116,26 @@ struct NanaMediaPreview: View {
     }
 }
 
+/// The account's selected photo always takes precedence over the bundled default.
+struct NanaAccountAvatarView: View {
+    let data: Data?
+    var size: CGFloat = 72
+    static let defaultAssetKey = "nana.pic.DdV5vxnEs3N"
+
+    var body: some View {
+        Group {
+            if let data, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                NanaAssetImage(assetKey: Self.defaultAssetKey)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 1))
+    }
+}
+
 struct NanaAvatarView: View {
     let title: String
     let assetKey: String?

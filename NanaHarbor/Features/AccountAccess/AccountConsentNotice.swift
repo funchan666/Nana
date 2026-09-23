@@ -3,10 +3,11 @@ import SwiftUI
 struct AccountConsentNotice: View {
     let notice: AccountEntryNotice
     let dismissNotice: () -> Void
+    var dimsBackground = true
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.76)
+            Color.black.opacity(dimsBackground ? 0.76 : 0)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture(perform: dismissNotice)
