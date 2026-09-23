@@ -10,6 +10,7 @@ settings:
     SWIFT_VERSION: 5.0
     MARKETING_VERSION: 1.0.0
     CURRENT_PROJECT_VERSION: 1
+    VERSIONING_SYSTEM: apple-generic
     TARGETED_DEVICE_FAMILY: "1"
   configs:
     Release:
@@ -17,6 +18,15 @@ settings:
       STRIP_INSTALLED_PRODUCT: true
       COPY_PHASE_STRIP: true
       DEAD_CODE_STRIPPING: true
+schemes:
+  Nana:
+    build:
+      targets:
+        Nana: all
+    run:
+      config: Debug
+    archive:
+      config: Release
 targets:
   Nana:
     type: application

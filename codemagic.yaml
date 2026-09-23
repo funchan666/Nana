@@ -1,54 +1,63 @@
 workflows:
-  unison-ios-app-store:
-    name: Unison iOS App Store
+  nana-ios-app-store:
+    name: Nana iOS App Store
     max_build_duration: 120
     instance_type: mac_mini_m2
 
     integrations:
-      app_store_connect: Unison
+      app_store_connect: Nana
 
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.unisonvocal.community
+        bundle_identifier: com.nanalantern.harbortide
 
       vars:
-        BUNDLE_ID: "com.unisonvocal.community"
-        XCODE_WORKSPACE: "ios/Runner.xcworkspace"
-        XCODE_SCHEME: "Runner"
-        APP_STORE_APPLE_ID: "6802950506"
+        BUNDLE_ID: "com.nanalantern.harbortide"
+        XCODE_PROJECT: "Nana.xcodeproj"
+        XCODE_SCHEME: "Nana"
+        APP_STORE_APPLE_ID: "6815122501"
 
       xcode: latest
 
     scripts:
       - name: Verify native iOS project configuration
         script: |
-          set -e
-          test -d "$CM_BUILD_DIR/$XCODE_WORKSPACE"
-          test -f "$CM_BUILD_DIR/ios/Runner.xcodeproj/xcshareddata/xcschemes/$XCODE_SCHEME.xcscheme"
-          grep -q "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;" \
-            "$CM_BUILD_DIR/ios/Runner.xcodeproj/project.pbxproj"
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          test -f "$XCODE_PROJECT/project.pbxproj"
+          test -f "$XCODE_PROJECT/xcshareddata/xcschemes/$XCODE_SCHEME.xcscheme"
+          grep -Fq "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;" \
+            "$XCODE_PROJECT/project.pbxproj"
 
       - name: Set up App Store signing
         script: |
-          set -e
-          cd "$CM_BUILD_DIR/ios"
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
           xcode-project use-profiles
 
       - name: Set next App Store build number
         script: |
-          set -e
-          cd "$CM_BUILD_DIR/ios"
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
 
           LATEST_BUILD_NUMBER="$(
             app-store-connect get-latest-testflight-build-number \
-              "$APP_STORE_APPLE_ID" 2>/dev/null || true
+              "$APP_STORE_APPLE_ID" --platform IOS --all-versions
           )"
 
-          if echo "$LATEST_BUILD_NUMBER" | grep -Eq '^[0-9]+$'; then
-            NEXT_BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
-          else
-            NEXT_BUILD_NUMBER="${BUILD_NUMBER:-1}"
+          # A successful empty response means this app has no uploaded builds yet.
+          # Authentication/network failures must stop the build instead of being hidden.
+          LATEST_BUILD_NUMBER="${LATEST_BUILD_NUMBER:-0}"
+          CI_BUILD_NUMBER="${BUILD_NUMBER:-1}"
+          [[ "$LATEST_BUILD_NUMBER" =~ ^[0-9]+$ ]] || {
+            echo "Expected an integer App Store build number." >&2
+            exit 1
+          }
+          [[ "$CI_BUILD_NUMBER" =~ ^[0-9]+$ ]]
+          NEXT_BUILD_NUMBER=$((10#$LATEST_BUILD_NUMBER + 1))
+          if (( 10#$CI_BUILD_NUMBER > NEXT_BUILD_NUMBER )); then
+            NEXT_BUILD_NUMBER=$((10#$CI_BUILD_NUMBER))
           fi
 
           echo "Using build number: $NEXT_BUILD_NUMBER"
@@ -56,9 +65,10 @@ workflows:
 
       - name: Build signed IPA
         script: |
-          set -e
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
           xcode-project build-ipa \
-            --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
+            --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME"
 
     artifacts:
@@ -76,6 +86,8 @@ workflows:
           failure: true
 
       app_store_connect:
+        # Upload the signed IPA with the Nana integration after a successful build.
         auth: integration
+        # Upload only; submission for beta/App Store review remains manual.
         submit_to_testflight: false
         submit_to_app_store: false

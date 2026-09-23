@@ -5,6 +5,7 @@
 - [上架文案和协议链接](app-store-metadata.md)
 - [内购配置清单](coin-pack-catalog.md)
 - [发布准备记录](release-readiness.md)
+- [Codemagic 打包与上传](codemagic-build.md)
 - [发布包资源检查使用说明](release-resource-audit.md)
 - [设计与实现记录](brand-spec.md)
 - [房间音乐说明](room-music-notes.md)
