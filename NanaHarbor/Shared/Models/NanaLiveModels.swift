@@ -22,6 +22,7 @@ struct NanaProfile: Identifiable, Codable, Hashable {
     var level: Int
     var hasCompleteDetails: Bool? = nil
     var publicPhotoAssetKeys: [String]? = nil
+    var friendsCount: Int? = nil
 }
 
 struct NanaLiveRoom: Identifiable, Codable, Hashable {

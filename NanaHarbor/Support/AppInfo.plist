@@ -21,7 +21,9 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Nana uses the camera when you add a profile photo or preview yourself before a video call.</string>
+	<string>Nana uses the camera to take photos, record videos, and preview yourself before a video call.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nana needs microphone access for video calls and to include sound in videos you record.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Nana uses your photo library when you choose to add a profile photo.</string>
 	<key>UILaunchStoryboardName</key>

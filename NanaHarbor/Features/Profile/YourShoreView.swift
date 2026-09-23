@@ -1,5 +1,4 @@
 import SwiftUI
-import PhotosUI
 import UIKit
 import ImageIO
 import UserNotifications
@@ -339,7 +338,7 @@ struct NanaUserProfileView: View {
     let profile: NanaProfile
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
-    @State private var showingCall = false
+    @State private var callProfile: NanaProfile?
     @State private var safetyAction: NanaPostSafetyAction?
     @State private var conversation: NanaConversation?
     @State private var selectedVideo: NanaBundledVideo?
@@ -416,7 +415,7 @@ struct NanaUserProfileView: View {
         }
         .foregroundStyle(NanaPalette.warmWhite)
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $showingCall) { NanaVideoCallView(profile: liveProfile) }
+        .nanaVideoCall(profile: $callProfile)
         .fullScreenCover(item: $conversation) { NanaConversationView(conversation: $0, recipientProfile: liveProfile) }
         .fullScreenCover(item: $selectedVideo) { NanaVideoPlayerView(clip: $0) }
         .fullScreenCover(item: $selectedPost) { NanaPostDetailView(post: $0) }
@@ -606,7 +605,7 @@ struct NanaUserProfileView: View {
                 NanaProfileArtworkButton(asset: "152", label: "Chat", height: height) {
                     conversation = contentStore.conversation(for: liveProfile)
                 }.frame(width: available * 260 / 674)
-                NanaProfileArtworkButton(asset: "145", label: "Start video", height: height) { showingCall = true }
+                NanaProfileArtworkButton(asset: "145", label: "Start video", height: height) { callProfile = liveProfile }
                     .frame(width: available * 414 / 674)
             }
         }
@@ -755,16 +754,14 @@ private struct NanaEditProfileView: View {
     @State private var introduction = ""
     @State private var avatarData: Data?
     @State private var resetAvatar = false
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingMediaSource = false
     @State private var editingAccountScope: String?
-    @State private var loadingPhoto = false
-    @State private var photoError: String?
     @State private var showingDate = false
     @FocusState private var focusedField: ProfileField?
     private enum ProfileField: Hashable { case nickname, country, signature }
     private var canSave: Bool {
         editingAccountScope == sessionStore.activeProfile?.localAccountScope
-            && editingAccountScope != nil && !loadingPhoto
+            && editingAccountScope != nil
             && !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     private var interestOptions: [String] {
@@ -797,12 +794,12 @@ private struct NanaEditProfileView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
         }
         .onAppear(perform: loadProfile)
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            focusedField = nil
-            loadingPhoto = true
-            photoError = nil
-            Task { @MainActor in await loadPhoto(item) }
+        .nanaMediaSource(isPresented: $showingMediaSource) { media in
+            guard editingAccountScope != nil,
+                  editingAccountScope == sessionStore.activeProfile?.localAccountScope,
+                  let data = media.photoData else { media.discard(); return }
+            avatarData = data
+            resetAvatar = false
         }
         .fullScreenCover(isPresented: $showingDate) {
             NanaProfileBirthdayPicker(initialDate: birthDate) { birthDate = $0 }
@@ -821,7 +818,7 @@ private struct NanaEditProfileView: View {
                     .font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
-            NanaSettingsImageButton(title: loadingPhoto ? "Preparing photo…" : "Save changes", isEnabled: canSave) {
+            NanaSettingsImageButton(title: "Save changes", isEnabled: canSave) {
                 focusedField = nil
                 save()
             }
@@ -834,9 +831,9 @@ private struct NanaEditProfileView: View {
     private var avatarPicker: some View {
         NanaSettingsCard {
             HStack(alignment: .center, spacing: 18) {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                Button { focusedField = nil; showingMediaSource = true } label: {
                     NanaAccountAvatarView(data: avatarData, size: dynamicTypeSize.isAccessibilitySize ? 72 : 92)
-                }.disabled(loadingPhoto).accessibilityLabel("Change profile photo")
+                }.accessibilityLabel("Change profile photo")
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Your profile photo").font(.headline)
                     Text("A familiar face makes it easier to connect.")
@@ -845,18 +842,17 @@ private struct NanaEditProfileView: View {
                 }
             }
             HStack(spacing: 12) {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    Text(loadingPhoto ? "Preparing photo…" : "Change photo")
+                Button { focusedField = nil; showingMediaSource = true } label: {
+                    Text("Change photo")
                         .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 48)
                         .background { Image("NanaCheckInGuideButton").resizable().accessibilityHidden(true) }
-                }.disabled(loadingPhoto)
+                }
                 if avatarData != nil {
                     Button("Reset") { avatarData = nil; resetAvatar = true }
                         .font(.subheadline).foregroundStyle(NanaPalette.electricLilac).frame(minWidth: 52, minHeight: 48)
-                        .disabled(loadingPhoto).accessibilityLabel("Reset to default profile photo")
+                        .accessibilityLabel("Reset to default profile photo")
                 }
             }
-            if let photoError { Text(photoError).font(.footnote).foregroundStyle(NanaPalette.warning) }
         }
     }
 
@@ -969,22 +965,7 @@ private struct NanaEditProfileView: View {
         }
     }
 
-    @MainActor private func loadPhoto(_ item: PhotosPickerItem) async {
-        defer { loadingPhoto = false; selectedPhoto = nil }
-        do {
-            guard let data = try await item.loadTransferable(type: Data.self), data.count <= 25_000_000,
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 1024
-                  ] as CFDictionary), let jpeg = UIImage(cgImage: thumbnail).jpegData(compressionQuality: 0.8) else {
-                photoError = "Choose a photo smaller than 25 MB."; return
-            }
-            guard editingAccountScope == sessionStore.activeProfile?.localAccountScope else { return }
-            avatarData = jpeg; resetAvatar = false
-        } catch { photoError = "Couldn't load this photo. Please try another one." }
-    }
+
 }
 
 private struct NanaProfileBirthdayPicker: View {

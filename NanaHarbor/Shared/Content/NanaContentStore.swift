@@ -155,6 +155,13 @@ final class NanaContentStore: ObservableObject {
         }
     }
 
+    /// Only account-scoped, confirmed mutual follows grant camera-call access.
+    /// Public profile flags and local welcome activity cannot grant this permission.
+    func canStartVideoCall(with profileID: String) -> Bool {
+        accountScope != nil && !hiddenAuthorIDs.contains(profileID)
+            && mutualFriends.contains { $0.id == profileID }
+    }
+
     var newFollowers: [NanaProfile] {
         guard accountScope != nil else { return [] }
         let authenticated = accountInbox?.accountID == accountScope ? accountInbox?.newFollowers ?? [] : []
@@ -581,6 +588,18 @@ final class NanaContentStore: ObservableObject {
         }
         explainUnavailable("Sending messages")
     }
+    func sendMediaAttachment(to conversation: NanaConversation) {
+        guard accountScope != nil, !hiddenAuthorIDs.contains(conversation.profileID) else {
+            actionNotice = AccountEntryNotice(title: "Message unavailable", explanation: "Sign in and unblock this person before sending an attachment.")
+            return
+        }
+        guard mutualFriends.contains(where: { $0.id == conversation.profileID }) else {
+            actionNotice = AccountEntryNotice(title: "Follow each other to chat", explanation: "You can send attachments once you both follow each other. Your selected attachment is still here.")
+            return
+        }
+        actionNotice = AccountEntryNotice(title: "Attachment not sent", explanation: "Photo and video messaging isn't connected yet. Your attachment is available locally while you stay in this conversation.")
+    }
+
     func appendRoomMessage(roomID: String, body: String, senderName: String = "You") { explainUnavailable("Room chat") }
     func toggleMute(roomID: String, seatID: String) { explainUnavailable("Room moderation") }
     func kick(roomID: String, seatID: String) { explainUnavailable("Room moderation") }

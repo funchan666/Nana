@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -12,8 +11,7 @@ struct NanaProfileCompletionView: View {
     @State private var birthDate = Calendar.current.date(byAdding: .year, value: -25, to: Date()) ?? Date()
     @State private var selectedInterests: Set<String> = []
     @State private var avatarData: Data?
-    @State private var photoItem: PhotosPickerItem?
-    @State private var showCamera = false
+    @State private var showingMediaSource = false
     @State private var notice: AccountEntryNotice?
 
     private let interestOptions = ["Short walks", "Plant cuttings", "New cafés", "Mending", "Small concerts", "Good questions"]
@@ -80,13 +78,8 @@ struct NanaProfileCompletionView: View {
         .onAppear {
             if displayName.isEmpty { displayName = sessionStore.pendingIdentity?.displayName ?? "" }
         }
-        .task(id: photoItem) {
-            guard let photoItem else { return }
-            avatarData = try? await photoItem.loadTransferable(type: Data.self)
-        }
-        .sheet(isPresented: $showCamera) {
-            CameraCaptureView(imageData: $avatarData)
-                .ignoresSafeArea()
+        .nanaMediaSource(isPresented: $showingMediaSource) { media in
+            avatarData = media.photoData
         }
     }
 
@@ -96,27 +89,18 @@ struct NanaProfileCompletionView: View {
                 if let avatarData, let image = UIImage(data: avatarData) {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 27, weight: .medium))
-                        .foregroundStyle(AccountEntryAppearance.violet)
+                    NanaAssetImage(assetKey: "nana.asset.NanaChatPhotoIcon", contentMode: .fit)
+                        .frame(width: 60, height: 60)
                 }
             }
             .frame(width: 112, height: 112)
-            .background(.white, in: Circle())
+            .background(NanaPalette.deepSpace, in: Circle())
             .clipShape(Circle())
             .overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 1))
-            HStack(spacing: 14) {
-                PhotosPicker(selection: $photoItem, matching: .images) {
-                    Label("Photo library", systemImage: "photo.on.rectangle")
-                }
+            .onTapGesture { showingMediaSource = true }
+            .accessibilityAddTraits(.isButton).accessibilityLabel("Choose profile photo")
+            Button("Choose photo") { showingMediaSource = true }
                 .buttonStyle(ProfileSmallButtonStyle())
-                Button {
-                    showCamera = true
-                } label: {
-                    Label("Camera", systemImage: "camera")
-                }
-                .buttonStyle(ProfileSmallButtonStyle())
-            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -227,34 +211,5 @@ private struct FlowTagLayout: View {
                 .buttonStyle(.plain)
             }
         }
-    }
-}
-
-private struct CameraCaptureView: UIViewControllerRepresentable {
-    @Binding var imageData: Data?
-    @Environment(\.dismiss) private var dismiss
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let controller = UIImagePickerController()
-        controller.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
-        controller.delegate = context.coordinator
-        controller.allowsEditing = true
-        return controller
-    }
-
-    func updateUIViewController(_ controller: UIImagePickerController, context: Context) { }
-
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        let parent: CameraCaptureView
-        init(parent: CameraCaptureView) { self.parent = parent }
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage {
-                parent.imageData = image.jpegData(compressionQuality: 0.82)
-            }
-            parent.dismiss()
-        }
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }

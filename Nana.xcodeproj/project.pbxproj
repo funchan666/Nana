@@ -51,6 +51,9 @@
 		E6256002F1AFC3C830C55EE6 /* pics in Resources */ = {isa = PBXBuildFile; fileRef = 2B4500966D2E4847511F0487 /* pics */; };
 		F3C21557A0944C5C42E7D2F0 /* AccountConsentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */; };
 		F998C8A16E2F94892C6A7630 /* NanaProfileCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5440DF561E5939D352B50D2D /* NanaProfileCompletionView.swift */; };
+		DA5F3A50C1234E6AB0000013 /* NanaVideoCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000014 /* NanaVideoCallView.swift */; };
+		DA5F3A50C1234E6AB0000015 /* NanaLocalCallCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000016 /* NanaLocalCallCamera.swift */; };
+		DA5F3A50C1234E6AB0000017 /* NanaMediaSourcePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000018 /* NanaMediaSourcePicker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -101,6 +104,9 @@
 		FCC7E9A604B8357C5D8173B8 /* NanaLaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = NanaLaunchScreen.storyboard; sourceTree = "<group>"; };
 		FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConsentNotice.swift; sourceTree = "<group>"; };
 		FF9AA2FFDD04CEE810E50A2C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000014 /* NanaVideoCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVideoCallView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000016 /* NanaLocalCallCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLocalCallCamera.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000018 /* NanaMediaSourcePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaMediaSourcePicker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -124,6 +130,8 @@
 			isa = PBXGroup;
 			children = (
 				6494A6E3FEE0378AB906383A /* WarmThreadsView.swift */,
+				DA5F3A50C1234E6AB0000016 /* NanaLocalCallCamera.swift */,
+				DA5F3A50C1234E6AB0000014 /* NanaVideoCallView.swift */,
 			);
 			path = Inbox;
 			sourceTree = "<group>";
@@ -150,6 +158,7 @@
 			isa = PBXGroup;
 			children = (
 				AA7169A4004E45169CAC3AF2 /* NanaAssetLibrary.swift */,
+				DA5F3A50C1234E6AB0000018 /* NanaMediaSourcePicker.swift */,
 				D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */,
 			);
 			path = Components;
@@ -392,6 +401,7 @@
 				5E30B7B45A8F32FD239B88D0 /* NanaAccessLandingView.swift in Sources */,
 				0FEF682DBD4832FE7C0E50D8 /* NanaApp.swift in Sources */,
 				28EF4336B2F2BC663F0D8989 /* NanaAssetLibrary.swift in Sources */,
+				DA5F3A50C1234E6AB0000017 /* NanaMediaSourcePicker.swift in Sources */,
 				53E877B3E4983F356CD3556B /* NanaAuthenticationBoundary.swift in Sources */,
 				58221BEC1DFCFB0DC70D83E1 /* NanaCoinStore.swift in Sources */,
 				AA45126663BD3BEDA595C7A2 /* NanaContentStore.swift in Sources */,
@@ -406,6 +416,8 @@
 				DAABB175EDB9B33E1503972D /* NanaSessionStore.swift in Sources */,
 				6CB24382609B39CADC7D7636 /* NanaVoiceRoomDetailView.swift in Sources */,
 				AACA8C2956A3AE7524052368 /* WarmThreadsView.swift in Sources */,
+				DA5F3A50C1234E6AB0000015 /* NanaLocalCallCamera.swift in Sources */,
+				DA5F3A50C1234E6AB0000013 /* NanaVideoCallView.swift in Sources */,
 				0E6769F110AE93D51C71FB8D /* WaterlineWelcomeView.swift in Sources */,
 				DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */,
 				DA5F3A50C1234E6AB0000003 /* NanaRoomReplayActivityView.swift in Sources */,

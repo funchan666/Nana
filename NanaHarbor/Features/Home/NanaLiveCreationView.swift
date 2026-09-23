@@ -1,6 +1,4 @@
 import SwiftUI
-import PhotosUI
-import ImageIO
 import UIKit
 
 private struct NanaLiveCreationDraft: Codable {
@@ -16,9 +14,9 @@ struct NanaLiveCreationView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var draft = NanaLiveCreationDraft()
-    @State private var photoItem: PhotosPickerItem?
+    @State private var showingMediaSource = false
+    @State private var coverAccountID: String?
     @State private var coverImage: UIImage?
-    @State private var isLoadingCover = false
     @State private var notice: AccountEntryNotice?
     @State private var validationMessage: String?
     @State private var restoredDraft = false
@@ -34,7 +32,13 @@ struct NanaLiveCreationView: View {
             .preferredColorScheme(.dark)
             .interactiveDismissDisabled()
             .onAppear(perform: restoreDraft)
-            .task(id: photoItem) { await loadCover() }
+            .nanaMediaSource(isPresented: $showingMediaSource) { media in
+                guard coverAccountID != nil, coverAccountID == contentStore.accountScope,
+                      let data = media.photoData, let image = UIImage(data: data) else { media.discard(); return }
+                draft.coverData = data
+                coverImage = image
+                validationMessage = nil
+            }
     }
 
     private var creationScreen: some View {
@@ -119,7 +123,6 @@ struct NanaLiveCreationView: View {
                 .background(NanaPalette.violet, in: Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(isLoadingCover)
         .padding(.horizontal, 24)
         .padding(.top, 14)
     }
@@ -194,7 +197,7 @@ struct NanaLiveCreationView: View {
 
     private var coverPicker: some View {
         ZStack(alignment: .topTrailing) {
-            PhotosPicker(selection: $photoItem, matching: .images) {
+            Button { focusedField = nil; coverAccountID = contentStore.accountScope; showingMediaSource = true } label: {
                 ZStack {
                     fieldColor
                     if let coverImage {
@@ -209,14 +212,12 @@ struct NanaLiveCreationView: View {
                             Text("Add Cover").font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
                         }
                     }
-                    if isLoadingCover { ProgressView().tint(.white) }
                 }
                 .frame(height: 230).clipShape(RoundedRectangle(cornerRadius: 20))
             }
             .buttonStyle(.plain).accessibilityLabel(coverImage == nil ? "Add cover photo" : "Change cover photo")
             if coverImage != nil {
                 Button {
-                    photoItem = nil
                     draft.coverData = nil
                     coverImage = nil
                 } label: {
@@ -319,10 +320,6 @@ struct NanaLiveCreationView: View {
     }
 
     private func saveDraft() -> Bool {
-        guard !isLoadingCover else {
-            validationMessage = "Please wait for the cover photo to finish loading."
-            return false
-        }
         guard let data = try? JSONEncoder().encode(draft), let value = String(data: data, encoding: .utf8),
               contentStore.saveDraft(value, for: draftKey) else {
             notice = AccountEntryNotice(title: "Draft not saved", explanation: "Please try again. Your current setup is still here.")
@@ -348,33 +345,4 @@ struct NanaLiveCreationView: View {
         notice = AccountEntryNotice(title: "Live setup saved", explanation: "Your draft is ready. Live broadcasting is not available yet, so your camera and microphone have not been started and nothing has been published.")
     }
 
-    private func loadCover() async {
-        guard let photoItem else { isLoadingCover = false; return }
-        isLoadingCover = true
-        do {
-            guard let data = try await photoItem.loadTransferable(type: Data.self), data.count <= 25_000_000 else {
-                throw CoverError.invalidPhoto
-            }
-            let jpeg = await Task.detached(priority: .userInitiated) { () -> Data? in
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                        kCGImageSourceCreateThumbnailFromImageAlways: true,
-                        kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 1000
-                      ] as CFDictionary) else { return nil }
-                return UIImage(cgImage: thumbnail).jpegData(compressionQuality: 0.8)
-            }.value
-            guard !Task.isCancelled else { return }
-            guard let jpeg, let image = UIImage(data: jpeg) else { throw CoverError.invalidPhoto }
-            draft.coverData = jpeg
-            coverImage = image
-            validationMessage = nil
-        } catch {
-            guard !Task.isCancelled else { return }
-            notice = AccountEntryNotice(title: "Cover not added", explanation: "Choose an image smaller than 25 MB and try again.")
-        }
-        isLoadingCover = false
-    }
-
-    private enum CoverError: Error { case invalidPhoto }
 }

@@ -1,0 +1,5 @@
+# Mutual video call illustration
+
+Generated with the built-in image tool (Garden Host-Native mode). Original asset saved in `NanaHarbor/Assets.xcassets/NanaMutualCallIllustration.imageset/NanaMutualCallIllustration.png`.
+
+Use case: stylized-concept. Create an original premium 3D UI illustration for Nana, a violet social app, used at 130 pt in a mutual-follow-required dialog. Subject: two soft sculptural interlocking friendship loops, one pearlescent ivory and one translucent lilac, with a small rounded violet video camera nestled at their intersection. Friendly and beautifully crafted, subtle pink reflections, smooth ceramic and frosted glass materials, soft studio highlights, clear readable silhouette. Centered, balanced 1:1 composition with 12 percent safe transparent margin. Actual transparent background, no ground plane, no text, no letters, no logos, no system icons, no stock UI, no people, no interface mockup. Limited palette purple, lilac, warm white. A single isolated illustration.

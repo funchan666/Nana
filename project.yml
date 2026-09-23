@@ -45,7 +45,8 @@ targets:
         CFBundleDisplayName: Nana
         UILaunchStoryboardName: NanaLaunchScreen
         UIStatusBarStyle: UIStatusBarStyleLightContent
-        NSCameraUsageDescription: "Nana uses the camera when you add a profile photo or preview yourself before a video call."
+        NSCameraUsageDescription: "Nana uses the camera to take photos, record videos, and preview yourself before a video call."
+        NSMicrophoneUsageDescription: "Nana needs microphone access for video calls and to include sound in videos you record."
         NSPhotoLibraryUsageDescription: "Nana uses your photo library when you choose to add a profile photo."
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

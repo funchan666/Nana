@@ -1,5 +1,4 @@
 import SwiftUI
-import PhotosUI
 import UIKit
 
 struct WarmThreadsView: View {
@@ -727,7 +726,7 @@ struct NanaFriendsListView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
-            .sheet(item: $callProfile) { NanaVideoCallView(profile: $0) }
+            .nanaVideoCall(profile: $callProfile)
             .fullScreenCover(item: $selectedConversation) { NanaConversationView(conversation: $0) }
             .overlay {
                 if let notice = contentStore.actionNotice {
@@ -835,9 +834,9 @@ struct NanaAlbumGalleryView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var isSelecting = false
     @State private var selectedAssets: Set<String> = []
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingMediaSource = false
+    @State private var mediaAccountID: String?
     @State private var previewPhoto: NanaPersonalPhoto?
-    @State private var isImporting = false
 
     private var photos: [NanaPersonalPhoto] {
         // Another person's album must not expose this account's private photos.
@@ -878,23 +877,10 @@ struct NanaAlbumGalleryView: View {
                 if profile == nil { albumActions }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .onChange(of: selectedPhoto) { _, item in
-                guard let item else { return }
-                let accountID = contentStore.accountScope
-                isImporting = true
-                Task { @MainActor in
-                    defer { selectedPhoto = nil; isImporting = false }
-                    do {
-                        guard let data = try await item.loadTransferable(type: Data.self) else {
-                            throw CocoaError(.fileReadCorruptFile)
-                        }
-                        guard contentStore.accountScope == accountID else { return }
-                        contentStore.addPhoto(data, accountID: accountID)
-                    } catch {
-                        guard contentStore.accountScope == accountID else { return }
-                        contentStore.actionNotice = AccountEntryNotice(title: "Photo not added", explanation: "Please choose another photo and try again.")
-                    }
-                }
+            .nanaMediaSource(isPresented: $showingMediaSource) { media in
+                guard mediaAccountID != nil, mediaAccountID == contentStore.accountScope,
+                      let data = media.photoData else { media.discard(); return }
+                contentStore.addPhoto(data, accountID: mediaAccountID)
             }
             .onChange(of: contentStore.personal.photos.map(\.id)) { _, ids in
                 selectedAssets.formIntersection(Set(ids))
@@ -1020,16 +1006,14 @@ struct NanaAlbumGalleryView: View {
                 .opacity(selectedAssets.isEmpty ? 0.45 : 1)
             } else {
                 Spacer(minLength: 20)
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                Button { mediaAccountID = contentStore.accountScope; showingMediaSource = true } label: {
                     HStack(spacing: 8) {
-                        if isImporting { ProgressView().tint(.white) }
-                        Text(isImporting ? "Adding photo…" : "Upload photo")
+                        Text("Upload photo")
                             .font(.system(size: 15, weight: .medium))
                     }
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .background(NanaPalette.violet, in: Capsule())
                 }
-                .disabled(isImporting)
                 Spacer(minLength: 20)
             }
         }
@@ -1067,16 +1051,20 @@ struct NanaConversationView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var draft = ""
     @State private var draftAccountID: String?
-    @State private var showingCall = false
+    @State private var callProfile: NanaProfile?
     @State private var showingProfile = false
-    @State private var showingAccessories = false
+    @State private var showingAccessories = true
     @State private var showingEmoji = false
+    @State private var showingQuickReplies = false
+    @State private var showingMediaSource = false
+    @State private var attachment: NanaPickedMedia?
     @State private var safetyAction: NanaPostSafetyAction?
     @FocusState private var composerFocused: Bool
 
     private var messages: [NanaMessage] { contentStore.conversationMessages(for: conversation.id) }
     private var profile: NanaProfile? { contentStore.profile(with: conversation.profileID) ?? recipientProfile }
-    private var hasDraft: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var displayName: String { profile?.displayName ?? conversation.displayName }
+    private var hasDraft: Bool { attachment != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var draftKey: String { "conversation.\(conversation.id)" }
 
     var body: some View {
@@ -1111,9 +1099,16 @@ struct NanaConversationView: View {
             .fullScreenCover(isPresented: $showingProfile) {
                 if let profile { NanaUserProfileView(profile: profile) }
             }
-            .sheet(isPresented: $showingCall) {
-                if let profile { NanaVideoCallView(profile: profile) }
-                else { NanaUnavailableSurface(title: "Profile unavailable", detail: "Please try again later.") }
+            .nanaVideoCall(profile: $callProfile)
+            .nanaMediaSource(isPresented: $showingMediaSource, kind: .photosAndVideos) { media in
+                guard draftAccountID != nil, draftAccountID == contentStore.accountScope else { media.discard(); return }
+                attachment?.discard()
+                attachment = media
+            }
+            .onChange(of: contentStore.accountScope) { _, _ in
+                showingMediaSource = false
+                attachment?.discard()
+                attachment = nil
             }
             .sheet(item: $safetyAction) { action in
                 NanaPostSafetySheet(context: contentStore.discussion(for: conversation), initialAction: action) { dismiss() }
@@ -1131,11 +1126,7 @@ struct NanaConversationView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 18) {
                     profileCard
-                    if messages.isEmpty {
-                        Text("No messages yet")
-                            .font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
-                            .padding(.vertical, 36)
-                    }
+                    if messages.isEmpty { emptyConversation }
                     ForEach(messages) { message in
                         messageBubble(message).id(message.id)
                     }
@@ -1145,22 +1136,27 @@ struct NanaConversationView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 18)
             }
+            .clipped()
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: messages.last?.id) { _, _ in reader.scrollTo("latest-message", anchor: .bottom) }
             .onChange(of: composerFocused) { _, focused in
-                if focused { reader.scrollTo("latest-message", anchor: .bottom) }
+                if focused {
+                    showingEmoji = false
+                    showingQuickReplies = false
+                    reader.scrollTo("latest-message", anchor: .bottom)
+                }
             }
         }
     }
 
     private var profileCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button { showingProfile = profile != nil } label: {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { composerFocused = false; showingProfile = profile != nil } label: {
                 HStack(spacing: 10) {
-                    NanaAvatarView(title: conversation.displayName, assetKey: profile?.avatarAssetKey ?? conversation.avatarAssetKey, size: 44)
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 7) {
-                            Text(conversation.displayName).font(.system(size: 16, weight: .medium)).lineLimit(1)
+                    NanaAvatarView(title: displayName, assetKey: profile?.avatarAssetKey ?? conversation.avatarAssetKey, size: 44)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(displayName).font(.system(size: 16, weight: .medium)).lineLimit(1)
                             if contentStore.liveFriendRooms.contains(where: { $0.hostID == conversation.profileID }) {
                                 NanaAssetImage(assetKey: "nana.voice.voice_asset_053", contentMode: .fit)
                                     .frame(width: 30, height: 12)
@@ -1168,48 +1164,59 @@ struct NanaConversationView: View {
                         }
                         if let profile, profile.hasCompleteDetails != false {
                             HStack(spacing: 7) {
-                                Text("Lv.\(profile.level)")
-                                    .padding(.horizontal, 5).padding(.vertical, 2)
-                                    .background(NanaPalette.violet, in: Capsule())
-                                Text("\(profile.age) · \(profile.region)")
-                                    .foregroundStyle(NanaPalette.mutedWhite)
-                            }.font(.system(size: 11))
+                                if profile.level > 0 {
+                                    Text("Lv.\(profile.level)").font(.system(size: 10, weight: .medium))
+                                        .padding(.horizontal, 5).padding(.vertical, 2)
+                                        .background { Image("NanaCheckInGuideButton").resizable().allowsHitTesting(false) }
+                                }
+                                Text([profile.age > 0 ? "\(profile.age)" : nil, profile.region.isEmpty ? nil : profile.region].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite).lineLimit(1)
+                            }
+                        } else {
+                            Text(conversation.profileID.hasPrefix("video-creator-") ? "Video creator" : "Member")
+                                .font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
                         }
-                    }
-                    Spacer(minLength: 0)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                     if profile != nil {
-                        Image(systemName: "chevron.right").font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.yellow).frame(width: 30, height: 30)
-                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                        NanaAssetImage(assetKey: "nana.voice.voice_asset_041", contentMode: .fit)
+                            .frame(width: 30, height: 30).accessibilityHidden(true)
                     }
-                }
-                .foregroundStyle(NanaPalette.warmWhite)
+                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(profile == nil)
-            if let profile, profile.hasCompleteDetails != false {
-                HStack(spacing: 10) {
-                    profileStat("Follower", value: "\(profile.followerCount)", color: .green)
-                    profileStat("Friends", value: "—", color: .cyan)
-                    profileStat("Following", value: "\(profile.followingCount)", color: .orange)
-                }
-                if !profile.introduction.isEmpty {
-                    Text(profile.introduction).font(.system(size: 13))
-                        .foregroundStyle(NanaPalette.mutedWhite).lineLimit(3)
-                }
+            .buttonStyle(.plain).disabled(profile == nil).accessibilityLabel("View \(displayName)'s profile")
+            HStack(spacing: 10) {
+                profileStat("Follower", value: profile?.hasCompleteDetails == false ? nil : profile?.followerCount, color: .green)
+                profileStat("Friends", value: profile?.friendsCount, color: .cyan)
+                profileStat("Following", value: profile?.hasCompleteDetails == false ? nil : profile?.followingCount, color: .orange)
             }
+            Text(profile?.introduction.isEmpty == false ? (profile?.introduction ?? "") : "Follow each other to start a conversation.")
+                .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
+        .foregroundStyle(NanaPalette.warmWhite).padding(12)
         .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
     }
 
-    private func profileStat(_ title: String, value: String, color: Color) -> some View {
+    private func profileStat(_ title: String, value: Int?, color: Color) -> some View {
         VStack(spacing: 3) {
-            Text(value).font(.system(size: 16, weight: .semibold)).foregroundStyle(color)
-            Text(title).font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
+            Text(value.map(String.init) ?? "Not shared")
+                .font(.system(size: value == nil ? 10 : 16, weight: .medium)).foregroundStyle(value == nil ? NanaPalette.mutedWhite : color)
+                .lineLimit(1).monospacedDigit()
+            Text(title).font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
         }
         .frame(maxWidth: .infinity, minHeight: 44)
-        .background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color(white: 0.29), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var emptyConversation: some View {
+        VStack(spacing: 8) {
+            Image("NanaEmptyConversations").resizable().scaledToFit().frame(width: 98, height: 80).accessibilityHidden(true)
+            Text("Start with a hello").font(.system(size: 15, weight: .semibold))
+            Text("Choose a quick message below, or write your own.")
+                .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite).multilineTextAlignment(.center)
+        }.foregroundStyle(NanaPalette.warmWhite).frame(maxWidth: .infinity).padding(.vertical, 26)
     }
 
     private func messageBubble(_ message: NanaMessage) -> some View {
@@ -1232,88 +1239,125 @@ struct NanaConversationView: View {
     }
 
     private var composer: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Button { showingEmoji.toggle(); showingAccessories = true } label: {
-                    Image(systemName: "face.smiling").font(.system(size: 19))
-                        .frame(width: 44, height: 44)
-                }.buttonStyle(.plain).accessibilityLabel("Emoji")
-                TextField("Please enter", text: $draft, axis: .vertical)
-                    .font(.system(size: 14)).lineLimit(1...4)
-                    .focused($composerFocused)
+        VStack(spacing: 8) {
+            if let attachment { attachmentRow(attachment) }
+            if showingQuickReplies { quickReplies }
+            if showingEmoji { emojiPanel }
+            HStack(spacing: 7) {
                 Button {
-                    if hasDraft {
-                        // Keep the draft when delivery is unavailable or fails.
-                        guard draftAccountID != nil && draftAccountID == contentStore.accountScope else { return }
-                        _ = contentStore.saveDraft(draft, for: draftKey)
-                        contentStore.appendMessage(to: conversation, body: draft)
-                    } else {
+                    composerFocused = false
+                    showingEmoji = false
+                    showingQuickReplies.toggle()
+                } label: {
+                    Image("NanaEmptyConversations").resizable().scaledToFit()
+                        .frame(width: 27, height: 27).frame(width: 40, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("Quick messages")
+                TextField("Please enter", text: $draft, prompt: Text("Please enter").foregroundStyle(NanaPalette.mutedWhite), axis: .vertical)
+                    .font(.system(size: 14)).lineLimit(1...4).focused($composerFocused)
+                    .accessibilityLabel("Message")
+                Button {
+                    if hasDraft { sendMessage() }
+                    else {
                         showingAccessories.toggle()
+                        showingEmoji = false
+                        showingQuickReplies = false
                         composerFocused = false
                     }
                 } label: {
-                    Image(systemName: hasDraft ? "paperplane.fill" : "ellipsis")
-                        .font(.system(size: 19, weight: .semibold))
-                        .frame(width: 48, height: 32)
-                        .background(NanaPalette.violet, in: Capsule())
-                        .frame(width: 52, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(hasDraft ? "Send message" : "More actions")
+                    NanaAssetImage(assetKey: hasDraft ? "nana.voice.voice_asset_102" : "nana.voice.voice_asset_161", contentMode: .fit)
+                        .frame(width: 54, height: 34).frame(width: 56, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel(hasDraft ? "Send message" : (showingAccessories ? "Hide actions" : "More actions"))
             }
-            .foregroundStyle(NanaPalette.warmWhite)
-            .padding(.horizontal, 6).padding(.vertical, 4)
-            .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 27))
+            .foregroundStyle(NanaPalette.warmWhite).padding(.horizontal, 5).padding(.vertical, 2)
+            .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 25))
             if showingAccessories {
-                if showingEmoji {
-                    HStack {
-                        ForEach(["😊", "❤️", "👏", "🎵", "✨", "👋"], id: \.self) { emoji in
-                            Button { draft += emoji } label: {
-                                Text(emoji).font(.system(size: 25)).frame(maxWidth: .infinity, minHeight: 44)
-                            }.buttonStyle(.plain)
-                        }
+                HStack(spacing: 0) {
+                    accessory("nana.asset.NanaChatPhotoIcon", label: "Add photo or video", size: 44) {
+                        composerFocused = false
+                        showingEmoji = false
+                        showingQuickReplies = false
+                        showingMediaSource = true
                     }
-                }
-                HStack {
-                    accessory("photo", label: "Photo") { contentStore.explainUnavailable("Sending photos in messages") }
-                    accessory("face.smiling", label: "Emoji") { showingEmoji.toggle() }
-                    accessory("phone.fill", label: "Call") { composerFocused = false; showingCall = true }
-                    accessory("gift", label: "Gift") { contentStore.explainUnavailable("Sending gifts in private messages") }
+                    accessory("nana.asset.NanaChatEmojiIcon", label: "Emoji", size: 36) {
+                        composerFocused = false
+                        showingQuickReplies = false
+                        showingEmoji.toggle()
+                    }
+                    accessory("nana.voice.voice_asset_047", label: "Call", size: 28) {
+                        composerFocused = false
+                        callProfile = profile
+                    }
                 }
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 10)
+        .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 8)
         .background(.black.opacity(0.94))
     }
 
-    private func accessory(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 22))
-                .foregroundStyle(symbol == "phone.fill" ? NanaPalette.neonPink : NanaPalette.warmWhite)
-                .frame(maxWidth: .infinity, minHeight: 44)
-        }.buttonStyle(.plain).accessibilityLabel(label)
-    }
-
-
-}
-
-struct NanaVideoCallView: View {
-    let profile: NanaProfile
-
-    var body: some View {
-        NanaUnavailableSurface(title: "Video calls are unavailable", detail: "The published A-side contract does not include a call transport yet.")
-    }
-}
-
-private struct NanaUnavailableSurface: View {
-    let title: String
-    let detail: String
-    var body: some View {
-        ZStack {
-            NanaBackdrop()
-            NanaEmptyState(title: title, detail: detail, actionTitle: nil, action: nil)
-                .padding(22)
+    private var quickReplies: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Quick messages").font(.system(size: 11, weight: .medium)).foregroundStyle(NanaPalette.mutedWhite)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(["Hi! How's your day?", "What are you listening to?", "Nice to meet you!"], id: \.self) { message in
+                        Button {
+                            draft += draft.isEmpty ? message : " " + message
+                            showingQuickReplies = false
+                            composerFocused = true
+                        } label: {
+                            Text(message).font(.system(size: 12)).foregroundStyle(NanaPalette.warmWhite)
+                                .padding(.horizontal, 14).frame(minHeight: 44)
+                                .background(.white.opacity(0.08), in: Capsule()).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }.frame(height: 44)
         }
-        .preferredColorScheme(.dark)
+    }
+
+    private var emojiPanel: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 6), spacing: 0) {
+            ForEach(["😊", "❤️", "👏", "🎵", "✨", "👋", "😂", "🥰", "🙌", "🎧", "💜", "👍"], id: \.self) { emoji in
+                Button { draft += emoji } label: {
+                    Text(emoji).font(.system(size: 25)).frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("Insert \(emoji)")
+            }
+        }
+    }
+
+    private func attachmentRow(_ media: NanaPickedMedia) -> some View {
+        HStack(spacing: 10) {
+            if let data = media.photoData, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill().frame(width: 48, height: 48)
+                    .clipped().clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_162", contentMode: .fit).frame(width: 44, height: 44)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(media.title).font(.system(size: 13, weight: .semibold))
+                Text("Ready on this device · Not sent").font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
+            }
+            Spacer(minLength: 0)
+            Button("Remove") { media.discard(); attachment = nil }
+                .font(.system(size: 12)).foregroundStyle(NanaPalette.electricLilac).frame(minHeight: 44)
+        }.padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func sendMessage() {
+        // Draft suggestions and emoji never bypass the existing send-time mutual-follow check.
+        guard hasDraft, draftAccountID != nil, draftAccountID == contentStore.accountScope else { return }
+        _ = contentStore.saveDraft(draft, for: draftKey)
+        if attachment != nil {
+            contentStore.sendMediaAttachment(to: conversation)
+        } else {
+            contentStore.appendMessage(to: conversation, body: draft)
+        }
+    }
+
+    private func accessory(_ asset: String, label: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            NanaAssetImage(assetKey: asset, contentMode: .fit).frame(width: size, height: size)
+                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(label)
     }
 }
