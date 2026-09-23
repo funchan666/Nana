@@ -759,39 +759,45 @@ private struct NanaEditProfileView: View {
     @State private var showingDate = false
     @FocusState private var focusedField: ProfileField?
     private enum ProfileField: Hashable { case nickname, country, signature }
+    private let fieldSurface = Color(red: 0.09, green: 0.075, blue: 0.135)
     private var canSave: Bool {
         editingAccountScope == sessionStore.activeProfile?.localAccountScope
             && editingAccountScope != nil
             && !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var previewName: String {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Your name" : name
     }
     private var interestOptions: [String] {
         Array(Set(["Music", "Live chat", "Creative", "Travel", "Gaming", "Late night", "Art", "Open talk"]
                   + (sessionStore.activeProfile?.interests ?? []) + Array(selectedInterests))).sorted()
     }
     private var choiceColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: 10), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
     }
 
     var body: some View {
         NanaProfilePage("Edit profile") {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    avatarPicker
-                    NanaSettingsCard {
-                        sectionTitle("The basics", detail: "Let people know a little about you.")
-                        lineField("Nickname", placeholder: "Your display name", value: $displayName, focus: .nickname)
-                        dateField
-                        lineField("Country or region", placeholder: "Where you’re from", value: $country, focus: .country)
+            ScrollViewReader { reader in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 28) {
+                        profileCard
+                        basicsSection
+                        genderSection
+                        interestsSection
+                        signatureSection
                     }
-                    NanaSettingsCard { genderField }
-                    NanaSettingsCard { interestsField }
-                    NanaSettingsCard { signatureField }
+                    .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 24)
+                    .frame(maxWidth: 520).frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
-                .frame(maxWidth: 520).frame(maxWidth: .infinity)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: focusedField) { _, field in
+                    guard let field else { return }
+                    withAnimation(.easeOut(duration: 0.22)) { reader.scrollTo(field, anchor: .center) }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
             }
-            .scrollDismissesKeyboard(.interactively)
-            .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
         }
         .onAppear(perform: loadProfile)
         .nanaMediaSource(isPresented: $showingMediaSource) { media in
@@ -811,94 +817,128 @@ private struct NanaEditProfileView: View {
         }
     }
 
-    private var saveBar: some View {
-        VStack(spacing: 6) {
-            if focusedField != nil {
-                Button("Done typing") { focusedField = nil }
-                    .font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            NanaSettingsImageButton(title: "Save changes", isEnabled: canSave) {
-                focusedField = nil
-                save()
+    private var profileCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("MAKE IT YOURS").font(.system(size: 10, weight: .bold)).tracking(2)
+                .foregroundStyle(NanaPalette.electricLilac).padding(.trailing, 68)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { avatarButton; profileIdentity }
+                VStack(alignment: .leading, spacing: 12) { avatarButton; profileIdentity }
             }
         }
-        .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 8)
-        .frame(maxWidth: 520).frame(maxWidth: .infinity)
-        .background(NanaPalette.deepSpace)
+        .padding(22).frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            GeometryReader { geometry in
+                Image("NanaProfileEditorHero").resizable().scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topTrailing)
+                    .clipped().accessibilityHidden(true)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 24))
     }
 
-    private var avatarPicker: some View {
-        NanaSettingsCard {
-            HStack(alignment: .center, spacing: 18) {
-                Button { focusedField = nil; showingMediaSource = true } label: {
-                    NanaAccountAvatarView(data: avatarData, size: dynamicTypeSize.isAccessibilitySize ? 72 : 92)
-                }.accessibilityLabel("Change profile photo")
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Your profile photo").font(.headline)
-                    Text("A familiar face makes it easier to connect.")
-                        .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
-                        .fixedSize(horizontal: false, vertical: true)
+    private var avatarButton: some View {
+        Button { changePhoto() } label: {
+            NanaAccountAvatarView(data: avatarData, size: 80)
+                .overlay(alignment: .bottomTrailing) {
+                    Image("NanaChatPhotoIcon").resizable().scaledToFit().frame(width: 24, height: 24)
+                        .padding(3).background(NanaPalette.violet, in: Circle()).offset(x: 3, y: 3)
                 }
-            }
-            HStack(spacing: 12) {
-                Button { focusedField = nil; showingMediaSource = true } label: {
-                    Text("Change photo")
-                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 48)
-                        .background { Image("NanaCheckInGuideButton").resizable().accessibilityHidden(true) }
-                }
+                .padding(3)
+        }.buttonStyle(.plain).accessibilityLabel("Change profile photo")
+    }
+
+    private var profileIdentity: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(previewName).font(.system(size: 22, weight: .bold, design: .rounded))
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Text("A little more you.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.65))
+            HStack(spacing: 14) {
+                Button("Edit photo", action: changePhoto)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(NanaPalette.electricLilac)
+                    .frame(minHeight: 44)
                 if avatarData != nil {
                     Button("Reset") { avatarData = nil; resetAvatar = true }
-                        .font(.subheadline).foregroundStyle(NanaPalette.electricLilac).frame(minWidth: 52, minHeight: 48)
-                        .accessibilityLabel("Reset to default profile photo")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).frame(minHeight: 44)
+                        .accessibilityLabel("Reset profile photo")
                 }
-            }
+            }.buttonStyle(.plain)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func changePhoto() { focusedField = nil; showingMediaSource = true }
+
+    private func sectionHeading(_ number: String, _ title: String, detail: String? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Text(number).font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(NanaPalette.electricLilac)
+            Text(title).font(.system(size: 19, weight: .semibold, design: .rounded))
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 4)
+            if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite) }
         }
     }
 
-    private func sectionTitle(_ title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-            Text(detail).font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
-                .fixedSize(horizontal: false, vertical: true)
+    private var basicsSection: some View {
+        VStack(spacing: 13) {
+            sectionHeading("01", "The essentials")
+            VStack(spacing: 0) {
+                lineField("Nickname", placeholder: "Your display name", value: $displayName, focus: .nickname)
+                fieldDivider
+                dateField
+                fieldDivider
+                lineField("Country or region", placeholder: "Where you're from", value: $country, focus: .country)
+            }
+            .background(fieldSurface, in: RoundedRectangle(cornerRadius: 20))
         }
     }
+
+    private var fieldDivider: some View { Divider().overlay(Color.white.opacity(0.04)).padding(.horizontal, 16) }
 
     private func lineField(_ title: String, placeholder: String, value: Binding<String>, focus: ProfileField) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(focus == .nickname ? "Nickname · required" : title)
-                .font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
-            TextField(title, text: value, prompt: Text(placeholder).foregroundColor(.white.opacity(0.55)))
-                .font(.body).foregroundStyle(.white).frame(minHeight: 48)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(NanaPalette.mutedWhite)
+                Spacer()
+                if focus == .nickname {
+                    Text("Required").font(.system(size: 10)).foregroundStyle(NanaPalette.electricLilac)
+                }
+            }
+            TextField(title, text: value, prompt: Text(placeholder).foregroundColor(.white.opacity(0.38)))
+                .font(.system(size: 16, weight: .medium)).foregroundStyle(.white).frame(minHeight: 44)
                 .textInputAutocapitalization(.words).autocorrectionDisabled()
                 .focused($focusedField, equals: focus).submitLabel(.next)
                 .onSubmit { focusedField = focus == .nickname ? .country : .signature }
                 .accessibilityLabel(title)
-        }.id(focus)
+        }
+        .padding(.horizontal, 16).padding(.top, 11).padding(.bottom, 4)
+        .background(focusedField == focus ? NanaPalette.violet.opacity(0.12) : .clear)
+        .id(focus)
     }
 
     private var dateField: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Date of birth").font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
-            Button {
-                focusedField = nil
-                showingDate = true
-            } label: {
-                HStack(spacing: 12) {
+        Button { focusedField = nil; showingDate = true } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Date of birth").font(.system(size: 11, weight: .medium)).foregroundStyle(NanaPalette.mutedWhite)
                     Text(birthDate?.formatted(date: .abbreviated, time: .omitted) ?? "Choose your birthday")
-                        .font(.body).multilineTextAlignment(.leading)
-                    Spacer(minLength: 4)
-                    Text(birthDate == nil ? "Add" : "Edit").font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
-                }.frame(minHeight: 48)
-            }.buttonStyle(.plain)
-                .accessibilityLabel("Date of birth, \(birthDate?.formatted(date: .abbreviated, time: .omitted) ?? "not set")")
-        }
+                        .font(.system(size: 16, weight: .medium)).multilineTextAlignment(.leading)
+                        .foregroundStyle(birthDate == nil ? .white.opacity(0.38) : .white)
+                }
+                Spacer(minLength: 4)
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_033", contentMode: .fit)
+                    .frame(width: 9, height: 15).opacity(0.75)
+            }.padding(.horizontal, 16).padding(.vertical, 14).frame(minHeight: 72)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityLabel("Date of birth, \(birthDate?.formatted(date: .abbreviated, time: .omitted) ?? "not set")")
     }
 
-    private var genderField: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Gender", detail: "Choose what feels right for you.")
-            LazyVGrid(columns: choiceColumns, spacing: 10) {
+    private var genderSection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionHeading("02", "Your identity", detail: "Optional")
+            Text("How do you describe your gender?").font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
+            LazyVGrid(columns: choiceColumns, spacing: 8) {
                 ForEach(["Male", "Female", "Non-binary", "Prefer not to say"], id: \.self) { option in
                     choice(option, selected: gender == option) { focusedField = nil; gender = option }
                 }
@@ -906,11 +946,11 @@ private struct NanaEditProfileView: View {
         }
     }
 
-    private var interestsField: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Interests", detail: "Pick the things you enjoy talking about.")
-            Text("\(selectedInterests.count) selected").font(.caption).foregroundStyle(NanaPalette.electricLilac)
-            LazyVGrid(columns: choiceColumns, spacing: 10) {
+    private var interestsSection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionHeading("03", "Your kind of things", detail: "\(selectedInterests.count) selected")
+            Text("Give someone a reason to say hello.").font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 180 : 100), spacing: 8)], spacing: 8) {
                 ForEach(interestOptions, id: \.self) { interest in
                     choice(interest, selected: selectedInterests.contains(interest)) {
                         focusedField = nil
@@ -923,29 +963,63 @@ private struct NanaEditProfileView: View {
 
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 10).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 48)
-                .background {
-                    Image("NanaCheckInGuideButton").resizable().saturation(selected ? 1 : 0)
-                        .opacity(selected ? 1 : 0.28).accessibilityHidden(true)
+            HStack(spacing: 6) {
+                if selected {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_149", contentMode: .fit)
+                        .frame(width: 16, height: 16)
                 }
+                Text(title).font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 46)
+            .foregroundStyle(selected ? NanaPalette.warmWhite : .white.opacity(0.65))
+            .background(selected ? NanaPalette.violet.opacity(0.28) : fieldSurface, in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? NanaPalette.electricLilac.opacity(0.7) : .clear, lineWidth: 1) }
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var signatureField: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("About you", detail: "A short introduction, in your own words.")
-            TextField("About you", text: $introduction, prompt: Text("What would you like people to know?").foregroundColor(.white.opacity(0.55)), axis: .vertical)
-                .font(.body).foregroundStyle(.white).lineLimit(3...5)
+    private var signatureSection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionHeading("04", "In your own words", detail: "\(introduction.count)/160")
+            TextField("About you", text: $introduction, prompt: Text("A favourite song, a small obsession, or what you're here for…").foregroundColor(.white.opacity(0.38)), axis: .vertical)
+                .font(.system(size: 15)).foregroundStyle(.white).lineLimit(3...5)
                 .focused($focusedField, equals: .signature).textInputAutocapitalization(.sentences)
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(fieldSurface, in: RoundedRectangle(cornerRadius: 18))
                 .onChange(of: introduction) { _, value in
                     if value.count > 160 { introduction = String(value.prefix(160)) }
                 }
                 .accessibilityLabel("About you, up to 160 characters")
-            Text("\(introduction.count)/160").font(.caption.monospacedDigit()).foregroundStyle(NanaPalette.mutedWhite)
-                .frame(maxWidth: .infinity, alignment: .trailing)
         }.id(ProfileField.signature)
+    }
+
+    private var saveBar: some View {
+        VStack(spacing: 4) {
+            if focusedField != nil {
+                Button("Done typing") { focusedField = nil }
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(NanaPalette.electricLilac)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            Button { focusedField = nil; save() } label: {
+                Text("Save changes").font(.system(size: 16, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background {
+                        GeometryReader { geometry in
+                            Image("NanaProfileEditorButton").resizable().scaledToFill()
+                                .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 16)).contentShape(Rectangle())
+            }.buttonStyle(.plain).disabled(!canSave).opacity(canSave ? 1 : 0.45)
+            if !canSave {
+                Text(editingAccountScope == sessionStore.activeProfile?.localAccountScope ? "Add a nickname to save your profile." : "Your account changed. Reopen this page to edit.")
+                    .font(.system(size: 11)).foregroundStyle(NanaPalette.softPink).padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
+        .frame(maxWidth: 520).frame(maxWidth: .infinity)
+        .background(NanaPalette.midnight)
     }
 
     private func loadProfile() {
@@ -964,8 +1038,6 @@ private struct NanaEditProfileView: View {
             dismiss()
         }
     }
-
-
 }
 
 private struct NanaProfileBirthdayPicker: View {
@@ -1247,6 +1319,7 @@ struct NanaWalletView: View {
             }
         }
         .task {
+            await coinStore.loadProducts()
             await contentStore.refresh(.wallet)
             coinStore.hydrateRemoteBalance(contentStore.payload.wallet.coinBalance)
         }
@@ -1330,7 +1403,7 @@ struct NanaWalletView: View {
                     }
                     Group {
                         if coinStore.purchasingProductID == pack.productID { ProgressView().tint(.white) }
-                        else { Text(coinStore.products.first(where: { $0.id == pack.productID })?.displayPrice ?? pack.fallbackPrice) }
+                        else { Text(coinStore.priceLabel(for: pack)) }
                     }
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1).minimumScaleFactor(0.7)
@@ -1344,7 +1417,7 @@ struct NanaWalletView: View {
                         .offset(x: 10, y: -9)
                         .allowsHitTesting(false)
                 }
-                .accessibilityLabel("Buy \(pack.coins.formatted()) coins, including \(pack.bonusCoins.formatted()) bonus coins, for \(coinStore.products.first(where: { $0.id == pack.productID })?.displayPrice ?? pack.fallbackPrice)")
+                .accessibilityLabel("Buy \(pack.coins.formatted()) coins, including \(pack.bonusCoins.formatted()) bonus coins, for \(coinStore.priceLabel(for: pack))")
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(minHeight: 72)

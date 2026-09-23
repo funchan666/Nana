@@ -47,13 +47,13 @@
 		DA5F3A50C1234E6AB000000D /* NanaPostDiscussionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB000000E /* NanaPostDiscussionViews.swift */; };
 		DA5F3A50C1234E6AB000000F /* NanaRoomMusicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000010 /* NanaRoomMusicView.swift */; };
 		DA5F3A50C1234E6AB0000011 /* room-music in Resources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000012 /* room-music */; };
+		DA5F3A50C1234E6AB0000013 /* NanaVideoCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000014 /* NanaVideoCallView.swift */; };
+		DA5F3A50C1234E6AB0000015 /* NanaLocalCallCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000016 /* NanaLocalCallCamera.swift */; };
+		DA5F3A50C1234E6AB0000017 /* NanaMediaSourcePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000018 /* NanaMediaSourcePicker.swift */; };
 		DAABB175EDB9B33E1503972D /* NanaSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A3838F90E17A11BF1079F6 /* NanaSessionStore.swift */; };
 		E6256002F1AFC3C830C55EE6 /* pics in Resources */ = {isa = PBXBuildFile; fileRef = 2B4500966D2E4847511F0487 /* pics */; };
 		F3C21557A0944C5C42E7D2F0 /* AccountConsentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */; };
 		F998C8A16E2F94892C6A7630 /* NanaProfileCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5440DF561E5939D352B50D2D /* NanaProfileCompletionView.swift */; };
-		DA5F3A50C1234E6AB0000013 /* NanaVideoCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000014 /* NanaVideoCallView.swift */; };
-		DA5F3A50C1234E6AB0000015 /* NanaLocalCallCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000016 /* NanaLocalCallCamera.swift */; };
-		DA5F3A50C1234E6AB0000017 /* NanaMediaSourcePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000018 /* NanaMediaSourcePicker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -95,6 +95,9 @@
 		DA5F3A50C1234E6AB000000E /* NanaPostDiscussionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaPostDiscussionViews.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000010 /* NanaRoomMusicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomMusicView.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000012 /* room-music */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "room-music"; path = "assets/room-music"; sourceTree = SOURCE_ROOT; };
+		DA5F3A50C1234E6AB0000014 /* NanaVideoCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVideoCallView.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000016 /* NanaLocalCallCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLocalCallCamera.swift; sourceTree = "<group>"; };
+		DA5F3A50C1234E6AB0000018 /* NanaMediaSourcePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaMediaSourcePicker.swift; sourceTree = "<group>"; };
 		E3EE88EF1ECDA612A8ABA18A /* NanaEntryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaEntryCoordinator.swift; sourceTree = "<group>"; };
 		E7595FC1A6D3979EF407E8ED /* NanaCredentialAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaCredentialAccessView.swift; sourceTree = "<group>"; };
 		F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAuthenticationBoundary.swift; sourceTree = "<group>"; };
@@ -104,9 +107,6 @@
 		FCC7E9A604B8357C5D8173B8 /* NanaLaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = NanaLaunchScreen.storyboard; sourceTree = "<group>"; };
 		FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConsentNotice.swift; sourceTree = "<group>"; };
 		FF9AA2FFDD04CEE810E50A2C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		DA5F3A50C1234E6AB0000014 /* NanaVideoCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaVideoCallView.swift; sourceTree = "<group>"; };
-		DA5F3A50C1234E6AB0000016 /* NanaLocalCallCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLocalCallCamera.swift; sourceTree = "<group>"; };
-		DA5F3A50C1234E6AB0000018 /* NanaMediaSourcePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaMediaSourcePicker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */

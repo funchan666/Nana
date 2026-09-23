@@ -27,6 +27,7 @@ private struct NanaCoinAccountRecord: Codable {
     var processedTransactionIDs: Set<UInt64>
     // Optional for compatibility with previously saved account ledgers.
     var roomGiftReceipts: [NanaRoomGiftReceipt]? = nil
+    var purchaseAccountToken: UUID? = nil
 }
 
 private struct NanaCoinLedger: Codable {
@@ -132,9 +133,27 @@ final class NanaCoinStore: ObservableObject {
         }
     }
 
-    /// Product metadata is deliberately requested only after the user opens a purchase action.
+    /// Prices come from Apple's current storefront, never the reference USD catalog.
+    func loadProducts() async {
+        guard !isLoadingProducts, let scope = accountScope else { return }
+        isLoadingProducts = true
+        defer { isLoadingProducts = false }
+        do {
+            let loaded = try await Product.products(for: Self.packs.map(\.productID))
+            guard accountScope == scope else { return }
+            products = loaded.filter { $0.type == .consumable }
+        } catch {
+            // Each purchase button can retry product loading on demand.
+        }
+    }
+
+    func priceLabel(for pack: NanaCoinPack) -> String {
+        products.first(where: { $0.id == pack.productID })?.displayPrice ?? "View price"
+    }
+
     func purchase(pack: NanaCoinPack) async {
-        guard accountScope != nil else {
+        guard purchasingProductID == nil else { return }
+        guard let purchasingAccount = accountScope else {
             notice = AccountEntryNotice(title: "Sign in required", explanation: "Sign in before adding coins to your balance.")
             return
         }
@@ -142,13 +161,22 @@ final class NanaCoinStore: ObservableObject {
         defer { purchasingProductID = nil }
         do {
             let product = try await product(for: pack.productID)
+            guard accountScope == purchasingAccount else { return }
             guard product.type == .consumable else {
                 notice = AccountEntryNotice(title: "Product unavailable", explanation: "This coin pack is not configured as a consumable product.")
                 return
             }
-            switch try await product.purchase() {
+            try loadLedgerIfNeeded()
+            guard var record = ledger.accounts[purchasingAccount] else { return }
+            let token = record.purchaseAccountToken ?? UUID()
+            record.purchaseAccountToken = token
+            var updated = ledger
+            updated.accounts[purchasingAccount] = record
+            try persistLedger(updated)
+            ledger = updated
+            switch try await product.purchase(options: [.appAccountToken(token)]) {
             case .success(let verification):
-                await apply(verification, expectedPack: pack)
+                await apply(verification, expectedPack: pack, purchasingAccount: purchasingAccount)
             case .pending:
                 notice = AccountEntryNotice(title: "Purchase pending", explanation: "Apple is still confirming this purchase. Your balance will update after confirmation.")
             case .userCancelled:
@@ -216,6 +244,11 @@ final class NanaCoinStore: ObservableObject {
 
     private func startTransactionListener() {
         transactionUpdatesTask = Task { [weak self] in
+            // Recover approved purchases interrupted by termination or a failed ledger write.
+            for await verification in StoreKit.Transaction.unfinished {
+                guard !Task.isCancelled else { return }
+                await self?.handle(verification)
+            }
             for await verification in StoreKit.Transaction.updates {
                 guard !Task.isCancelled else { return }
                 await self?.handle(verification)
@@ -229,27 +262,40 @@ final class NanaCoinStore: ObservableObject {
         await apply(.verified(transaction), expectedPack: pack)
     }
 
-    private func apply(_ verification: VerificationResult<StoreKit.Transaction>, expectedPack: NanaCoinPack) async {
-        guard let transaction = verifiedTransaction(from: verification), transaction.productID == expectedPack.productID else {
+    private func apply(_ verification: VerificationResult<StoreKit.Transaction>, expectedPack: NanaCoinPack,
+                       purchasingAccount: String? = nil) async {
+        guard let transaction = verifiedTransaction(from: verification),
+              transaction.productID == expectedPack.productID,
+              transaction.productType == .consumable, transaction.revocationDate == nil else {
             notice = AccountEntryNotice(title: "Purchase could not be verified", explanation: "No coins were added. Please try again or contact Apple Support.")
             return
         }
-        guard let accountScope else { return }
         do {
             try loadLedgerIfNeeded()
-            var record = ledger.accounts[accountScope] ?? NanaCoinAccountRecord(balance: 0, receivedWelcomeGift: false, processedTransactionIDs: [])
-            guard !record.processedTransactionIDs.contains(transaction.id),
+            guard !ledger.accounts.values.contains(where: { $0.processedTransactionIDs.contains(transaction.id) }),
                   !(ledger.removedAccountTransactionIDs ?? []).contains(transaction.id) else {
                 await transaction.finish()
+                return
+            }
+            // Delayed approvals remain attached to the purchasing account after a switch.
+            let owner: String?
+            if let token = transaction.appAccountToken {
+                owner = ledger.accounts.first(where: { $0.value.purchaseAccountToken == token })?.key
+            } else {
+                owner = purchasingAccount
+            }
+            guard let owner, var record = ledger.accounts[owner] else {
+                notice = AccountEntryNotice(title: "Purchase needs account verification",
+                    explanation: "This purchase could not be linked to its original Nana account. No coins were assigned to the current account.")
                 return
             }
             record.processedTransactionIDs.insert(transaction.id)
             record.balance += expectedPack.coins
             var updatedLedger = ledger
-            updatedLedger.accounts[accountScope] = record
+            updatedLedger.accounts[owner] = record
             try persistLedger(updatedLedger)
             ledger = updatedLedger
-            balance = record.balance
+            if accountScope == owner { balance = record.balance }
             await transaction.finish()
         } catch {
             notice = AccountEntryNotice(title: "Balance not updated", explanation: "The purchase was verified, but Nana couldn't save the new balance. Please keep the app open and try again.")
@@ -258,6 +304,11 @@ final class NanaCoinStore: ObservableObject {
 
     private func verifiedTransaction(from verification: VerificationResult<StoreKit.Transaction>) -> StoreKit.Transaction? {
         guard case .verified(let transaction) = verification else { return nil }
+        #if !DEBUG
+        // Apple sandbox transactions remain valid for TestFlight and App Review.
+        // Xcode's local StoreKit test transactions are never fulfillment in Release.
+        guard transaction.environment != .xcode else { return nil }
+        #endif
         return transaction
     }
 
