@@ -10,6 +10,7 @@ struct NanaVideoPlayerView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @StateObject private var playback = NanaVideoDetailPlayback()
     @State private var showingComment = false
+    @State private var showingAuthor = false
     @State private var fillsScreen = true
     @State private var focusCommentComposer = false
     @State private var safetyAction: NanaPostSafetyAction?
@@ -46,7 +47,18 @@ struct NanaVideoPlayerView: View {
         }
         .onChange(of: scenePhase) { _, _ in updatePlaybackActivity() }
         .onChange(of: showingComment) { _, _ in updatePlaybackActivity() }
+        .onChange(of: showingAuthor) { _, _ in updatePlaybackActivity() }
         .onChange(of: safetyAction) { _, _ in updatePlaybackActivity() }
+        .sheet(isPresented: $showingAuthor) {
+            Group {
+                if let author {
+                    NanaUserProfileView(profile: author)
+                } else {
+                    NanaVideoCreatorProfileView(clip: clip, identity: discussion)
+                }
+            }
+            .presentationDetents([.large])
+        }
         .sheet(isPresented: $showingComment) {
             NanaPostCommentsSheet(context: discussion, focusComposer: focusCommentComposer)
         }
@@ -91,7 +103,7 @@ struct NanaVideoPlayerView: View {
     private var videoChrome: some View {
         VStack(spacing: 0) {
             topBar
-            NanaPostSafetyButtons { safetyAction = $0 }
+            NanaSafetyOptionsButton { safetyAction = $0 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.horizontal, 18).padding(.top, 6)
             Spacer(minLength: 24)
@@ -147,15 +159,24 @@ struct NanaVideoPlayerView: View {
                 .font(.system(size: 10, weight: .bold)).tracking(1)
                 .padding(.horizontal, 9).padding(.vertical, 5)
                 .background(NanaPalette.violet.opacity(0.85), in: Capsule())
-            HStack(spacing: 9) {
-                authorImage
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(author?.displayName ?? clip.creatorLabel)
-                        .font(.system(size: 16, weight: .bold)).lineLimit(2)
-                    Text(linkedPost?.publishedLabel ?? "Original video")
-                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
+            Button {
+                playback.setActive(false)
+                showingAuthor = true
+            } label: {
+                HStack(spacing: 9) {
+                    authorImage
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(author?.displayName ?? discussion.authorName)
+                            .font(.system(size: 16, weight: .bold)).lineLimit(2)
+                        Text(linkedPost?.publishedLabel ?? "Original video")
+                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
+                    }
                 }
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("View \(author?.displayName ?? discussion.authorName)'s profile")
             if let linkedPost {
                 Text(linkedPost.title).font(.system(size: 14, weight: .semibold)).lineLimit(2)
                 if !linkedPost.body.isEmpty {
@@ -245,12 +266,84 @@ struct NanaVideoPlayerView: View {
     }
 
     private func updatePlaybackActivity() {
-        playback.setActive(scenePhase == .active && !showingComment && safetyAction == nil)
+        playback.setActive(scenePhase == .active && !showingComment && !showingAuthor && safetyAction == nil)
     }
 
     private func timeLabel(_ seconds: Double) -> String {
         let value = seconds.isFinite ? max(0, Int(seconds)) : 0
         return String(format: "%d:%02d", value / 60, value % 60)
+    }
+}
+
+/// Bundled creators have an identity and videos, but may not have a service profile.
+/// Keep their page useful without assigning another member's biography or statistics.
+private struct NanaVideoCreatorProfileView: View {
+    let clip: NanaBundledVideo
+    let identity: NanaPostDiscussion
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var selectedVideo: NanaBundledVideo?
+    @State private var safetyAction: NanaPostSafetyAction?
+
+    private var videos: [NanaBundledVideo] {
+        NanaAssetLibrary.videoClips.filter {
+            contentStore.discussion(for: $0).authorID == identity.authorID && contentStore.isVideoVisible($0)
+        }
+    }
+
+    private var profileContext: NanaPostDiscussion {
+        NanaPostDiscussion(key: identity.authorID, title: identity.authorName,
+                          authorID: identity.authorID, authorName: identity.authorName,
+                          authorAvatar: identity.authorAvatar, videoAssetKey: nil, kind: .profile)
+    }
+
+    var body: some View {
+        ZStack {
+            NanaTabBackdrop()
+            VStack(spacing: 0) {
+                NanaDetailPageHeader(title: "Profile")
+                ScrollView {
+                    VStack(spacing: 22) {
+                        NanaMediaPreview(assetKey: identity.authorAvatar ?? clip.assetKey)
+                            .frame(width: 108, height: 108).clipShape(Circle())
+                            .accessibilityLabel("\(identity.authorName)'s creator image")
+                        Text(identity.authorName)
+                            .font(NanaType.hero).multilineTextAlignment(.center)
+                        NanaSafetyOptionsButton(subject: "profile") { safetyAction = $0 }
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Videos · \(videos.count)")
+                                .font(NanaType.bodyMedium).accessibilityAddTraits(.isHeader)
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
+                                ForEach(videos) { video in
+                                    Button { selectedVideo = video } label: {
+                                        NanaMediaPreview(assetKey: video.assetKey)
+                                            .frame(height: 204)
+                                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Play video by \(identity.authorName)")
+                                }
+                            }
+                        }
+                    }
+                    .padding(22)
+                }
+            }
+        }
+        .foregroundStyle(NanaPalette.warmWhite)
+        .preferredColorScheme(.dark)
+        .fullScreenCover(item: $selectedVideo) { NanaVideoPlayerView(clip: $0) }
+        .sheet(item: $safetyAction) { action in
+            NanaPostSafetySheet(context: profileContext, initialAction: action) { dismiss() }
+        }
+        .onChange(of: contentStore.safetyDismissalID) { _, _ in
+            if contentStore.hiddenAuthorIDs.contains(identity.authorID) { dismiss() }
+        }
+        .overlay {
+            if let notice = contentStore.actionNotice {
+                AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
+            }
+        }
     }
 }
 

@@ -5,10 +5,14 @@ import SwiftUI
 
 struct NanaCoinPack: Identifiable, Hashable {
     let productID: String
-    let coins: Int
+    let baseCoins: Int
+    let bonusPercent: Int
     let fallbackPrice: String
 
     var id: String { productID }
+    var bonusCoins: Int { baseCoins * bonusPercent / 100 }
+    /// The same total powers the storefront and verified purchase credit.
+    var coins: Int { baseCoins + bonusCoins }
 }
 
 struct NanaWelcomeGift {
@@ -27,18 +31,23 @@ private struct NanaCoinAccountRecord: Codable {
 
 private struct NanaCoinLedger: Codable {
     var accounts: [String: NanaCoinAccountRecord] = [:]
+    // Unlinked transaction IDs prevent completed purchases being credited again
+    // after local account removal. No profile or account identifier is retained.
+    var removedAccountTransactionIDs: Set<UInt64>? = nil
 }
 
 @MainActor
 final class NanaCoinStore: ObservableObject {
     static let packs = [
-        NanaCoinPack(productID: "xtgkjmjhjxcvxgr", coins: 400, fallbackPrice: "$0.99"),
-        NanaCoinPack(productID: "zezqgkvbircdido", coins: 800, fallbackPrice: "$1.99"),
-        NanaCoinPack(productID: "npftelsnomirowvr", coins: 2_450, fallbackPrice: "$4.99"),
-        NanaCoinPack(productID: "rvkwjwglymgcdhk", coins: 5_150, fallbackPrice: "$9.99"),
-        NanaCoinPack(productID: "efmgfwjfueyseizi", coins: 10_800, fallbackPrice: "$19.99"),
-        NanaCoinPack(productID: "dgedfppvsxndaou", coins: 29_400, fallbackPrice: "$49.99"),
-        NanaCoinPack(productID: "kcrboklodxeabcdx", coins: 63_700, fallbackPrice: "$99.99")
+        NanaCoinPack(productID: "xtgkjmjhjxcvxgr", baseCoins: 500, bonusPercent: 20, fallbackPrice: "$0.99"),
+        NanaCoinPack(productID: "zezqgkvbircdido", baseCoins: 1_000, bonusPercent: 30, fallbackPrice: "$1.99"),
+        NanaCoinPack(productID: "qvntkzplmrxhcad", baseCoins: 1_500, bonusPercent: 35, fallbackPrice: "$2.99"),
+        NanaCoinPack(productID: "npftelsnomirowvr", baseCoins: 2_500, bonusPercent: 40, fallbackPrice: "$4.99"),
+        NanaCoinPack(productID: "rvkwjwglymgcdhk", baseCoins: 5_000, bonusPercent: 50, fallbackPrice: "$9.99"),
+        NanaCoinPack(productID: "efmgfwjfueyseizi", baseCoins: 10_000, bonusPercent: 60, fallbackPrice: "$19.99"),
+        NanaCoinPack(productID: "bhswqjfvndkztre", baseCoins: 15_000, bonusPercent: 65, fallbackPrice: "$29.99"),
+        NanaCoinPack(productID: "dgedfppvsxndaou", baseCoins: 25_000, bonusPercent: 70, fallbackPrice: "$49.99"),
+        NanaCoinPack(productID: "kcrboklodxeabcdx", baseCoins: 50_000, bonusPercent: 80, fallbackPrice: "$99.99")
     ]
 
     @Published private(set) var balance = 0
@@ -91,6 +100,22 @@ final class NanaCoinStore: ObservableObject {
 
     func dismissWelcomeGift() {
         welcomeGift = nil
+    }
+
+    func deleteLocalAccountData(accountID: String) throws {
+        guard accountScope == accountID, purchasingProductID == nil else { throw NanaRoomGiftError.accountChanged }
+        try loadLedgerIfNeeded()
+        var updated = ledger
+        let removed = updated.accounts.removeValue(forKey: accountID)
+        updated.removedAccountTransactionIDs = (updated.removedAccountTransactionIDs ?? []).union(removed?.processedTransactionIDs ?? [])
+        try persistLedger(updated)
+        ledger = updated
+        transactionUpdatesTask?.cancel()
+        transactionUpdatesTask = nil
+        balance = 0
+        roomGiftReceipts = []
+        welcomeGift = nil
+        notice = nil
     }
 
     /// Seed only an account with no local record. Purchases and local spending are never overwritten by a refresh.
@@ -213,15 +238,18 @@ final class NanaCoinStore: ObservableObject {
         do {
             try loadLedgerIfNeeded()
             var record = ledger.accounts[accountScope] ?? NanaCoinAccountRecord(balance: 0, receivedWelcomeGift: false, processedTransactionIDs: [])
-            guard !record.processedTransactionIDs.contains(transaction.id) else {
+            guard !record.processedTransactionIDs.contains(transaction.id),
+                  !(ledger.removedAccountTransactionIDs ?? []).contains(transaction.id) else {
                 await transaction.finish()
                 return
             }
             record.processedTransactionIDs.insert(transaction.id)
             record.balance += expectedPack.coins
-            ledger.accounts[accountScope] = record
+            var updatedLedger = ledger
+            updatedLedger.accounts[accountScope] = record
+            try persistLedger(updatedLedger)
+            ledger = updatedLedger
             balance = record.balance
-            try persistLedger()
             await transaction.finish()
         } catch {
             notice = AccountEntryNotice(title: "Balance not updated", explanation: "The purchase was verified, but Nana couldn't save the new balance. Please keep the app open and try again.")

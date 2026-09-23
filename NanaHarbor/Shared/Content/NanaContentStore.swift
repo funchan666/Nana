@@ -36,6 +36,9 @@ final class NanaContentStore: ObservableObject {
     @Published private(set) var safetyDismissalID = UUID()
     private var personalURL: URL?
     private var personalStorageReady = false
+    private var welcomeFollowerTask: Task<Void, Never>?
+    private var welcomeFollowerRunID = UUID()
+    private var welcomeFollowersActive = false
 
     private let service: NanaAServiceClient
     private var fetchedAt: [NanaReadEndpoint: Date] = [:]
@@ -129,9 +132,7 @@ final class NanaContentStore: ObservableObject {
 
     var liveFriendRooms: [NanaLiveRoom] {
         guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
-        let friends = Set(accountInbox.mutualFriends.filter {
-            !hiddenAuthorIDs.contains($0.id) && personal.following[$0.id] != false
-        }.map(\.id))
+        let friends = Set(mutualFriends.map(\.id))
         var shownHosts = Set<String>()
         return accountInbox.liveRooms.filter { room in
             friends.contains(room.hostID) && isRoomVisible(room)
@@ -144,8 +145,9 @@ final class NanaContentStore: ObservableObject {
 
     var mutualFriends: [NanaProfile] {
         guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
-        return accountInbox.mutualFriends.filter {
-            !hiddenAuthorIDs.contains($0.id) && personal.following[$0.id] != false
+        var seen = Set<String>()
+        return (accountInbox.mutualFriends + accountInbox.followers + accountInbox.newFollowers).filter {
+            !hiddenAuthorIDs.contains($0.id) && isFollowing($0.id) && seen.insert($0.id).inserted
         }.map {
             var profile = $0
             profile.isConnected = true
@@ -154,15 +156,94 @@ final class NanaContentStore: ObservableObject {
     }
 
     var newFollowers: [NanaProfile] {
-        guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
-        return accountInbox.newFollowers.filter { !hiddenAuthorIDs.contains($0.id) }
+        guard accountScope != nil else { return [] }
+        let authenticated = accountInbox?.accountID == accountScope ? accountInbox?.newFollowers ?? [] : []
+        var seen = Set<String>()
+        return (authenticated + welcomeFollowers).filter { !hiddenAuthorIDs.contains($0.id) && seen.insert($0.id).inserted }.map {
+            var profile = $0
+            profile.isConnected = isFollowing(profile.id)
+            return profile
+        }
     }
 
     var accountFollowers: [NanaProfile] {
-        guard let accountInbox, accountInbox.accountID == accountScope else { return [] }
+        guard accountScope != nil else { return [] }
+        let inbox = accountInbox?.accountID == accountScope ? accountInbox : nil
         var seen = Set<String>()
-        return (accountInbox.followers + accountInbox.mutualFriends + accountInbox.newFollowers).filter {
+        let authenticated = (inbox?.followers ?? []) + (inbox?.mutualFriends ?? []) + (inbox?.newFollowers ?? [])
+        return (authenticated + welcomeFollowers).filter {
             !hiddenAuthorIDs.contains($0.id) && seen.insert($0.id).inserted
+        }
+    }
+
+    /// Local welcome activity remains separate from authenticated follows and chat permissions.
+    private var welcomeFollowers: [NanaProfile] {
+        (personal.welcomeFollows ?? []).filter { $0.receivedAt != nil && !$0.skipped }.map(\.profile)
+    }
+
+    func isWelcomeFollower(_ profileID: String) -> Bool {
+        let authenticated = accountInbox?.accountID == accountScope ? accountInbox : nil
+        let realFollowers = (authenticated?.followers ?? []) + (authenticated?.mutualFriends ?? []) + (authenticated?.newFollowers ?? [])
+        return welcomeFollowers.contains { $0.id == profileID } && !realFollowers.contains { $0.id == profileID }
+    }
+
+    func setWelcomeFollowersActive(_ active: Bool) {
+        welcomeFollowersActive = active
+        if active { scheduleWelcomeFollowers() } else { cancelWelcomeFollowers() }
+    }
+
+    private func cancelWelcomeFollowers() {
+        welcomeFollowerRunID = UUID()
+        welcomeFollowerTask?.cancel()
+        welcomeFollowerTask = nil
+    }
+
+    private func scheduleWelcomeFollowers() {
+        guard welcomeFollowersActive, welcomeFollowerTask == nil, personalStorageReady,
+              let scope = accountScope else { return }
+        if personal.welcomeFollows == nil {
+            // Choose only the supplied replay cast, excluding blocked and already-related people.
+            let existing = Set(accountFollowers.map(\.id))
+            var seen = Set<String>()
+            let candidates = visibleProfiles.filter {
+                NanaProfile.replaySocialCounts[$0.id] != nil && !existing.contains($0.id)
+                    && !isFollowing($0.id) && seen.insert($0.id).inserted
+            }.shuffled()
+            guard !candidates.isEmpty else { return }
+            let count = Int.random(in: 1...min(3, candidates.count))
+            var updated = personal
+            updated.welcomeFollows = candidates.prefix(count).enumerated().map { index, candidate in
+                var profile = candidate
+                profile.isConnected = false
+                return NanaWelcomeFollow(profile: profile,
+                    delaySeconds: index == 0 ? Double.random(in: 15...35) : Double.random(in: 40...90))
+            }
+            guard savePersonal(updated) else { return }
+        }
+        let pending = (personal.welcomeFollows ?? []).filter { $0.receivedAt == nil && !$0.skipped }
+        guard !pending.isEmpty else { return }
+        let runID = UUID()
+        welcomeFollowerRunID = runID
+        welcomeFollowerTask = Task { [weak self] in
+            defer {
+                if self?.welcomeFollowerRunID == runID { self?.welcomeFollowerTask = nil }
+            }
+            for entry in pending {
+                // Each arrival waits independently. Resuming never batches overdue arrivals.
+                do { try await Task.sleep(for: .seconds(entry.delaySeconds)) }
+                catch { return }
+                guard !Task.isCancelled, let self, self.accountScope == scope,
+                      self.welcomeFollowersActive, self.welcomeFollowerRunID == runID,
+                      let index = self.personal.welcomeFollows?.firstIndex(where: { $0.profile.id == entry.profile.id }) else { return }
+                var updated = self.personal
+                let alreadyArrived = self.accountFollowers.contains { $0.id == entry.profile.id }
+                if self.hiddenAuthorIDs.contains(entry.profile.id) || alreadyArrived {
+                    updated.welcomeFollows?[index].skipped = true
+                } else {
+                    updated.welcomeFollows?[index].receivedAt = Date()
+                }
+                guard self.savePersonal(updated) else { return }
+            }
         }
     }
 
@@ -179,10 +260,19 @@ final class NanaContentStore: ObservableObject {
     func replaceAccountInbox(_ snapshot: NanaAccountInboxSnapshot) {
         guard snapshot.accountID == accountScope else { return }
         accountInbox = snapshot
+        applyPersonalOverlays()
+    }
+
+    /// Public catalog follow flags never establish an account relationship.
+    func isFollowing(_ profileID: String) -> Bool {
+        if let explicitChoice = personal.following[profileID] { return explicitChoice }
+        guard let accountInbox, accountInbox.accountID == accountScope else { return false }
+        return accountInbox.mutualFriends.contains { $0.id == profileID }
     }
 
     func beginSession(accountID: String?) {
         guard accountScope != accountID else { return }
+        cancelWelcomeFollowers()
         let oldURL = cacheURL
         generation = UUID()
         requests.values.forEach { $0.cancel() }
@@ -207,7 +297,7 @@ final class NanaContentStore: ObservableObject {
         if NanaDevelopmentMode.usesFixtures {
             #if DEBUG
             payload = .sample
-            applyReplayCatalog()
+            applyPersonalOverlays()
             #endif
         }
         let digest = SHA256.hash(data: Data(accountID.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -228,6 +318,7 @@ final class NanaContentStore: ObservableObject {
                 actionNotice = AccountEntryNotice(title: "Saved data unavailable", explanation: "Please reopen Nana to try again. Your saved data has not been replaced.")
             }
         }
+        applyPersonalOverlays()
         guard let cacheURL, let data = try? Data(contentsOf: cacheURL),
               let cache = try? JSONDecoder().decode(NanaReadCache.self, from: data),
               cache.version == 1 else { return }
@@ -350,8 +441,8 @@ final class NanaContentStore: ObservableObject {
     func room(with id: String) -> NanaLiveRoom? { payload.rooms.first { $0.id == id && isRoomVisible($0) } }
     func profile(with id: String) -> NanaProfile? {
         guard !hiddenAuthorIDs.contains(id) else { return nil }
-        guard var profile = (mutualFriends + newFollowers + visibleProfiles).first(where: { $0.id == id }) else { return nil }
-        if let following = personal.following[id] { profile.isConnected = following }
+        guard var profile = (mutualFriends + newFollowers + visibleProfiles + followedProfiles).first(where: { $0.id == id }) else { return nil }
+        profile.isConnected = isFollowing(id)
         return profile
     }
     func post(with id: String) -> NanaPost? { posts().first { $0.id == id } }
@@ -452,13 +543,32 @@ final class NanaContentStore: ObservableObject {
     func toggleConnection(for profileID: String) {
         guard var profile = self.profile(with: profileID) ?? personal.followedProfiles[profileID] else { return }
         var updated = personal
-        let following = !(personal.following[profileID] ?? profile.isConnected)
+        let following = !isFollowing(profileID)
         updated.following[profileID] = following
         profile.isConnected = following
         if following { updated.followedProfiles[profileID] = profile } else { updated.followedProfiles.removeValue(forKey: profileID) }
         if savePersonal(updated) { applyPersonalOverlays() }
     }
-    func appendMessage(to conversationID: String, body: String) { explainUnavailable("Sending messages") }
+    /// Opening a composer does not create a conversation or change follow state.
+    func conversation(for profile: NanaProfile) -> NanaConversation {
+        if let existing = visibleConversations.first(where: { $0.profileID == profile.id }) { return existing }
+        return NanaConversation(id: "draft-conversation-\(profile.id)", profileID: profile.id,
+                                displayName: profile.displayName, preview: "", sentAtLabel: "",
+                                unreadCount: 0, avatarAssetKey: profile.avatarAssetKey)
+    }
+
+    func appendMessage(to conversation: NanaConversation, body: String) {
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard accountScope != nil, !hiddenAuthorIDs.contains(conversation.profileID) else {
+            actionNotice = AccountEntryNotice(title: "Message unavailable", explanation: "Sign in and unblock this person before sending a message.")
+            return
+        }
+        guard mutualFriends.contains(where: { $0.id == conversation.profileID }) else {
+            actionNotice = AccountEntryNotice(title: "Follow each other to chat", explanation: "You can send messages once you both follow each other. Your draft has been kept.")
+            return
+        }
+        explainUnavailable("Sending messages")
+    }
     func appendRoomMessage(roomID: String, body: String, senderName: String = "You") { explainUnavailable("Room chat") }
     func toggleMute(roomID: String, seatID: String) { explainUnavailable("Room moderation") }
     func kick(roomID: String, seatID: String) { explainUnavailable("Room moderation") }
@@ -516,7 +626,22 @@ final class NanaContentStore: ObservableObject {
 
     func comments(for context: NanaPostDiscussion) -> [NanaPostComment] {
         let samples = NanaPostCommentSamples.comments(for: context)
-        return (samples + (personal.postComments?[context.key] ?? [])).filter { !hiddenAuthorIDs.contains($0.authorID) }
+        let hiddenComments = personal.hiddenCommentKeys ?? []
+        return (samples + (personal.postComments?[context.key] ?? [])).filter {
+            !hiddenAuthorIDs.contains($0.authorID) && !hiddenComments.contains(commentSafetyKey($0.id, parentKey: context.key))
+        }
+    }
+
+    private func commentSafetyKey(_ commentID: String, parentKey: String) -> String {
+        // Length-prefixed parent key prevents ambiguous cross-post comment IDs.
+        let identity = "\(parentKey.utf8.count):\(parentKey)\(commentID)"
+        return "comment:" + SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func discussion(for comment: NanaPostComment, in parent: NanaPostDiscussion) -> NanaPostDiscussion {
+        NanaPostDiscussion(key: commentSafetyKey(comment.id, parentKey: parent.key), title: comment.body,
+            authorID: comment.authorID, authorName: comment.authorName, authorAvatar: comment.avatarAssetKey,
+            videoAssetKey: nil, kind: .comment, parentContentKey: parent.key, commentID: comment.id)
     }
 
     @discardableResult
@@ -537,15 +662,23 @@ final class NanaContentStore: ObservableObject {
 
     @discardableResult
     func reportContent(_ context: NanaPostDiscussion, reason: String) -> Bool {
+        if context.kind == .comment {
+            guard context.authorID != "local-account", context.authorID != accountScope,
+                  let parentKey = context.parentContentKey, let commentID = context.commentID,
+                  context.key == commentSafetyKey(commentID, parentKey: parentKey) else { return false }
+        }
         var updated = personal
         var reports = updated.safetyReports ?? []
         reports.removeAll { $0.contentKey == context.key && $0.kind == context.kind }
-        reports.append(NanaSafetyReport(contentKey: context.key, kind: context.kind, authorID: context.authorID, reason: reason, createdAt: Date()))
+        reports.append(NanaSafetyReport(contentKey: context.key, kind: context.kind, authorID: context.authorID, reason: reason, createdAt: Date(),
+            parentContentKey: context.parentContentKey, commentID: context.commentID,
+            contentExcerpt: context.kind == .comment ? String(context.title.prefix(500)) : nil))
         updated.safetyReports = reports
         switch context.kind {
         case .post: updated.hiddenPostKeys = (updated.hiddenPostKeys ?? []).union([context.key])
         case .room: updated.hiddenRoomIDs = (updated.hiddenRoomIDs ?? []).union([context.key])
         case .conversation: updated.hiddenConversationIDs.insert(context.key)
+        case .comment: updated.hiddenCommentKeys = (updated.hiddenCommentKeys ?? []).union([context.key])
         case .profile:
             updated.reportedProfileIDs = (updated.reportedProfileIDs ?? []).union([context.authorID])
             var aliases = updated.safetyAuthorAliases ?? [:]
@@ -556,12 +689,13 @@ final class NanaContentStore: ObservableObject {
             updated.safetyPortraits = portraits
         }
         if updated.hiddenPostKeys == nil { updated.hiddenPostKeys = [] }
-        if let asset = context.videoAssetKey { updated.hiddenPostKeys?.insert(asset) }
+        if context.kind != .comment, let asset = context.videoAssetKey { updated.hiddenPostKeys?.insert(asset) }
         return savePersonal(updated)
     }
 
     @discardableResult
     func blockPostAuthor(_ context: NanaPostDiscussion) -> Bool {
+        guard !context.authorID.isEmpty, context.authorID != "local-account", context.authorID != accountScope else { return false }
         let author = payload.profiles.first { $0.id == context.authorID } ?? NanaProfile(
             id: context.authorID, displayName: context.authorName, handle: context.authorName,
             region: "", language: "", gender: "", age: 0, introduction: "", avatarAssetKey: context.authorAvatar,
@@ -587,17 +721,44 @@ final class NanaContentStore: ObservableObject {
         return true
     }
 
-    func unhide(profileID: String) {
+    @discardableResult
+    func unhide(profileID: String) -> Bool {
         var updated = personal
         updated.hiddenProfiles.removeValue(forKey: profileID)
-        if savePersonal(updated) { blockedProfileIDs.remove(profileID) }
+        guard savePersonal(updated) else { return false }
+        blockedProfileIDs.remove(profileID)
+        return true
+    }
+
+    func deleteLocalAccountData(accountID: String) throws {
+        guard accountScope == accountID, let personalURL else { throw NanaLocalAccountError.storageUnavailable }
+        cancelWelcomeFollowers()
+        generation = UUID()
+        requests.values.forEach { $0.cancel() }
+        requests.removeAll()
+        let directory = personalURL.deletingLastPathComponent()
+        if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+        if let cacheURL, FileManager.default.fileExists(atPath: cacheURL.path) { try FileManager.default.removeItem(at: cacheURL) }
+        personal = NanaPersonalState()
+        personalStorageReady = false
+        accountInbox = nil
+        blockedProfileIDs = []
+        drafts = [:]
+        payload = .empty
+        fetchedAt = [:]
+        states = [:]
+        assetManifest = []
+        actionNotice = nil
+        URLCache.shared.removeAllCachedResponses()
+        NanaAssetLibrary.clearVideoCoverCache()
     }
 
     func preference(_ key: String, default fallback: Bool = true) -> Bool { personal.preferences[key] ?? fallback }
-    func setPreference(_ key: String, value: Bool) {
+    @discardableResult
+    func setPreference(_ key: String, value: Bool) -> Bool {
         var updated = personal
         updated.preferences[key] = value
-        _ = savePersonal(updated)
+        return savePersonal(updated)
     }
 
     func markNotificationsRead(_ ids: [String]) {
@@ -654,20 +815,33 @@ final class NanaContentStore: ObservableObject {
         return true
     }
 
-    func clearCache() {
+    var downloadedCacheBytes: Int64 {
+        guard let cacheURL,
+              let values = try? cacheURL.resourceValues(forKeys: [.fileSizeKey]) else { return 0 }
+        return Int64(values.fileSize ?? 0)
+    }
+
+    var networkCacheBytes: Int64 {
+        Int64(URLCache.shared.currentDiskUsage) + Int64(URLCache.shared.currentMemoryUsage)
+    }
+
+    @discardableResult
+    func clearCache(showNotice: Bool = true) -> Bool {
         generation = UUID()
         requests.values.forEach { $0.cancel() }
         requests.removeAll()
         do {
             if let cacheURL, FileManager.default.fileExists(atPath: cacheURL.path) { try FileManager.default.removeItem(at: cacheURL) }
-            payload = .empty
+            // Keep already displayed content; only disposable cached files and previews are removed.
             fetchedAt = [:]
             states = [:]
-            assetManifest = []
             URLCache.shared.removeAllCachedResponses()
-            actionNotice = AccountEntryNotice(title: "Cache cleared", explanation: "Your photos, preferences, activity and coins are kept.")
+            NanaAssetLibrary.clearVideoCoverCache()
+            if showNotice { actionNotice = AccountEntryNotice(title: "Cache cleared", explanation: "Your photos, preferences, activity and coins are kept.") }
+            return true
         } catch {
-            actionNotice = AccountEntryNotice(title: "Cache not cleared", explanation: "Please try again.")
+            if showNotice { actionNotice = AccountEntryNotice(title: "Cache not cleared", explanation: "Please try again.") }
+            return false
         }
     }
 
@@ -770,12 +944,19 @@ final class NanaContentStore: ObservableObject {
 
     private func applyPersonalOverlays() {
         applyReplayCatalog()
+        let replayHosts = Set(payload.rooms.filter { $0.streamSourceType == "simulatedReplay" }.map(\.hostID))
         for index in payload.profiles.indices {
-            if let following = personal.following[payload.profiles[index].id] { payload.profiles[index].isConnected = following }
+            let id = payload.profiles[index].id
+            payload.profiles[index].isConnected = isFollowing(id)
+            if replayHosts.contains(id), let counts = NanaProfile.replaySocialCounts[id] {
+                payload.profiles[index].followerCount = counts.followers
+                payload.profiles[index].followingCount = counts.following
+            }
         }
         for index in payload.rooms.indices {
-            if let following = personal.following[payload.rooms[index].hostID] { payload.rooms[index].isFollowingHost = following }
+            payload.rooms[index].isFollowingHost = isFollowing(payload.rooms[index].hostID)
         }
+        scheduleWelcomeFollowers()
     }
 
     @discardableResult
@@ -827,6 +1008,8 @@ private struct NanaReadCache: Codable {
 
 /// Separate from disposable JSON snapshots; never sent to the content service.
 struct NanaPersonalState: Codable {
+    var welcomeFollows: [NanaWelcomeFollow]? = nil
+    var hiddenCommentKeys: Set<String>? = nil
     var feedbackSubmissions: [NanaSavedFeedback]? = nil
     var safetyPortraits: [String: Set<String>]? = nil
     var safetyReports: [NanaSafetyReport]? = nil
@@ -845,6 +1028,13 @@ struct NanaPersonalState: Codable {
     var preferences: [String: Bool] = [:]
     var drafts: [String: String] = [:]
     var photos: [NanaPersonalPhoto] = []
+}
+
+struct NanaWelcomeFollow: Codable {
+    var profile: NanaProfile
+    let delaySeconds: Double
+    var receivedAt: Date? = nil
+    var skipped = false
 }
 
 struct NanaSavedFeedback: Codable, Identifiable {

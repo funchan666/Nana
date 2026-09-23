@@ -3,6 +3,7 @@ import AVKit
 import UIKit
 
 enum NanaAssetLibrary {
+    static func clearVideoCoverCache() { videoCoverCache.removeAllObjects() }
     private static let videoCoverCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.totalCostLimit = 24 * 1024 * 1024

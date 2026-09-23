@@ -102,6 +102,9 @@ struct NanaCredentialAccessView: View {
         }
         .background { AccountArtworkSurface(artworkName: "NanaAccountArtwork") }
         .background(.black)
+        .onAppear {
+            if mode == .login, emailAddress.isEmpty { emailAddress = sessionStore.suggestedSignInEmail }
+        }
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
         .disabled(entryNotice != nil || isSubmitting)
         .overlay {

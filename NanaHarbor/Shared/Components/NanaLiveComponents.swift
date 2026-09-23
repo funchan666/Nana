@@ -94,6 +94,10 @@ struct NanaRankingView: View {
         return visibleEntries.first(where: \.isCurrentUser)
     }
 
+    // Identity always follows the same observed session as My Profile. Ranking
+    // responses supply rank and gifts, not a second copy of the account profile.
+    private var currentAccountName: String { sessionStore.activeProfile?.displayName ?? "You" }
+
     var body: some View {
         ZStack {
             NanaTabBackdrop()
@@ -202,7 +206,7 @@ struct NanaRankingView: View {
                         .padding(.vertical, 38)
                     } else {
                         ForEach(visibleEntries) { entry in
-                            if !showsSampleRankings, let profile = contentStore.profile(with: entry.profileID) {
+                            if !showsSampleRankings, !entry.isCurrentUser, let profile = contentStore.profile(with: entry.profileID) {
                                 Button { selectedProfile = profile } label: { rankingRow(entry) }
                                     .buttonStyle(.plain)
                             } else {
@@ -236,10 +240,14 @@ struct NanaRankingView: View {
     private func rankingRow(_ entry: NanaRankingEntry) -> some View {
         HStack(spacing: 10) {
             rankBadge(entry.rank).frame(width: 48)
-            NanaAvatarView(title: entry.displayName, assetKey: entry.avatarAssetKey, size: 34)
+            if entry.isCurrentUser {
+                NanaAccountAvatarView(data: sessionStore.activeProfile?.avatarData, size: 34)
+            } else {
+                NanaAvatarView(title: entry.displayName, assetKey: entry.avatarAssetKey, size: 34)
+            }
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.displayName).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                levelBadge(entry.level)
+                Text(entry.isCurrentUser ? currentAccountName : entry.displayName).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                levelBadge(entry.isCurrentUser ? contentStore.activityLevel : entry.level)
             }.frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 3) {
                 NanaAssetImage(assetKey: "nana.voice.voice_asset_009", contentMode: .fit)
@@ -277,16 +285,10 @@ struct NanaRankingView: View {
                 if let entry = personalEntry { rankBadge(entry.rank) }
                 else { Text("—").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)) }
             }.frame(width: 48)
-            Group {
-                if let data = sessionStore.activeProfile?.avatarData, let image = UIImage(data: data) {
-                    Image(uiImage: image).resizable().scaledToFill().frame(width: 34, height: 34).clipShape(Circle())
-                } else {
-                    NanaAvatarView(title: sessionStore.activeProfile?.displayName ?? "You", assetKey: personalEntry?.avatarAssetKey, size: 34)
-                }
-            }
+            NanaAccountAvatarView(data: sessionStore.activeProfile?.avatarData, size: 34)
             VStack(alignment: .leading, spacing: 3) {
-                Text(sessionStore.activeProfile?.displayName ?? "You").font(.system(size: 12)).lineLimit(1)
-                levelBadge(personalEntry?.level ?? contentStore.payload.wallet.level)
+                Text(currentAccountName).font(.system(size: 12)).lineLimit(1)
+                levelBadge(contentStore.activityLevel)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Text(personalEntry.map { $0.giftCount.formatted(.number.notation(.compactName)) } ?? "—")
                 .font(.system(size: 10)).foregroundStyle(.white.opacity(0.65))

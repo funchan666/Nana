@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UIKit
 import ImageIO
+import UserNotifications
 
 struct YourShoreView: View {
     @EnvironmentObject private var sessionStore: NanaSessionStore
@@ -63,10 +64,11 @@ struct YourShoreView: View {
             .sheet(isPresented: $showingLogout) {
                 NanaProfileActionSheet(title: "Log out?", detail: "Your saved profile and photos will be here when you sign in again.", actionTitle: "Confirm exit",
                                        secondaryTitle: "Switch accounts", secondaryAction: { sessionStore.signOut() }) {
-                    sessionStore.signOut()
+                    Task { await sessionStore.exitAccount(deleting: false, contentStore: contentStore, coinStore: coinStore) }
                 }
             }
             .overlay { if let notice = contentStore.actionNotice { AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() } } }
+            .overlay { if let progress = sessionStore.accountExitProgress { NanaAccountExitOverlay(progress: progress) } }
         }
     }
 
@@ -146,7 +148,7 @@ struct YourShoreView: View {
 
     private var statsRow: some View {
         HStack(spacing: 0) {
-            stat("Followers", value: "\(contentStore.accountFollowers.count)", category: "Followers")
+            stat("Follower", value: "\(contentStore.accountFollowers.count)", category: "Followers")
             stat("Following", value: "\(contentStore.followedProfiles.count)", category: "Following")
             stat("Friends", value: "\(contentStore.mutualFriends.count)", category: "Friends")
             Spacer(minLength: 0)
@@ -254,7 +256,7 @@ struct YourShoreView: View {
                 Color.clear.frame(width: 43, height: 1)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("My balance").font(.system(size: 13, weight: .medium))
-                    Text(coinStore.balance.formatted()).font(.system(size: 11))
+                    Text(contentStore.preference("hideCoinBalance", default: false) ? "••••" : coinStore.balance.formatted()).font(.system(size: 11))
                 }
                 .foregroundStyle(NanaPalette.warmWhite)
                 Spacer(minLength: 3)
@@ -275,7 +277,7 @@ struct YourShoreView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("My balance, \(coinStore.balance) coins. Open wallet")
+        .accessibilityLabel(contentStore.preference("hideCoinBalance", default: false) ? "Balance hidden. Open wallet" : "My balance, \(coinStore.balance) coins. Open wallet")
     }
 
     private var profileMenu: some View {
@@ -341,6 +343,7 @@ struct NanaUserProfileView: View {
     @State private var showingCall = false
     @State private var safetyAction: NanaPostSafetyAction?
     @State private var showingAlbum = false
+    @State private var conversation: NanaConversation?
 
     private var liveProfile: NanaProfile { contentStore.profile(with: profile.id) ?? profile }
 
@@ -352,15 +355,19 @@ struct NanaUserProfileView: View {
                     VStack(spacing: 18) {
                         NanaAvatarView(title: liveProfile.displayName, assetKey: liveProfile.avatarAssetKey, size: 108)
                         Text(liveProfile.displayName).font(NanaType.hero).foregroundStyle(NanaPalette.warmWhite)
+                        if contentStore.isWelcomeFollower(profile.id) {
+                            Text("Welcome interaction · simulated locally")
+                                .font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+                        }
                         Text("@\(liveProfile.handle) · \(liveProfile.region)").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
                         Text(liveProfile.introduction).font(NanaType.body).foregroundStyle(NanaPalette.mutedWhite).multilineTextAlignment(.center).padding(.horizontal, 16)
                         HStack(spacing: 10) {
-                            Button(liveProfile.isConnected ? "Connected" : "Connect") { contentStore.toggleConnection(for: liveProfile.id) }
+                            Button(liveProfile.isConnected ? "Following" : "Follow") { contentStore.toggleConnection(for: liveProfile.id) }
                                 .buttonStyle(NanaPrimaryButtonStyle(tint: liveProfile.isConnected ? NanaPalette.cardStrong : NanaPalette.violet))
                             Button { showingCall = true } label: { Label("Video", systemImage: "video.fill") }
                                 .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.neonPink))
                         }
-                        HStack(spacing: 0) { stat("Followers", "\(liveProfile.followerCount)"); stat("Following", "\(liveProfile.followingCount)"); stat("Level", "Lv.\(liveProfile.level)") }
+                        HStack(spacing: 0) { stat("Follower", "\(liveProfile.followerCount)"); stat("Following", "\(liveProfile.followingCount)"); stat("Level", "Lv.\(liveProfile.level)") }
                             .padding(.vertical, 15).nanaCard()
                         VStack(alignment: .leading, spacing: 11) {
                             NanaSectionTitle(eyebrow: "Private album", title: "Friends only")
@@ -387,9 +394,9 @@ struct NanaUserProfileView: View {
                         }
                         .padding(16).nanaCard()
                         HStack {
-                            Button("Private message") { contentStore.explainUnavailable("Private messages") }.buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.neonPink))
+                            Button("Private message") { conversation = contentStore.conversation(for: liveProfile) }.buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.neonPink))
                         }
-                        NanaPostSafetyButtons(subject: "profile") { safetyAction = $0 }
+                        NanaSafetyOptionsButton(subject: "profile") { safetyAction = $0 }
                     }
                     .padding(22)
                 }
@@ -397,6 +404,7 @@ struct NanaUserProfileView: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) } }
             .sheet(isPresented: $showingCall) { NanaVideoCallView(profile: liveProfile) }
             .fullScreenCover(isPresented: $showingAlbum) { NanaAlbumGalleryView(profile: liveProfile) }
+            .fullScreenCover(item: $conversation) { NanaConversationView(conversation: $0) }
             .sheet(item: $safetyAction) { action in
                 NanaPostSafetySheet(context: contentStore.discussion(for: profile), initialAction: action) { dismiss() }
             }
@@ -414,6 +422,7 @@ struct NanaUserProfileView: View {
 
 private struct NanaEditProfileView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var sessionStore: NanaSessionStore
     @State private var displayName = ""
     @State private var country = ""
@@ -428,50 +437,52 @@ private struct NanaEditProfileView: View {
     @State private var loadingPhoto = false
     @State private var photoError: String?
     @State private var showingDate = false
-    @State private var chosenDate = Date()
+    @FocusState private var focusedField: ProfileField?
+    private enum ProfileField: Hashable { case nickname, country, signature }
+    private var canSave: Bool {
+        editingAccountScope == sessionStore.activeProfile?.localAccountScope
+            && editingAccountScope != nil && !loadingPhoto
+            && !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     private var interestOptions: [String] {
         Array(Set(["Music", "Live chat", "Creative", "Travel", "Gaming", "Late night", "Art", "Open talk"]
                   + (sessionStore.activeProfile?.interests ?? []) + Array(selectedInterests))).sorted()
+    }
+    private var choiceColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 10), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
     }
 
     var body: some View {
         NanaProfilePage("Edit profile") {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 18) {
                     avatarPicker
-                    lineField("Nickname", placeholder: "Please enter", value: $displayName)
-                    dateField
-                    lineField("Country", placeholder: "Country or region", value: $country)
-                    genderField
-                    interestsField
-                    lineField("Signature", placeholder: "A little about you", value: $introduction)
-                        .onChange(of: introduction) { _, value in if value.count > 160 { introduction = String(value.prefix(160)) } }
-                }.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 24)
-            }.scrollDismissesKeyboard(.interactively)
-        }
-        .safeAreaInset(edge: .bottom) {
-            Button("Save", action: save)
-                .buttonStyle(NanaPrimaryButtonStyle())
-                .disabled(loadingPhoto || displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .padding(.horizontal, 40).padding(.vertical, 16)
-                .background(.black.opacity(0.86))
+                    NanaSettingsCard {
+                        sectionTitle("The basics", detail: "Let people know a little about you.")
+                        lineField("Nickname", placeholder: "Your display name", value: $displayName, focus: .nickname)
+                        dateField
+                        lineField("Country or region", placeholder: "Where you’re from", value: $country, focus: .country)
+                    }
+                    NanaSettingsCard { genderField }
+                    NanaSettingsCard { interestsField }
+                    NanaSettingsCard { signatureField }
+                }
+                .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
+                .frame(maxWidth: 520).frame(maxWidth: .infinity)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
         }
         .onAppear(perform: loadProfile)
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
+            focusedField = nil
             loadingPhoto = true
             photoError = nil
             Task { @MainActor in await loadPhoto(item) }
         }
-        .sheet(isPresented: $showingDate) {
-            VStack(spacing: 16) {
-                Text("Date of birth").font(.system(size: 20, weight: .bold))
-                DatePicker("Date of birth", selection: $chosenDate, in: ...Date(), displayedComponents: .date)
-                    .datePickerStyle(.wheel).labelsHidden().tint(NanaPalette.violet)
-                Button("Done") { birthDate = chosenDate; showingDate = false }
-                    .buttonStyle(NanaPrimaryButtonStyle())
-            }.padding(24).presentationDetents([.height(350)])
-                .presentationBackground(NanaPalette.deepSpace).preferredColorScheme(.dark)
+        .fullScreenCover(isPresented: $showingDate) {
+            NanaProfileBirthdayPicker(initialDate: birthDate) { birthDate = $0 }
         }
         .overlay {
             if let notice = sessionStore.sessionNotice {
@@ -480,104 +491,142 @@ private struct NanaEditProfileView: View {
         }
     }
 
-    private var avatarPicker: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            fieldTitle("Set avatar")
-            HStack {
-                Spacer()
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    NanaAccountAvatarView(data: avatarData, size: 126)
-                        .overlay(alignment: .bottom) {
-                            Image(systemName: "camera.fill").font(.system(size: 18))
-                                .foregroundStyle(.white).frame(width: 38, height: 38)
-                                .background(NanaPalette.violet, in: Circle()).offset(y: 8)
-                        }
-                }.disabled(loadingPhoto).accessibilityLabel("Choose avatar")
-                    .overlay(alignment: .topTrailing) {
-                        if avatarData != nil {
-                            Button { avatarData = nil; resetAvatar = true } label: {
-                                Image(systemName: "xmark.circle.fill").foregroundStyle(.orange)
-                                    .frame(width: 44, height: 44)
-                            }.buttonStyle(.plain).offset(x: 17, y: -15).accessibilityLabel("Reset avatar")
-                        }
-                    }
-                Spacer()
+    private var saveBar: some View {
+        VStack(spacing: 6) {
+            if focusedField != nil {
+                Button("Done typing") { focusedField = nil }
+                    .font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
-            if loadingPhoto { ProgressView().tint(NanaPalette.violet).frame(maxWidth: .infinity) }
-            if let photoError { Text(photoError).font(.system(size: 12)).foregroundStyle(NanaPalette.warning) }
+            NanaSettingsImageButton(title: loadingPhoto ? "Preparing photo…" : "Save changes", isEnabled: canSave) {
+                focusedField = nil
+                save()
+            }
         }
+        .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 8)
+        .frame(maxWidth: 520).frame(maxWidth: .infinity)
+        .background(NanaPalette.deepSpace)
     }
 
-    private func fieldTitle(_ title: String) -> some View {
-        Text(title).font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
-    }
-
-    private func lineField(_ title: String, placeholder: String, value: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            fieldTitle(title)
-            HStack(spacing: 8) {
-                TextField(placeholder, text: value).font(.system(size: 14))
-                if !value.wrappedValue.isEmpty {
-                    Button { value.wrappedValue = "" } label: {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(.orange)
-                            .frame(width: 44, height: 44)
-                    }.buttonStyle(.plain).accessibilityLabel("Clear \(title)")
+    private var avatarPicker: some View {
+        NanaSettingsCard {
+            HStack(alignment: .center, spacing: 18) {
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    NanaAccountAvatarView(data: avatarData, size: dynamicTypeSize.isAccessibilitySize ? 72 : 92)
+                }.disabled(loadingPhoto).accessibilityLabel("Change profile photo")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Your profile photo").font(.headline)
+                    Text("A familiar face makes it easier to connect.")
+                        .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            }.frame(minHeight: 44)
-            Rectangle().fill(NanaPalette.border).frame(height: 0.5)
+            }
+            HStack(spacing: 12) {
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    Text(loadingPhoto ? "Preparing photo…" : "Change photo")
+                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 48)
+                        .background { Image("NanaCheckInGuideButton").resizable().accessibilityHidden(true) }
+                }.disabled(loadingPhoto)
+                if avatarData != nil {
+                    Button("Reset") { avatarData = nil; resetAvatar = true }
+                        .font(.subheadline).foregroundStyle(NanaPalette.electricLilac).frame(minWidth: 52, minHeight: 48)
+                        .disabled(loadingPhoto).accessibilityLabel("Reset to default profile photo")
+                }
+            }
+            if let photoError { Text(photoError).font(.footnote).foregroundStyle(NanaPalette.warning) }
         }
+    }
+
+    private func sectionTitle(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+            Text(detail).font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func lineField(_ title: String, placeholder: String, value: Binding<String>, focus: ProfileField) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(focus == .nickname ? "Nickname · required" : title)
+                .font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+            TextField(title, text: value, prompt: Text(placeholder).foregroundColor(.white.opacity(0.55)))
+                .font(.body).foregroundStyle(.white).frame(minHeight: 48)
+                .textInputAutocapitalization(.words).autocorrectionDisabled()
+                .focused($focusedField, equals: focus).submitLabel(.next)
+                .onSubmit { focusedField = focus == .nickname ? .country : .signature }
+                .accessibilityLabel(title)
+        }.id(focus)
     }
 
     private var dateField: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            fieldTitle("Date of Birth")
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Date of birth").font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
             Button {
-                chosenDate = birthDate ?? Calendar.current.date(byAdding: .year, value: -25, to: Date()) ?? Date()
+                focusedField = nil
                 showingDate = true
             } label: {
-                HStack {
-                    Text(birthDate?.formatted(date: .numeric, time: .omitted) ?? "Choose date").font(.system(size: 14))
-                    Spacer()
-                    Image(systemName: "chevron.right.circle").foregroundStyle(NanaPalette.mutedWhite)
-                }.frame(minHeight: 44)
+                HStack(spacing: 12) {
+                    Text(birthDate?.formatted(date: .abbreviated, time: .omitted) ?? "Choose your birthday")
+                        .font(.body).multilineTextAlignment(.leading)
+                    Spacer(minLength: 4)
+                    Text(birthDate == nil ? "Add" : "Edit").font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+                }.frame(minHeight: 48)
             }.buttonStyle(.plain)
-            Rectangle().fill(NanaPalette.border).frame(height: 0.5)
+                .accessibilityLabel("Date of birth, \(birthDate?.formatted(date: .abbreviated, time: .omitted) ?? "not set")")
         }
     }
 
     private var genderField: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            fieldTitle("Gender")
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("Gender", detail: "Choose what feels right for you.")
+            LazyVGrid(columns: choiceColumns, spacing: 10) {
                 ForEach(["Male", "Female", "Non-binary", "Prefer not to say"], id: \.self) { option in
-                    Button { gender = option } label: {
-                        Text(option).font(.system(size: 12))
-                            .foregroundStyle(gender == option ? NanaPalette.electricLilac : NanaPalette.mutedWhite)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .overlay(Capsule().stroke(gender == option ? NanaPalette.violet : NanaPalette.border))
-                    }.buttonStyle(.plain).accessibilityAddTraits(gender == option ? .isSelected : [])
+                    choice(option, selected: gender == option) { focusedField = nil; gender = option }
                 }
             }
         }
     }
 
     private var interestsField: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            fieldTitle("Label")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 95), spacing: 8)], spacing: 8) {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("Interests", detail: "Pick the things you enjoy talking about.")
+            Text("\(selectedInterests.count) selected").font(.caption).foregroundStyle(NanaPalette.electricLilac)
+            LazyVGrid(columns: choiceColumns, spacing: 10) {
                 ForEach(interestOptions, id: \.self) { interest in
-                    Button {
+                    choice(interest, selected: selectedInterests.contains(interest)) {
+                        focusedField = nil
                         if !selectedInterests.insert(interest).inserted { selectedInterests.remove(interest) }
-                    } label: {
-                        Text("# \(interest)").font(.system(size: 11)).lineLimit(1)
-                            .foregroundStyle(selectedInterests.contains(interest) ? NanaPalette.electricLilac : NanaPalette.mutedWhite)
-                            .padding(.horizontal, 9).frame(maxWidth: .infinity, minHeight: 32)
-                            .overlay(Capsule().stroke(selectedInterests.contains(interest) ? NanaPalette.violet : NanaPalette.border))
-                            .frame(minHeight: 44)
-                    }.buttonStyle(.plain).accessibilityAddTraits(selectedInterests.contains(interest) ? .isSelected : [])
+                    }
                 }
             }
         }
+    }
+
+    private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 48)
+                .background {
+                    Image("NanaCheckInGuideButton").resizable().saturation(selected ? 1 : 0)
+                        .opacity(selected ? 1 : 0.28).accessibilityHidden(true)
+                }
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var signatureField: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("About you", detail: "A short introduction, in your own words.")
+            TextField("About you", text: $introduction, prompt: Text("What would you like people to know?").foregroundColor(.white.opacity(0.55)), axis: .vertical)
+                .font(.body).foregroundStyle(.white).lineLimit(3...5)
+                .focused($focusedField, equals: .signature).textInputAutocapitalization(.sentences)
+                .onChange(of: introduction) { _, value in
+                    if value.count > 160 { introduction = String(value.prefix(160)) }
+                }
+                .accessibilityLabel("About you, up to 160 characters")
+            Text("\(introduction.count)/160").font(.caption.monospacedDigit()).foregroundStyle(NanaPalette.mutedWhite)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }.id(ProfileField.signature)
     }
 
     private func loadProfile() {
@@ -612,6 +661,99 @@ private struct NanaEditProfileView: View {
             guard editingAccountScope == sessionStore.activeProfile?.localAccountScope else { return }
             avatarData = jpeg; resetAvatar = false
         } catch { photoError = "Couldn't load this photo. Please try another one." }
+    }
+}
+
+private struct NanaProfileBirthdayPicker: View {
+    let onSelect: (Date) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var year: Int
+    @State private var month: Int
+    @State private var day: Int
+    private let calendar = Calendar(identifier: .gregorian)
+
+    init(initialDate: Date?, onSelect: @escaping (Date) -> Void) {
+        self.onSelect = onSelect
+        let calendar = Calendar(identifier: .gregorian)
+        let date = initialDate ?? calendar.date(byAdding: .year, value: -25, to: Date()) ?? Date()
+        _year = State(initialValue: calendar.component(.year, from: date))
+        _month = State(initialValue: calendar.component(.month, from: date))
+        _day = State(initialValue: calendar.component(.day, from: date))
+    }
+    private var currentYear: Int { calendar.component(.year, from: Date()) }
+    private var daysInMonth: Int {
+        guard let first = calendar.date(from: DateComponents(year: year, month: month, day: 1)) else { return 28 }
+        return calendar.range(of: .day, in: .month, for: first)?.count ?? 28
+    }
+    private var selectedDate: Date? {
+        guard (1...daysInMonth).contains(day) else { return nil }
+        return calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12))
+    }
+    private var isValidDate: Bool {
+        guard let date = selectedDate else { return false }
+        return calendar.startOfDay(for: date) <= calendar.startOfDay(for: Date())
+    }
+
+    var body: some View {
+        NanaProfilePage("Date of birth") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Choose your birthday").font(.title3.weight(.semibold))
+                    Text("Select a year, month and day. Your changes are applied when you tap Use this date.")
+                        .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                    NanaSettingsCard {
+                        Text(selectedDate?.formatted(date: .long, time: .omitted) ?? "Select a date")
+                            .font(.headline).frame(maxWidth: .infinity).multilineTextAlignment(.center)
+                        HStack(alignment: .top, spacing: 8) {
+                            dateColumn("Year", values: Array((min(year, currentYear - 120)...currentYear).reversed()), selection: $year)
+                            dateColumn("Month", values: Array(1...12), selection: $month)
+                            dateColumn("Day", values: Array(1...daysInMonth), selection: $day)
+                        }
+                    }
+                    if !isValidDate {
+                        Text("Your birthday cannot be in the future.").font(.footnote).foregroundStyle(NanaPalette.warning)
+                    }
+                }.padding(20).frame(maxWidth: 520).frame(maxWidth: .infinity)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                NanaSettingsImageButton(title: "Use this date", isEnabled: isValidDate) {
+                    if let date = selectedDate { onSelect(calendar.startOfDay(for: date)); dismiss() }
+                }
+                .padding(.horizontal, 20).padding(.vertical, 8).frame(maxWidth: 520).frame(maxWidth: .infinity)
+                .background(NanaPalette.deepSpace)
+            }
+        }
+        .onChange(of: year) { _, _ in day = min(day, daysInMonth) }
+        .onChange(of: month) { _, _ in day = min(day, daysInMonth) }
+    }
+
+    private func dateColumn(_ title: String, values: [Int], selection: Binding<Int>) -> some View {
+        VStack(spacing: 10) {
+            Text(title).font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+            ScrollViewReader { reader in
+                ScrollView(showsIndicators: true) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(values, id: \.self) { value in
+                            Button { selection.wrappedValue = value } label: {
+                                Text(String(value)).font(.body.monospacedDigit()).minimumScaleFactor(0.75).lineLimit(1)
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                                    .background {
+                                        if selection.wrappedValue == value {
+                                            Image("NanaCheckInGuideButton").resizable().accessibilityHidden(true)
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain).id(value)
+                            .accessibilityLabel("\(title), \(value)")
+                            .accessibilityAddTraits(selection.wrappedValue == value ? .isSelected : [])
+                        }
+                    }
+                }
+                .frame(height: 264)
+                .onAppear { reader.scrollTo(selection.wrappedValue, anchor: .center) }
+                .onChange(of: selection.wrappedValue) { _, value in reader.scrollTo(value, anchor: .center) }
+            }
+        }.frame(maxWidth: .infinity)
     }
 }
 
@@ -697,27 +839,6 @@ private struct NanaProfileActionSheet: View {
     }
 }
 
-private struct NanaProfileHelpSheet: View {
-    let title: String
-    let message: String
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(title).font(.system(size: 23, weight: .bold))
-            ScrollView {
-                Text(message).font(.system(size: 14)).lineSpacing(5)
-                    .foregroundStyle(NanaPalette.mutedWhite)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Button("Got it") { dismiss() }.buttonStyle(NanaPrimaryButtonStyle())
-        }
-        .padding(24).foregroundStyle(NanaPalette.warmWhite)
-        .presentationDetents([.height(330), .large])
-        .presentationDragIndicator(.visible).presentationCornerRadius(28)
-        .presentationBackground(NanaPalette.deepSpace)
-    }
-}
-
 private struct NanaRelationshipCard: View {
     let profile: NanaProfile
     var blocked = false
@@ -789,7 +910,14 @@ private struct NanaConnectionsView: View {
                             .padding(.top, 64)
                     }
                     ForEach(people) { person in
-                        NanaRelationshipCard(profile: person) { selectedPerson = person }
+                        VStack(alignment: .leading, spacing: 6) {
+                            NanaRelationshipCard(profile: person) { selectedPerson = person }
+                            if contentStore.isWelcomeFollower(person.id) {
+                                Text("Welcome interaction · simulated locally")
+                                    .font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
+                                    .padding(.horizontal, 12)
+                            }
+                        }
                     }
                 }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
             }
@@ -818,8 +946,11 @@ struct NanaWalletView: View {
             await contentStore.refresh(.wallet)
             coinStore.hydrateRemoteBalance(contentStore.payload.wallet.coinBalance)
         }
-        .sheet(isPresented: $showingHelp) {
-            NanaProfileHelpSheet(title: "Your Nana wallet", message: "Coins can be used for room gifts. Free gifts do not reduce your balance.\n\nRecharge purchases are confirmed through the App Store. The price shown by Apple at checkout applies. Coins are added after the purchase has been verified.")
+        .accessibilityHidden(showingHelp)
+        .overlay {
+            if showingHelp {
+                NanaAccountGuide(topic: .wallet) { showingHelp = false }
+            }
         }
         .overlay {
             if let notice = coinStore.notice { AccountConsentNotice(notice: notice) { coinStore.dismissNotice() } }
@@ -827,13 +958,12 @@ struct NanaWalletView: View {
     }
 
     private var balanceCard: some View {
-        Color.clear.aspectRatio(700.0 / 260.0, contentMode: .fit)
-            .background(Image("NanaWalletArtwork").resizable().scaledToFit())
+        Image("NanaWalletArtwork").resizable().scaledToFit()
             .overlay {
                 GeometryReader { geometry in
                     VStack(alignment: .leading, spacing: 4) {
                         Text("My balance").font(.system(size: 17, weight: .medium))
-                        Text(coinStore.balance.formatted())
+                        Text(contentStore.preference("hideCoinBalance", default: false) ? "••••" : coinStore.balance.formatted())
                             .font(.system(size: 14)).monospacedDigit()
                             .lineLimit(1).minimumScaleFactor(0.8)
                         Text("coins").font(.system(size: 11)).foregroundStyle(.white.opacity(0.8))
@@ -844,6 +974,9 @@ struct NanaWalletView: View {
                     .padding(.top, geometry.size.height * 0.17)
                 }
             }
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(contentStore.preference("hideCoinBalance", default: false) ? "Balance hidden" : "My balance, \(coinStore.balance) coins")
     }
 
     private var rechargeOptions: some View {
@@ -875,27 +1008,185 @@ struct NanaWalletView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(pack.coins.formatted()).font(.system(size: 18, weight: .medium))
                 Text("coins").font(.system(size: 11)).foregroundStyle(.white.opacity(0.38))
+                Text("Includes \(pack.bonusCoins.formatted()) bonus")
+                    .font(.system(size: 9)).foregroundStyle(NanaPalette.electricLilac)
             }
             Spacer(minLength: 8)
             Button { Task { await coinStore.purchase(pack: pack) } } label: {
-                Group {
-                    if coinStore.purchasingProductID == pack.productID { ProgressView().tint(.white) }
-                    else { Text(coinStore.products.first(where: { $0.id == pack.productID })?.displayPrice ?? pack.fallbackPrice) }
+                ZStack(alignment: .bottom) {
+                    if pack.id == NanaCoinStore.packs.first?.id {
+                        NanaAssetImage(assetKey: "nana.voice.voice_asset_073", contentMode: .fit)
+                            .frame(width: 88, height: 88 * 84 / 156)
+                    } else {
+                        // Use the supplied blank violet capsule body; clip only its lower pointer.
+                        NanaAssetImage(assetKey: "nana.voice.voice_asset_043", contentMode: .fit)
+                            .frame(width: 88, height: 88 * 56 / 142)
+                            .frame(height: 88 * 44 / 142, alignment: .top)
+                            .clipped()
+                    }
+                    Group {
+                        if coinStore.purchasingProductID == pack.productID { ProgressView().tint(.white) }
+                        else { Text(coinStore.products.first(where: { $0.id == pack.productID })?.displayPrice ?? pack.fallbackPrice) }
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .frame(width: 76, height: 27)
                 }
-                .font(.system(size: 13, weight: .medium))
-                .padding(.horizontal, 15).frame(minWidth: 74, minHeight: 30)
-                .background(
-                    pack.id == NanaCoinStore.packs.first?.id
-                        ? Color(red: 1, green: 0.39, blue: 0)
-                        : NanaPalette.violet,
-                    in: Capsule()
-                )
-                .frame(minHeight: 44)
+                .frame(width: 88, height: 48, alignment: .bottom)
+                .contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(coinStore.purchasingProductID != nil)
+                .overlay(alignment: .topTrailing) {
+                    bonusTag(percent: pack.bonusPercent)
+                        .offset(x: 10, y: -9)
+                        .allowsHitTesting(false)
+                }
+                .accessibilityLabel("Buy \(pack.coins.formatted()) coins, including \(pack.bonusCoins.formatted()) bonus coins, for \(coinStore.products.first(where: { $0.id == pack.productID })?.displayPrice ?? pack.fallbackPrice)")
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(minHeight: 72)
         .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 13))
+    }
+
+    private func bonusTag(percent: Int) -> some View {
+        // The original pack includes this unlettered tag; keep its shape, ring and highlights.
+        NanaAssetImage(assetKey: "nana.voice.voice_asset_069", contentMode: .fit)
+            .frame(width: 38, height: 38)
+            .overlay {
+                VStack(spacing: 0) {
+                    Text("+\(percent)%").font(.system(size: 6.5, weight: .bold))
+                    Text("EXTRA").font(.system(size: 5, weight: .bold))
+                }
+                .foregroundStyle(.white)
+                // Text sits inside the blank flower, clear of its attachment ring.
+                .offset(x: -2, y: 5)
+            }
+            .accessibilityLabel("\(percent) percent extra coins")
+    }
+}
+
+private enum NanaAccountGuideTopic: Equatable {
+    case checkIn
+    case wallet
+
+    var title: String { self == .checkIn ? "Daily check-in" : "Your Nana wallet" }
+    var subtitle: String { self == .checkIn ? "Small visits. Steady progress." : "A little gift. A brighter room." }
+    var artwork: String { self == .checkIn ? "NanaCheckInGuideCalendar" : "NanaWalletGuideIllustration" }
+    var footnote: String {
+        self == .checkIn
+            ? "Your check-in calendar is saved on this device for your account."
+            : "Wallet coins and daily check-in activity points are separate."
+    }
+}
+
+/// Original raster artwork provides all decorative surfaces; native text stays readable by VoiceOver.
+private struct NanaAccountGuide: View {
+    let topic: NanaAccountGuideTopic
+    let onDismiss: () -> Void
+    @AccessibilityFocusState private var titleFocused: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.64)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onDismiss)
+                    .accessibilityHidden(true)
+
+                VStack(spacing: 0) {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 14) {
+                            Image(topic.artwork)
+                                .resizable().scaledToFit()
+                                .frame(height: 100)
+                                .accessibilityHidden(true)
+
+                            VStack(spacing: 6) {
+                                Text(topic.title)
+                                    .font(.title2.weight(.bold))
+                                    .accessibilityAddTraits(.isHeader)
+                                    .accessibilityFocused($titleFocused)
+                                Text(topic.subtitle)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color(red: 0.78, green: 0.71, blue: 0.87))
+                            }
+                            .multilineTextAlignment(.center)
+
+                            if topic == .checkIn {
+                                HStack(spacing: 12) {
+                                    Text("+10")
+                                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                                        .foregroundStyle(Color(red: 1, green: 0.63, blue: 0.85))
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("ACTIVITY POINTS").font(.caption.weight(.semibold)).tracking(1)
+                                        Text("Free · Once a day").font(.footnote)
+                                            .foregroundStyle(Color(red: 0.78, green: 0.71, blue: 0.87))
+                                    }
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("10 activity points, free, once a day")
+                            }
+
+                            VStack(alignment: .leading, spacing: 18) {
+                                if topic == .checkIn {
+                                    rule("01", title: "Grow your level", message: "Every 200 points earns a level. Activity points are separate from wallet coins.")
+                                    rule("02", title: "A fresh start each day", message: "Return after midnight on your device. Missed days can’t be claimed later.")
+                                } else {
+                                    rule("01", title: "Send a little appreciation", message: "Use coins for room gifts. Free gifts never reduce your balance.")
+                                    rule("02", title: "The bonus is already included", message: "Pack totals include bonus coins. EXTRA is the bonus percentage of the base amount.")
+                                    rule("03", title: "Confirmed by the App Store", message: "Apple’s checkout price applies. Coins are added after payment is verified; pending purchases wait for approval.")
+                                }
+                            }
+
+                            Text(topic.footnote)
+                                .font(.caption).lineSpacing(3)
+                                .foregroundStyle(Color(red: 0.66, green: 0.60, blue: 0.74))
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 20).padding(.bottom, 12)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+
+                    Button(action: onDismiss) {
+                        Text("Got it")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 64)
+                            .background {
+                                Image("NanaCheckInGuideButton")
+                                    .resizable().accessibilityHidden(true)
+                            }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 16)
+                }
+                .padding(.horizontal, 26)
+                .frame(width: min(390, max(0, geometry.size.width - 32)), height: min(650, max(0, geometry.size.height - 24)))
+                .background {
+                    Image("NanaCheckInGuideSurface")
+                        .resizable().accessibilityHidden(true)
+                }
+                .foregroundStyle(.white)
+                .accessibilityAction(.escape, onDismiss)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .onAppear { titleFocused = true }
+    }
+
+    private func rule(_ number: String, title: String, message: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(number).font(.caption.weight(.bold)).monospacedDigit()
+                .foregroundStyle(Color(red: 0.87, green: 0.61, blue: 1))
+                .padding(.top, 3).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(message).font(.footnote).lineSpacing(3)
+                    .foregroundStyle(Color(red: 0.78, green: 0.71, blue: 0.87))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -944,8 +1235,11 @@ private struct NanaCheckInView: View {
                 .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
             }
         }
-        .sheet(isPresented: $showingHelp) {
-            NanaProfileHelpSheet(title: "Daily check-in", message: "Check in once each day to collect 10 activity points. Your marked days are saved on this device for your account.\n\nCheck-in is free. Past dates can be viewed in the calendar; they cannot be checked in retroactively.")
+        .accessibilityHidden(showingHelp)
+        .overlay {
+            if showingHelp {
+                NanaAccountGuide(topic: .checkIn) { showingHelp = false }
+            }
         }
     }
 
@@ -961,13 +1255,13 @@ private struct NanaCheckInView: View {
                 }.font(.system(size: 11))
                 activityProgress
                 Button { contentStore.performCheckIn() } label: {
-                    Label(contentStore.checkedInToday ? "Checked in" : "Check-in", systemImage: "calendar.badge.checkmark")
-                        .font(.system(size: 10, weight: .medium))
-                        .padding(.horizontal, 14).frame(height: 29)
-                        .background(NanaPalette.violet, in: Capsule())
-                        .frame(minHeight: 44)
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_146", contentMode: .fit)
+                        .frame(width: 102, height: 29).frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                     .buttonStyle(.plain).disabled(contentStore.checkedInToday)
+                    .opacity(contentStore.checkedInToday ? 0.55 : 1)
+                    .accessibilityLabel(contentStore.checkedInToday ? "Checked in today" : "Check in")
             }
             .frame(width: width * 0.40, alignment: .leading)
             .padding(.leading, width * 0.075)
@@ -995,9 +1289,9 @@ private struct NanaCheckInView: View {
         let dayHeight = max(24, (height - 180) / CGFloat(rowCount))
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
-                monthButton("chevron.left.circle.fill", label: "Previous month", offset: -1)
+                monthButton("nana.voice.voice_asset_030", label: "Previous month", offset: -1)
                 Text(monthTitle).font(.system(size: 15)).monospacedDigit()
-                monthButton("chevron.right.circle.fill", label: "Next month", offset: 1)
+                monthButton("nana.voice.voice_asset_032", label: "Next month", offset: 1)
             }.frame(maxWidth: .infinity)
             LazyVGrid(columns: columns, spacing: 0) {
                 ForEach(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], id: \.self) { day in
@@ -1009,16 +1303,12 @@ private struct NanaCheckInView: View {
             }
             Spacer(minLength: 12)
             Button { contentStore.performCheckIn() } label: {
-                ZStack {
-                    Text(contentStore.checkedInToday ? "Checked in" : "Clock in")
-                        .font(.system(size: 14, weight: .semibold))
-                    HStack {
-                        Spacer()
-                        Text("+10 pts").font(.system(size: 10))
-                    }.padding(.horizontal, 14)
-                }
-                .frame(maxWidth: .infinity).frame(height: 52)
-                .background(NanaPalette.violet, in: Capsule())
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_128", contentMode: .fit)
+                    .overlay(alignment: .trailing) {
+                        Text("+10 pts").font(.system(size: 10)).padding(.trailing, 14)
+                    }
+                    .frame(maxWidth: .infinity).frame(height: 52)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain).disabled(contentStore.checkedInToday)
             .opacity(contentStore.checkedInToday ? 0.6 : 1)
@@ -1029,11 +1319,12 @@ private struct NanaCheckInView: View {
         .frame(height: height)
     }
 
-    private func monthButton(_ symbol: String, label: String, offset: Int) -> some View {
+    private func monthButton(_ assetKey: String, label: String, offset: Int) -> some View {
         Button { monthOffset += offset } label: {
-            Image(systemName: symbol).font(.system(size: 12))
-                .foregroundStyle(offset < 0 ? NanaPalette.violet : .white.opacity(0.6))
+            NanaAssetImage(assetKey: assetKey, contentMode: .fit)
+                .frame(width: 12, height: 12)
                 .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 
@@ -1043,7 +1334,8 @@ private struct NanaCheckInView: View {
         return ZStack {
             RoundedRectangle(cornerRadius: 4).fill(Color(red: 0.19, green: 0.20, blue: 0.21))
             if checked {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(NanaPalette.violet)
+                NanaAssetImage(assetKey: "nana.voice.voice_asset_149", contentMode: .fit)
+                    .frame(width: 17, height: 17)
             } else {
                 Text("\(calendar.component(.day, from: date))")
                     .font(.system(size: 12))
@@ -1055,17 +1347,15 @@ private struct NanaCheckInView: View {
 
     private var rewardSummary: some View {
         HStack(spacing: 10) {
-            Image(systemName: "calendar.badge.checkmark")
-                .font(.system(size: 25)).foregroundStyle(Color.cyan.opacity(0.85))
-                .frame(width: 34)
+            NanaAssetImage(assetKey: "nana.voice.voice_asset_018", contentMode: .fit)
+                .frame(width: 34, height: 38)
                 .accessibilityHidden(true)
             Text("A little progress, every day")
                 .font(.system(size: 12)).foregroundStyle(Color(red: 0.35, green: 0.77, blue: 0.92))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
             Text("Free").font(.system(size: 12, weight: .medium))
-                .padding(.horizontal, 17).padding(.vertical, 8)
-                .background(Color(red: 0.28, green: 0.72, blue: 0.91), in: Capsule())
+                .foregroundStyle(Color(red: 0.35, green: 0.77, blue: 0.92))
         }
         .padding(12)
         .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 12))
@@ -1084,9 +1374,28 @@ private struct NanaCollectionView: View {
     var body: some View {
         NanaProfilePage(title) {
             ScrollView(showsIndicators: false) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 24) {
-                    ForEach(NanaGift.roomCatalog) { gift in giftTile(gift) }
-                }.padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 24)
+                VStack(spacing: 28) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 22) {
+                        ForEach(NanaGift.roomCatalog) { gift in giftTile(gift) }
+                    }
+                    if isStore {
+                        // The reference repeats the same eight gifts as standalone artwork below the priced tiles.
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 44) {
+                            ForEach(NanaGift.roomCatalog) { gift in
+                                Button { selectedGiftID = gift.id } label: {
+                                    NanaAssetImage(assetKey: gift.assetKey ?? "nana.voice.voice_asset_077", contentMode: .fit)
+                                        .frame(height: 72).padding(.horizontal, 7)
+                                        .frame(maxWidth: .infinity)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Select \(gift.title)")
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 24)
+                .frame(maxWidth: 390).frame(maxWidth: .infinity)
                 if !isStore {
                     Text("Free gifts are ready to use in rooms.")
                         .font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite).padding(20)
@@ -1094,15 +1403,31 @@ private struct NanaCollectionView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { if isStore { purchaseBar } }
+        .overlay {
+            if let notice = coinStore.notice {
+                AccountConsentNotice(notice: notice) { coinStore.dismissNotice() }
+            }
+        }
     }
 
     private func giftTile(_ gift: NanaGift) -> some View {
         Button { selectedGiftID = gift.id } label: {
             VStack(spacing: 10) {
                 Color.clear.aspectRatio(1, contentMode: .fit)
-                    .overlay { NanaAssetImage(assetKey: gift.assetKey ?? "nana.voice.voice_asset_077", contentMode: .fit).padding(10) }
-                    .background(selectedGiftID == gift.id ? NanaPalette.violet.opacity(0.32) : .white.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
-                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(selectedGiftID == gift.id ? NanaPalette.violet : .clear, lineWidth: 1.5))
+                    .overlay {
+                        ZStack {
+                            if selectedGiftID == gift.id {
+                                NanaAssetImage(assetKey: "nana.voice.voice_asset_131", contentMode: .fit)
+                                NanaAssetImage(assetKey: gift.assetKey ?? "nana.voice.voice_asset_077", contentMode: .fit).padding(11)
+                            } else if gift.id == "gift-music-note" {
+                                NanaAssetImage(assetKey: "nana.voice.voice_asset_131", contentMode: .fit)
+                                    .saturation(0).opacity(0.24)
+                                NanaAssetImage(assetKey: "nana.voice.voice_asset_077", contentMode: .fit).padding(11)
+                            } else {
+                                NanaAssetImage(assetKey: giftTileAsset(gift), contentMode: .fit)
+                            }
+                        }
+                    }
                 HStack(spacing: 3) {
                     if isStore && gift.coinCost > 0 {
                         NanaAssetImage(assetKey: "nana.voice.voice_asset_110", contentMode: .fit).frame(width: 12, height: 12)
@@ -1114,34 +1439,63 @@ private struct NanaCollectionView: View {
         }.buttonStyle(.plain).accessibilityLabel("\(gift.title), \(gift.coinCost == 0 ? "Free" : "\(gift.coinCost) coins")")
     }
 
+    private func giftTileAsset(_ gift: NanaGift) -> String {
+        switch gift.id {
+        case "gift-gamepad": return "nana.voice.voice_asset_123"
+        case "gift-karaoke": return "nana.voice.voice_asset_144"
+        case "gift-drum": return "nana.voice.voice_asset_148"
+        case "gift-headphones": return "nana.voice.voice_asset_121"
+        case "gift-microphone": return "nana.voice.voice_asset_120"
+        case "gift-record": return "nana.voice.voice_asset_112"
+        case "gift-keyboard": return "nana.voice.voice_asset_082"
+        default: return "nana.voice.voice_asset_130"
+        }
+    }
+
     private var purchaseBar: some View {
-        HStack(spacing: 8) {
-            NanaAssetImage(assetKey: "nana.voice.voice_asset_110", contentMode: .fit).frame(width: 38, height: 38)
+        HStack(spacing: 6) {
+            NanaAssetImage(assetKey: "nana.voice.voice_asset_110", contentMode: .fit).frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 3) {
-                Text(coinStore.balance.formatted()).font(.system(size: 14, weight: .medium))
-                Text("Balance").font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
+                Text(contentStore.preference("hideCoinBalance", default: false) ? "••••" : coinStore.balance.formatted()).font(.system(size: 13, weight: .medium))
+                    .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
+                Text("Balance").font(.system(size: 9)).foregroundStyle(NanaPalette.mutedWhite)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(contentStore.preference("hideCoinBalance", default: false) ? "Balance hidden" : "Balance, \(coinStore.balance) coins")
             Spacer(minLength: 0)
             HStack(spacing: 0) {
-                Button { quantity = max(1, quantity - 1) } label: { Image(systemName: "minus.circle").frame(width: 36, height: 44) }
+                Button { quantity = max(1, quantity - 1) } label: {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_117", contentMode: .fit)
+                        .frame(width: 20, height: 20).frame(width: 44, height: 44).contentShape(Rectangle())
+                }
                     .disabled(quantity == 1).accessibilityLabel("Decrease quantity")
-                Text("\(quantity)").font(.system(size: 13)).monospacedDigit().frame(minWidth: 20)
-                Button { quantity = min(99, quantity + 1) } label: { Image(systemName: "plus.circle").frame(width: 36, height: 44) }
+                Text("\(quantity)").font(.system(size: 13)).monospacedDigit().frame(width: 18)
+                    .accessibilityLabel("Quantity, \(quantity)")
+                Button { quantity = min(99, quantity + 1) } label: {
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_116", contentMode: .fit)
+                        .frame(width: 20, height: 20).frame(width: 44, height: 44).contentShape(Rectangle())
+                }
                     .disabled(quantity == 99).accessibilityLabel("Increase quantity")
                 Button { contentStore.explainUnavailable("Buying items") } label: {
-                    Text("Buy").font(.system(size: 13, weight: .medium)).padding(.horizontal, 14)
-                        .frame(height: 32).background(NanaPalette.violet, in: Capsule())
-                }.frame(minHeight: 44)
+                    NanaAssetImage(assetKey: "nana.voice.voice_asset_169", contentMode: .fit)
+                        .frame(width: 56, height: 29).frame(height: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Buy \(selectedGift.title), quantity \(quantity), \(selectedGift.coinCost * quantity) coins")
             }
-            .buttonStyle(.plain).padding(.horizontal, 5).background(.black, in: Capsule())
+            .buttonStyle(.plain).padding(.trailing, 4).fixedSize(horizontal: true, vertical: false)
         }
         .foregroundStyle(NanaPalette.warmWhite)
-        .padding(12).background(Color(white: 0.18), in: Capsule())
+        .padding(.horizontal, 14).frame(height: 76)
+        .background {
+            // Crop transparent export margins in the view; preserve the original raster surface.
+            Image("NanaStoreCheckoutSurface").resizable()
+                .frame(height: 152).frame(height: 76).clipped().accessibilityHidden(true)
+        }
         .overlay(alignment: .top) {
             Text(selectedGift.coinCost == 0 ? "Free gift" : "Total: \(selectedGift.coinCost * quantity) coins")
                 .font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite).offset(y: -22)
         }
-        .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 12).background(.black.opacity(0.9))
+        .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 8)
     }
 }
 
@@ -1249,40 +1603,58 @@ private struct NanaSettingsGroup<Content: View>: View {
 }
 
 private enum NanaSettingsAction: String, Identifiable {
-    case cache, logout, switchAccount, deleteAccount
+    case logout, deleteAccount
     var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .cache: return "Clear cache?"
-        case .logout: return "Log out?"
-        case .switchAccount: return "Switch accounts?"
-        case .deleteAccount: return "Delete account"
-        }
-    }
+    var title: String { self == .deleteAccount ? "Delete local account?" : "Log out?" }
     var detail: String {
-        switch self {
-        case .cache: return "Remove downloaded content caches. Your photos, coins and saved preferences will be kept."
-        case .logout, .switchAccount: return "You will return to sign-in. Your saved profile and photos stay with this account."
-        case .deleteAccount: return "Account deletion is not available yet. No account data will be removed."
-        }
+        self == .deleteAccount
+            ? "Permanently remove this device’s account profile, photos, drafts, check-ins, blocks and coin balance. This cannot be undone. Other saved accounts are kept. This does not delete remote service data or revoke Sign in with Apple. It does not refund purchases; Apple purchase history stays with Apple."
+            : "You will return to the login screen. Your saved profile, photos and coin balance stay with this account."
     }
-    var actionTitle: String {
-        switch self {
-        case .cache: return "Clear cache"
-        case .logout: return "Confirm exit"
-        case .switchAccount: return "Switch accounts"
-        case .deleteAccount: return "Got it"
+    var actionTitle: String { self == .deleteAccount ? "Delete local account" : "Log out" }
+}
+
+private struct NanaAccountExitConfirmation: View {
+    let action: NanaSettingsAction
+    let cancel: () -> Void
+    let confirm: () -> Void
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.68).ignoresSafeArea().onTapGesture(perform: cancel)
+                VStack(spacing: 16) {
+                    Image("NanaSettingsSecurity").resizable().scaledToFit().frame(height: 74).accessibilityHidden(true)
+                    Text(action.title).font(.title3.weight(.semibold)).multilineTextAlignment(.center)
+                    ScrollView {
+                        Text(action.detail).font(.subheadline).foregroundStyle(NanaPalette.mutedWhite)
+                            .lineSpacing(4).fixedSize(horizontal: false, vertical: true)
+                    }
+                    NanaSettingsImageButton(title: action.actionTitle, action: confirm)
+                    Button("Cancel", action: cancel).font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NanaPalette.electricLilac).frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .padding(24).frame(maxWidth: 350).frame(height: min(action == .deleteAccount ? 560 : 390, max(300, geometry.size.height - 36)))
+                .background { Image("NanaSettingsCardSurface").resizable(capInsets: EdgeInsets(top: 54, leading: 54, bottom: 54, trailing: 54)) }
+                .padding(.horizontal, 20)
+                .foregroundStyle(.white)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .accessibilityAction(.escape) { cancel() }
     }
 }
 
 struct NanaSettingsView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @EnvironmentObject private var sessionStore: NanaSessionStore
+    @EnvironmentObject private var coinStore: NanaCoinStore
     @State private var showingPrivacy = false
     @State private var showingNotice = false
     @State private var showingAbout = false
     @State private var showingSecurity = false
+    @State private var showingAccounts = false
+    @State private var showingStorage = false
+    @State private var showingBlacklist = false
+    @State private var showingCommunity = false
     @State private var selectedPolicy: AccountPolicyDocument?
     @State private var action: NanaSettingsAction?
 
@@ -1293,19 +1665,23 @@ struct NanaSettingsView: View {
                     NanaSettingsGroup {
                         NanaSettingsRow(title: "Account security") { showingSecurity = true }
                         Divider().overlay(.white.opacity(0.06))
-                        NanaSettingsRow(title: "Add account") { action = .switchAccount }
+                        NanaSettingsRow(title: "Accounts") { showingAccounts = true }
                     }
                     NanaSettingsGroup {
                         NanaSettingsRow(title: "Privacy Settings") { showingPrivacy = true }
                         Divider().overlay(.white.opacity(0.06))
-                        NanaSettingsRow(title: "Notice") { showingNotice = true }
+                        NanaSettingsRow(title: "Blocked accounts") { showingBlacklist = true }
                         Divider().overlay(.white.opacity(0.06))
-                        NanaSettingsRow(title: "Clear cache") { action = .cache }
+                        NanaSettingsRow(title: "Notifications") { showingNotice = true }
+                        Divider().overlay(.white.opacity(0.06))
+                        NanaSettingsRow(title: "Storage & cache") { showingStorage = true }
                     }
                     NanaSettingsGroup {
                         NanaSettingsRow(title: "User Agreement") { selectedPolicy = .userAgreement }
                         Divider().overlay(.white.opacity(0.06))
                         NanaSettingsRow(title: "Privacy Policy") { selectedPolicy = .privacyPolicy }
+                        Divider().overlay(.white.opacity(0.06))
+                        NanaSettingsRow(title: "Community Guidelines") { showingCommunity = true }
                         Divider().overlay(.white.opacity(0.06))
                         NanaSettingsRow(title: "About Us") { showingAbout = true }
                     }
@@ -1321,93 +1697,270 @@ struct NanaSettingsView: View {
         .fullScreenCover(isPresented: $showingNotice) { NanaNoticeSettingsView() }
         .fullScreenCover(isPresented: $showingAbout) { NanaAboutView() }
         .fullScreenCover(isPresented: $showingSecurity) { NanaAccountSecurityView() }
+        .fullScreenCover(isPresented: $showingAccounts) { NanaAccountsView() }
+        .fullScreenCover(isPresented: $showingStorage) { NanaStorageSettingsView() }
+        .fullScreenCover(isPresented: $showingBlacklist) { NanaBlacklistView() }
+        .fullScreenCover(isPresented: $showingCommunity) { NanaCommunityGuidelinesView() }
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
-        .sheet(item: $action) { selected in
-            NanaProfileActionSheet(title: selected.title, detail: selected.detail, actionTitle: selected.actionTitle,
-                                   destructive: selected != .deleteAccount) {
-                switch selected {
-                case .cache: contentStore.clearCache()
-                case .logout, .switchAccount: sessionStore.signOut()
-                case .deleteAccount: break
+        .accessibilityHidden(action != nil || sessionStore.accountExitProgress != nil)
+        .overlay {
+            if let selected = action {
+                NanaAccountExitConfirmation(action: selected, cancel: { action = nil }) {
+                    action = nil
+                    Task { await sessionStore.exitAccount(deleting: selected == .deleteAccount, contentStore: contentStore, coinStore: coinStore) }
                 }
             }
         }
         .overlay {
             if let notice = sessionStore.sessionNotice { AccountConsentNotice(notice: notice) { sessionStore.sessionNotice = nil } }
         }
+        .overlay { if let progress = sessionStore.accountExitProgress { NanaAccountExitOverlay(progress: progress) } }
+    }
+}
+
+private struct NanaSettingsDetailPage<Content: View>: View {
+    let title: String
+    let artwork: String
+    let headline: String
+    let detail: String
+    let content: Content
+
+    init(title: String, artwork: String, headline: String, detail: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.artwork = artwork
+        self.headline = headline
+        self.detail = detail
+        self.content = content()
+    }
+
+    var body: some View {
+        NanaProfilePage(title) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
+                        Image(artwork).resizable().scaledToFit().frame(width: 110, height: 104)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(headline).font(.title3.weight(.semibold))
+                            Text(detail).font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }.padding(.vertical, 8)
+                    content
+                }.padding(.horizontal, 20).padding(.bottom, 28)
+                    .frame(maxWidth: 500).frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private struct NanaSettingsCard<Content: View>: View {
+    let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) { content }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(20)
+            .background {
+                Image("NanaSettingsCardSurface")
+                    .resizable(capInsets: EdgeInsets(top: 54, leading: 54, bottom: 54, trailing: 54))
+                    .accessibilityHidden(true)
+            }
+    }
+}
+
+private struct NanaSettingsImageButton: View {
+    let title: String
+    var isEnabled = true
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 58)
+                .background { Image("NanaCheckInGuideButton").resizable().accessibilityHidden(true) }
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(!isEnabled).opacity(isEnabled ? 1 : 0.45)
     }
 }
 
 private struct NanaPreferenceRow: View {
     let title: String
+    let detail: String
     let key: String
+    var defaultValue = false
     @EnvironmentObject private var contentStore: NanaContentStore
     var body: some View {
-        HStack(spacing: 12) {
-            Text(title).font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 0) {
-                choice("YES", value: true)
-                choice("NO", value: false)
+        NanaSettingsCard {
+            Text(title).font(.subheadline.weight(.semibold))
+            Text(detail).font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                choice("On", value: true)
+                choice("Off", value: false)
             }
-            .padding(3).background(.black.opacity(0.32), in: Capsule())
-        }.frame(minHeight: 52)
+        }
     }
-    private func choice(_ title: String, value: Bool) -> some View {
-        let selected = contentStore.preference(key) == value
+    private func choice(_ label: String, value: Bool) -> some View {
+        let selected = contentStore.preference(key, default: defaultValue) == value
         return Button { contentStore.setPreference(key, value: value) } label: {
-            Text(title).font(.system(size: 10, weight: .medium))
-                .foregroundStyle(selected ? .white : NanaPalette.mutedWhite)
-                .frame(width: 44, height: 24)
-                .background(selected ? NanaPalette.violet : .clear, in: Capsule())
-                .frame(minHeight: 44)
+            Text(label).font(.subheadline.weight(selected ? .semibold : .regular))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background {
+                    Image("NanaCheckInGuideButton").resizable()
+                        .saturation(selected ? 1 : 0).opacity(selected ? 1 : 0.25)
+                }
+                .contentShape(Rectangle())
         }.buttonStyle(.plain)
-            .accessibilityLabel("\(self.title): \(title)")
+            .accessibilityLabel("\(title): \(label)")
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
 private struct NanaPrivacySettingsView: View {
-    @State private var selectedPolicy: AccountPolicyDocument?
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var showingBlacklist = false
     var body: some View {
-        NanaProfilePage("Privacy Settings") {
-            ScrollView {
-                VStack(spacing: 14) {
-                    NanaSettingsGroup {
-                        NanaPreferenceRow(title: "Private information", key: "privateInformation")
-                        NanaPreferenceRow(title: "Display status", key: "displayStatus")
-                        NanaPreferenceRow(title: "Allow messages", key: "allowMessages")
-                        NanaPreferenceRow(title: "Allow video calls", key: "allowVideoCalls")
-                    }
-                    NanaSettingsGroup {
-                        NanaSettingsRow(title: "User Agreement") { selectedPolicy = .userAgreement }
-                        Divider().overlay(.white.opacity(0.06))
-                        NanaSettingsRow(title: "Privacy Policy") { selectedPolicy = .privacyPolicy }
-                    }
-                }.padding(20)
+        NanaSettingsDetailPage(title: "Privacy", artwork: "NanaSettingsPrivacy", headline: "Your space, your choice", detail: "Control what appears on this device.") {
+            NanaPreferenceRow(title: "Hide coin balance", detail: "Mask your balance in My Profile, Wallet, Store and the room gift picker.", key: "hideCoinBalance")
+            NanaPreferenceRow(title: "Keep email concealed", detail: "Open Account security with your email hidden. You can reveal it when needed.", key: "concealAccountEmail", defaultValue: true)
+            NanaPreferenceRow(title: "Pause room carousel", detail: "Browse featured rooms at your own pace. Swipe to move between rooms.", key: "pauseRoomCarousel")
+            NanaSettingsCard {
+                Text("People you’ve blocked").font(.subheadline.weight(.semibold))
+                Text("Review blocked accounts or let someone appear again.").font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                NanaSettingsImageButton(title: "Manage blocked accounts") { showingBlacklist = true }
+                Button("Photo and device permissions") { nanaOpenDeviceSettings() }
+                    .font(.footnote).foregroundStyle(NanaPalette.electricLilac).frame(minHeight: 44)
             }
         }
-        .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
+        .fullScreenCover(isPresented: $showingBlacklist) { NanaBlacklistView() }
+        .overlay {
+            if let notice = contentStore.actionNotice {
+                AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
+            }
+        }
+    }
+}
+
+@MainActor
+private func nanaOpenDeviceSettings() {
+    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+    UIApplication.shared.open(url)
+}
+
+/// One device-local reminder, resynchronized when the signed-in account changes.
+@MainActor
+enum NanaCheckInReminder {
+    enum ReminderError: Error { case permissionRequired }
+    static let identifier = "nana.daily-check-in"
+    static func configure(enabled: Bool) async throws {
+        let center = UNUserNotificationCenter.current()
+        guard enabled else {
+            center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            center.removeDeliveredNotifications(withIdentifiers: [identifier])
+            return
+        }
+        let settings = await center.notificationSettings()
+        try Task.checkCancellation()
+        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { throw ReminderError.permissionRequired }
+        let content = UNMutableNotificationContent()
+        content.title = "A little time for you"
+        content.body = "Open Nana to check your daily calendar."
+        content.sound = .default
+        let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: 20, minute: 0), repeats: true)
+        try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
     }
 }
 
 private struct NanaNoticeSettingsView: View {
-    var body: some View {
-        NanaProfilePage("Notice") {
-            ScrollView {
-                NanaSettingsGroup {
-                    NanaPreferenceRow(title: "Allow notifications", key: "allowNotifications")
-                    NanaPreferenceRow(title: "Like and follow", key: "likeAndFollow")
-                    NanaPreferenceRow(title: "Live broadcast reminder", key: "liveReminder")
-                    NanaPreferenceRow(title: "Video call reminder", key: "videoReminder")
-                }.padding(20)
-            }
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @EnvironmentObject private var sessionStore: NanaSessionStore
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var authorization: UNAuthorizationStatus = .notDetermined
+    @State private var isWorking = false
+    @State private var feedback: String?
+    @State private var hasScheduledReminder = false
+    private var allowed: Bool { authorization == .authorized || authorization == .provisional }
+    private var reminderEnabled: Bool { contentStore.preference("dailyCheckInReminder", default: false) }
+    private var status: String {
+        switch authorization {
+        case .authorized: return "Notifications allowed"
+        case .provisional: return "Quiet notifications allowed"
+        case .denied: return "Notifications are off in iOS"
+        case .notDetermined: return "Permission not requested"
+        case .ephemeral: return "Temporary permission"
+        @unknown default: return "Check iOS notification settings"
         }
+    }
+    var body: some View {
+        NanaSettingsDetailPage(title: "Notifications", artwork: "NanaSettingsNotifications", headline: "Only the reminders you want", detail: "iOS permission and your daily reminder, in one place.") {
+            NanaSettingsCard {
+                Text("SYSTEM PERMISSION").font(.caption.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+                Text(status).font(.headline)
+                Text("Manage lock-screen previews, sounds and banners in iOS.").font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                NanaSettingsImageButton(title: authorization == .notDetermined ? "Enable notifications" : "Open iOS settings", isEnabled: !isWorking) {
+                    if authorization == .notDetermined { Task { await requestPermission() } }
+                    else { nanaOpenDeviceSettings() }
+                }
+            }
+            NanaSettingsCard {
+                Text("Daily check-in reminder").font(.headline)
+                Text("One gentle reminder at 8:00 PM, using your device’s local time. No account details appear in the notification.")
+                    .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                Text(reminderEnabled ? (allowed && hasScheduledReminder ? "Scheduled for 8:00 PM" : "Paused — check notification permission") : "Reminder is off")
+                    .font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+                NanaSettingsImageButton(title: reminderEnabled ? "Turn reminder off" : "Turn reminder on", isEnabled: !isWorking && (allowed || reminderEnabled)) {
+                    Task { await changeReminder() }
+                }
+            }
+            if let feedback { Text(feedback).font(.footnote).foregroundStyle(NanaPalette.electricLilac).accessibilityAddTraits(.updatesFrequently) }
+        }
+        .task { await refreshPermission() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await refreshPermission() } } }
+    }
+    private func refreshPermission() async {
+        let scope = sessionStore.activeProfile?.localAccountScope
+        authorization = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        guard scope == sessionStore.activeProfile?.localAccountScope, scope != nil else { return }
+        if allowed && reminderEnabled {
+            do { try await NanaCheckInReminder.configure(enabled: true) }
+            catch { feedback = "Couldn’t restore the reminder. Try turning it off and on again." }
+        }
+        let requests = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        hasScheduledReminder = requests.contains { $0.identifier == NanaCheckInReminder.identifier }
+    }
+    private func requestPermission() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            await refreshPermission()
+        } catch { feedback = "Couldn’t request permission. Try again or open iOS settings." }
+    }
+    private func changeReminder() async {
+        let scope = sessionStore.activeProfile?.localAccountScope
+        let enabled = !reminderEnabled
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await NanaCheckInReminder.configure(enabled: enabled)
+            guard scope == sessionStore.activeProfile?.localAccountScope, scope != nil else {
+                try? await NanaCheckInReminder.configure(enabled: false)
+                return
+            }
+            if contentStore.setPreference("dailyCheckInReminder", value: enabled) {
+                feedback = enabled ? "Reminder set for 8:00 PM." : "Daily reminder turned off."
+                await refreshPermission()
+            } else {
+                try? await NanaCheckInReminder.configure(enabled: !enabled)
+                feedback = "Couldn’t save this change. Please try again."
+            }
+        } catch { feedback = "Couldn’t update the reminder. Please try again." }
     }
 }
 
 private struct NanaAboutView: View {
     @State private var selectedPolicy: AccountPolicyDocument?
-    @State private var showingHelp = false
+    @State private var showingCommunity = false
     var body: some View {
         NanaProfilePage("About Us") {
             ScrollView {
@@ -1422,76 +1975,252 @@ private struct NanaAboutView: View {
                         Divider().overlay(.white.opacity(0.06))
                         NanaSettingsRow(title: "Privacy Policy") { selectedPolicy = .privacyPolicy }
                         Divider().overlay(.white.opacity(0.06))
-                        NanaSettingsRow(title: "Help Center") { showingHelp = true }
+                        NanaSettingsRow(title: "Community Guidelines") { showingCommunity = true }
                     }
                 }.padding(20)
             }
         }
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
-        .fullScreenCover(isPresented: $showingHelp) { NanaHelpCenterView() }
-    }
-}
-
-private struct NanaHelpCenterView: View {
-    var body: some View {
-        NanaProfilePage("Help Center") {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    answer("How do I change my photo?", "Open My Profile, tap your avatar, choose a photo and save your profile.")
-                    answer("How do I manage unwanted content?", "Use Report or Block from a room, post, conversation or profile. You can manage blocked profiles from My Profile → Blacklist.")
-                    answer("Where are my photos?", "Your personal album keeps photos on this device for your account. Open the album from Messages.")
-                    answer("How does check-in work?", "Check in once per day to receive 10 activity points. Your history appears in the check-in calendar.")
-                }.padding(20)
-            }
-        }
-    }
-    private func answer(_ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 16, weight: .semibold))
-            Text(detail).font(.system(size: 14)).foregroundStyle(NanaPalette.mutedWhite).lineSpacing(4)
-        }
+        .fullScreenCover(isPresented: $showingCommunity) { NanaCommunityGuidelinesView() }
     }
 }
 
 private struct NanaAccountSecurityView: View {
     @EnvironmentObject private var sessionStore: NanaSessionStore
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var emailRevealed = false
+    @State private var showingEdit = false
+    @State private var checkingCredential = false
+    @State private var feedback: String?
+    private var email: String { sessionStore.activeProfile?.emailAddress ?? "" }
+    private var concealedEmail: String {
+        guard let separator = email.firstIndex(of: "@") else { return "Not shared" }
+        return String(email.prefix(1)) + "•••" + String(email[separator...])
+    }
     var body: some View {
-        NanaProfilePage("Account security") {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    NanaSettingsGroup {
-                        HStack {
-                            Text("Sign-in method").font(.system(size: 14))
-                            Spacer()
-                            Text(sessionStore.activeProfile?.signInMethod == "apple" ? "Apple" : "Email")
-                                .font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
-                        }.frame(minHeight: 52)
+        NanaSettingsDetailPage(title: "Account security", artwork: "NanaSettingsSecurity", headline: "Know your account", detail: "Review your identity and keep your details close.") {
+            NanaSettingsCard {
+                Text(sessionStore.activeProfile?.displayName ?? "Your account").font(.headline)
+                Text(sessionStore.activeProfile?.signInMethod == "apple" ? "Sign in with Apple" : "Email profile")
+                    .font(.footnote).foregroundStyle(NanaPalette.electricLilac)
+                Text(email.isEmpty ? "Email not shared" : emailRevealed ? email : concealedEmail)
+                    .font(.subheadline).textSelection(.enabled).lineLimit(2)
+                if !email.isEmpty {
+                    HStack(spacing: 16) {
+                        Button(emailRevealed ? "Hide email" : "Show email") { emailRevealed.toggle() }
+                        Button("Copy email") {
+                            UIPasteboard.general.setItems([["public.utf8-plain-text": email]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                            feedback = "Email copied. The clipboard entry expires in two minutes."
+                        }
+                    }.font(.footnote.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac).frame(minHeight: 44)
+                }
+                NanaSettingsImageButton(title: "Edit profile details") { showingEdit = true }
+            }
+            NanaSettingsCard {
+                Text("Sign-in protection").font(.headline)
+                if sessionStore.activeProfile?.signInMethod == "apple" {
+                    Text("Check whether Apple still authorizes this sign-in. Manage your Apple password and trusted devices in iOS Settings.")
+                        .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                    NanaSettingsImageButton(title: checkingCredential ? "Checking…" : "Check Apple access", isEnabled: !checkingCredential) {
+                        Task {
+                            checkingCredential = true
+                            let authorized = await sessionStore.validateAppleSession()
+                            checkingCredential = false
+                            if authorized {
+                                feedback = "Apple access checked just now."
+                            } else if sessionStore.activeProfile != nil {
+                                feedback = "The check did not complete. Please try again."
+                            }
+                        }
                     }
-                    Text("Keep your sign-in details private. Nana will never ask you to share a password or verification code in a room or chat.")
-                        .font(.system(size: 14)).foregroundStyle(NanaPalette.mutedWhite).lineSpacing(4)
-                }.padding(20)
+                } else {
+                    Text("This email identifies your profile on this device. It is not a verified mailbox. Password changes and remote session management require the account service.")
+                        .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                }
+            }
+            Text("Never share a password or verification code in a room or conversation.")
+                .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+            if let feedback { Text(feedback).font(.footnote).foregroundStyle(NanaPalette.electricLilac).accessibilityAddTraits(.updatesFrequently) }
+        }
+        .onAppear { emailRevealed = !contentStore.preference("concealAccountEmail", default: true) }
+        .fullScreenCover(isPresented: $showingEdit) { NanaEditProfileView() }
+        .overlay {
+            if let notice = sessionStore.sessionNotice { AccountConsentNotice(notice: notice) { sessionStore.sessionNotice = nil } }
+        }
+    }
+}
+
+private struct NanaAccountsView: View {
+    @EnvironmentObject private var sessionStore: NanaSessionStore
+    @State private var confirmingEntry = false
+    @State private var selectedEmail = ""
+    var body: some View {
+        NanaSettingsDetailPage(title: "Accounts", artwork: "NanaSettingsAccounts", headline: "Keep your accounts separate", detail: "Each account keeps its own profile, photos and coin balance.") {
+            ForEach(sessionStore.savedProfiles, id: \.localAccountScope) { profile in
+                NanaSettingsCard {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(profile.displayName).font(.headline)
+                            Text(profile.signInMethod == "apple" ? "Apple account" : "Email profile")
+                                .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                        }
+                        Spacer()
+                        if profile.localAccountScope == sessionStore.activeProfile?.localAccountScope {
+                            Text("Current").font(.caption.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+                        }
+                    }
+                    if profile.localAccountScope != sessionStore.activeProfile?.localAccountScope {
+                        NanaSettingsImageButton(title: "Continue to sign-in") {
+                            selectedEmail = profile.signInMethod == "apple" ? "" : profile.emailAddress
+                            confirmingEntry = true
+                        }
+                    }
+                }
+            }
+            if confirmingEntry {
+                NanaSettingsCard {
+                    Text("Leave this account?").font(.headline)
+                    Text("You’ll return to sign-in. Saved profiles remain on this device; choosing a profile does not sign you in automatically.")
+                        .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                    NanaSettingsImageButton(title: "Continue") { sessionStore.startAccountEntry(emailAddress: selectedEmail) }
+                    Button("Stay here") { confirmingEntry = false }.frame(maxWidth: .infinity, minHeight: 44)
+                        .font(.subheadline).foregroundStyle(NanaPalette.electricLilac)
+                }
+            } else {
+                NanaSettingsImageButton(title: "Add another account") { selectedEmail = ""; confirmingEntry = true }
             }
         }
+        .overlay {
+            if let notice = sessionStore.sessionNotice { AccountConsentNotice(notice: notice) { sessionStore.sessionNotice = nil } }
+        }
+    }
+}
+
+private struct NanaStorageSettingsView: View {
+    @EnvironmentObject private var contentStore: NanaContentStore
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var contentBytes: Int64 = 0
+    @State private var networkBytes: Int64 = 0
+    @State private var confirming = false
+    @State private var feedback: String?
+    private func size(_ count: Int64) -> String { ByteCountFormatter.string(fromByteCount: count, countStyle: .file) }
+    var body: some View {
+        NanaSettingsDetailPage(title: "Storage & cache", artwork: "NanaSettingsStorage", headline: "A little room to breathe", detail: "Remove temporary content without losing your account.") {
+            NanaSettingsCard {
+                Text("TEMPORARY DATA").font(.caption.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+                Text(size(contentBytes + networkBytes)).font(.largeTitle.weight(.semibold)).monospacedDigit()
+                HStack { Text("Downloaded content"); Spacer(); Text(size(contentBytes)).monospacedDigit() }.font(.footnote)
+                HStack { Text("Network cache"); Spacer(); Text(size(networkBytes)).monospacedDigit() }.font(.footnote)
+                Text("In-memory video previews are also cleared. These are not included in the size above.")
+                    .font(.caption).foregroundStyle(NanaPalette.mutedWhite)
+                Button("Refresh size") { refreshSize() }.font(.footnote.weight(.semibold))
+                    .foregroundStyle(NanaPalette.electricLilac).frame(minHeight: 44)
+            }
+            NanaSettingsCard {
+                Text("Your keepsakes stay").font(.headline)
+                Text("Uploaded photos, drafts, check-ins, blocked accounts, preferences and coins are kept. Content can download again when you browse.")
+                    .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+            }
+            if confirming {
+                NanaSettingsCard {
+                    Text("Clear temporary data now?").font(.headline)
+                    NanaSettingsImageButton(title: "Clear cache") {
+                        let succeeded = contentStore.clearCache(showNotice: false)
+                        confirming = false
+                        refreshSize()
+                        feedback = succeeded ? "Cache cleared. Your personal data is safe." : "Couldn’t clear the cache. Please try again."
+                    }
+                    Button("Cancel") { confirming = false }.frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(NanaPalette.electricLilac)
+                }
+            } else {
+                NanaSettingsImageButton(title: "Clear temporary data") { confirming = true }
+            }
+            if let feedback { Text(feedback).font(.footnote).foregroundStyle(NanaPalette.electricLilac).accessibilityAddTraits(.updatesFrequently) }
+        }
+        .onAppear { refreshSize() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { refreshSize() } }
+    }
+    private func refreshSize() {
+        contentBytes = contentStore.downloadedCacheBytes
+        networkBytes = contentStore.networkCacheBytes
     }
 }
 
 private struct NanaBlacklistView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
+    @State private var feedback: String?
     var body: some View {
-        NanaProfilePage("Blacklist") {
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    if contentStore.hiddenProfiles.isEmpty {
-                        NanaEmptyState(title: "Your blacklist is empty", detail: "Blocked profiles will appear here.", actionTitle: nil, action: nil)
-                            .padding(.top, 64)
-                    }
-                    ForEach(contentStore.hiddenProfiles) { profile in
-                        NanaRelationshipCard(profile: profile, blocked: true) {
-                            contentStore.unhide(profileID: profile.id)
+        NanaSettingsDetailPage(title: "Blocked accounts", artwork: "NanaSettingsPrivacy", headline: "Your boundaries matter", detail: "Only accounts you’ve blocked appear here. Unblocking does not undo a separate report.") {
+            if let feedback {
+                Text(feedback).font(.footnote).foregroundStyle(NanaPalette.electricLilac)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+            if contentStore.hiddenProfiles.isEmpty {
+                NanaSettingsCard {
+                    Text("No blocked accounts").font(.headline)
+                    Text("If you block someone from a profile, room or post, you can manage them here.")
+                        .font(.subheadline).foregroundStyle(NanaPalette.mutedWhite)
+                }
+            } else {
+                Text("\(contentStore.hiddenProfiles.count) blocked").font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                ForEach(contentStore.hiddenProfiles) { profile in
+                    NanaSettingsCard {
+                        HStack(spacing: 12) {
+                            NanaAvatarView(title: profile.displayName, assetKey: profile.avatarAssetKey, size: 52)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(profile.displayName).font(.headline)
+                                if !profile.region.isEmpty { Text(profile.region).font(.footnote).foregroundStyle(NanaPalette.mutedWhite) }
+                            }
+                            Spacer(minLength: 0)
                         }
+                        NanaSettingsImageButton(title: "Unblock") {
+                            if contentStore.unhide(profileID: profile.id) {
+                                feedback = "\(profile.displayName) is no longer blocked."
+                            }
+                        }.accessibilityLabel("Unblock \(profile.displayName)")
                     }
-                }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
+                }
             }
         }
+        .overlay {
+            if let notice = contentStore.actionNotice {
+                AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
+            }
+        }
+    }
+}
+
+private struct NanaCommunityGuidelinesView: View {
+    @State private var showingBlacklist = false
+    private let rules: [(String, String)] = [
+        ("Make room for each other", "Nana brings people together through live rooms, music and conversation. Respect different backgrounds and opinions. No hate speech, slurs, targeted humiliation, threats, stalking or repeated unwanted contact. A disagreement is never a reason to harass someone."),
+        ("Keep rooms safe", "Do not share pornography, sexual solicitation, graphic violence or content that encourages self-harm, exploitation or dangerous acts. Sexual content involving minors, grooming and child exploitation are strictly prohibited. Do not use Nana to arrange illegal activity."),
+        ("Respect personal boundaries", "Ask before recording or sharing someone’s voice, image or conversation. Never publish private messages, addresses, phone numbers, financial details or another person’s location without permission. Respect a refusal and do not bypass a block with another account."),
+        ("Host with care", "Use a clear room title and category. Give people space to speak, avoid disruptive noise and do not pressure anyone to turn on a microphone or camera. Room descriptions, music requests, chat messages and gift messages follow these same rules."),
+        ("Share what you have permission to share", "Use your own photos, videos and music, or content you are authorized to share. Do not rebroadcast copyrighted performances or impersonate artists, other members or Nana staff. Credit alone does not replace permission."),
+        ("Keep gifts voluntary", "Never pressure someone to buy coins or send a gift. Do not promise money, affection, access or prizes in exchange for gifts. No scams, gambling, paid sexual services or off-platform payment requests. Never ask for passwords, verification codes or payment-card details."),
+        ("Be honest and avoid spam", "Do not use misleading profiles, fake giveaways, automated messages, repeated promotions or manipulated engagement. Do not present a recording as a live interaction or use someone else’s identity to mislead the community."),
+        ("Use safety tools responsibly", "Use the Report or Block controls on the relevant profile, room or post. Describe what happened clearly and avoid false or retaliatory reports. Blocking hides that person’s content for this account on this device. You can reverse a block in Settings → Blocked accounts."),
+        ("Know what happens next", "These rules apply to profiles, posts, live video, voice rooms, private conversations and gifts. Violations may lead to content removal, feature restrictions or account removal when reviewed by the service. Serious or repeated abuse is not welcome. Nana is not an emergency service; contact local emergency services if someone is in immediate danger.")
+    ]
+    var body: some View {
+        NanaSettingsDetailPage(title: "Community Guidelines", artwork: "NanaSettingsSecurity", headline: "Good conversations start with care", detail: "A shared standard for every room and every member. Updated September 23, 2026.") {
+            ForEach(rules.indices, id: \.self) { index in
+                NanaSettingsCard {
+                    Text(String(format: "%02d", index + 1)).font(.caption.weight(.semibold)).foregroundStyle(NanaPalette.electricLilac)
+                    Text(rules[index].0).font(.headline).accessibilityAddTraits(.isHeader)
+                    Text(rules[index].1).font(.subheadline).foregroundStyle(NanaPalette.mutedWhite)
+                        .lineSpacing(4).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            NanaSettingsCard {
+                Text("About reports in this version").font(.headline)
+                Text("Reports are currently saved on this device; a saved report is not confirmation that a moderation team received it. You can block someone or leave a room immediately.")
+                    .font(.footnote).foregroundStyle(NanaPalette.mutedWhite)
+                NanaSettingsImageButton(title: "Manage blocked accounts") { showingBlacklist = true }
+            }
+        }
+        .fullScreenCover(isPresented: $showingBlacklist) { NanaBlacklistView() }
     }
 }

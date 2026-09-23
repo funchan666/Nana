@@ -31,6 +31,7 @@ struct NanaLiveRoomView: View {
     @State private var isSendingGift = false
     @State private var showingInsufficientCoins = false
     @State private var conversation: NanaConversation?
+    @State private var selectedProfile: NanaProfile?
     @State private var panelContentHeights: [String: CGFloat] = [:]
     @State private var moreRoomCategory = "All"
     @State private var reportReason = "Harassment"
@@ -52,7 +53,7 @@ struct NanaLiveRoomView: View {
     }
 
     private var host: NanaProfile? { contentStore.profile(with: room.hostID) }
-    private var isFollowing: Bool { contentStore.personal.following[room.hostID] ?? room.isFollowingHost }
+    private var isFollowing: Bool { contentStore.isFollowing(room.hostID) }
     private var messages: [NanaRoomChatMessage] {
         let published = contentStore.roomMessages(for: room.id)
         let sent = coinStore.roomGiftReceipts.filter { $0.roomID == room.id }.map(\.chatMessage)
@@ -239,6 +240,7 @@ struct NanaLiveRoomView: View {
             roomMusic.pause()
         }
         .sheet(isPresented: $showingWallet) { NanaWalletView() }
+        .sheet(item: $selectedProfile) { NanaUserProfileView(profile: $0) }
         .fullScreenCover(item: $conversation) { NanaConversationView(conversation: $0) }
         .alert("More coins needed", isPresented: $showingInsufficientCoins) {
             Button("Open Wallet") { showingWallet = true }
@@ -534,16 +536,24 @@ struct NanaLiveRoomView: View {
 
     private var hostPanel: some View {
         VStack(alignment: .leading, spacing: 15) {
-            HStack(spacing: 10) {
-                NanaAvatarView(title: room.hostName, assetKey: room.hostAvatarAssetKey, size: 48)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(room.hostName).font(.system(size: 15, weight: .semibold))
-                    Text(host.map { "\($0.region) · Lv.\($0.level)" } ?? room.category).font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
+            Button {
+                selectedProfile = host
+            } label: {
+                HStack(spacing: 10) {
+                    NanaAvatarView(title: room.hostName, assetKey: room.hostAvatarAssetKey, size: 48)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(room.hostName).font(.system(size: 15, weight: .semibold))
+                        Text(host.map { "\($0.region) · Lv.\($0.level)" } ?? room.category).font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
+                    }
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(host == nil)
+            .accessibilityLabel("View \(room.hostName)'s profile")
             Text(host?.introduction ?? room.subtitle).font(.system(size: 12)).foregroundStyle(NanaPalette.mutedWhite)
             HStack(spacing: 8) {
-                metric("Fans", value: host.map { String($0.followerCount) } ?? "—", color: .green)
+                metric("Follower", value: host.map { String($0.followerCount) } ?? "—", color: .green)
                 metric("Following", value: host.map { String($0.followingCount) } ?? "—", color: .cyan)
                 metric("Audience", value: String(audienceCount), color: .orange)
             }
@@ -553,8 +563,8 @@ struct NanaLiveRoomView: View {
             }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             HStack(spacing: 10) {
                 Button {
-                    if let thread = contentStore.visibleConversations.first(where: { $0.profileID == room.hostID }) { conversation = thread }
-                    else { contentStore.explainUnavailable("Starting a private message") }
+                    if let host { conversation = contentStore.conversation(for: host) }
+                    else { contentStore.explainUnavailable("Host profile") }
                 } label: {
                     NanaAssetImage(assetKey: "nana.voice.voice_asset_125", contentMode: .fit).frame(height: 38)
                 }.buttonStyle(.plain).frame(minHeight: 44).accessibilityLabel("Private message")
@@ -783,12 +793,12 @@ struct NanaLiveRoomView: View {
                     HStack(spacing: 6) {
                         NanaAssetImage(assetKey: "nana.voice.voice_asset_110", contentMode: .fit).frame(width: 30, height: 30)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(coinStore.balance.formatted()).font(.system(size: 12, weight: .medium))
+                            Text(contentStore.preference("hideCoinBalance", default: false) ? "••••" : coinStore.balance.formatted()).font(.system(size: 12, weight: .medium))
                                 .lineLimit(1).minimumScaleFactor(0.7)
                             Text("Balance").font(.system(size: 9)).foregroundStyle(NanaPalette.mutedWhite)
                         }
                     }.frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("Balance \(coinStore.balance) coins. Open wallet")
+                }.buttonStyle(.plain).accessibilityLabel(contentStore.preference("hideCoinBalance", default: false) ? "Balance hidden. Open wallet" : "Balance \(coinStore.balance) coins. Open wallet")
                 Spacer(minLength: 2)
                 HStack(spacing: 0) {
                     quantityButton("minus.circle", title: "Decrease quantity", enabled: giftQuantity > 1) { giftQuantity -= 1 }

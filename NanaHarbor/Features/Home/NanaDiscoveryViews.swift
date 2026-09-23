@@ -178,6 +178,7 @@ struct NanaPostDetailView: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @State private var showingComments = false
     @State private var safetyAction: NanaPostSafetyAction?
+    @State private var commentSafetySelection: NanaCommentSafetySelection?
     private var discussion: NanaPostDiscussion { contentStore.discussion(for: post) }
     private var comments: [NanaPostComment] { contentStore.comments(for: discussion) }
 
@@ -191,11 +192,15 @@ struct NanaPostDetailView: View {
                             Text(post.category.uppercased()).font(NanaType.stamp).tracking(1.2).foregroundStyle(NanaPalette.softPink)
                             Text(post.title).font(NanaType.hero).foregroundStyle(NanaPalette.warmWhite)
                             Text("By \(post.authorName) · \(post.publishedLabel)").font(NanaType.caption).foregroundStyle(NanaPalette.mutedWhite)
-                            NanaPostSafetyButtons { safetyAction = $0 }
+                            NanaSafetyOptionsButton { safetyAction = $0 }
                             Text(post.body).font(NanaType.body).foregroundStyle(.white.opacity(0.82)).lineSpacing(5)
                             Divider().overlay(NanaPalette.border).padding(.vertical, 8)
                             NanaSectionTitle(eyebrow: "Community", title: "Responses")
-                            ForEach(comments) { comment in NanaPostCommentRow(comment: comment) }
+                            ForEach(comments) { comment in
+                                NanaPostCommentRow(comment: comment) { action in
+                                    commentSafetySelection = NanaCommentSafetySelection(context: contentStore.discussion(for: comment, in: discussion), action: action)
+                                }
+                            }
                             Button("View all \(comments.count) comments") { showingComments = true }
                                 .font(NanaType.caption).foregroundStyle(NanaPalette.electricLilac).frame(minHeight: 44)
                         }
@@ -215,6 +220,9 @@ struct NanaPostDetailView: View {
                 ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() }.foregroundStyle(NanaPalette.electricLilac) }
             }
             .sheet(isPresented: $showingComments) { NanaPostCommentsSheet(context: discussion) }
+            .sheet(item: $commentSafetySelection) { selection in
+                NanaPostSafetySheet(context: selection.context, initialAction: selection.action) { commentSafetySelection = nil }
+            }
             .sheet(item: $safetyAction) { action in
                 NanaPostSafetySheet(context: discussion, initialAction: action) { dismiss() }
             }

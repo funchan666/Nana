@@ -112,7 +112,7 @@ private struct NanaVoiceMemberDetails: View {
             Text("On microphone · \(roomName)")
                 .font(.system(size: 13)).foregroundStyle(NanaPalette.mutedWhite)
                 .multilineTextAlignment(.center)
-            NanaPostSafetyButtons(subject: "profile") { safetyAction = $0 }
+            NanaSafetyOptionsButton(subject: "profile") { safetyAction = $0 }
             Button("Done") { dismiss() }.font(.system(size: 14, weight: .semibold))
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .background(NanaPalette.violet, in: Capsule()).buttonStyle(.plain)

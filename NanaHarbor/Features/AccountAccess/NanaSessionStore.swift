@@ -42,6 +42,14 @@ private struct NanaLocalAccountLedger: Codable {
     var appleIntroductions: [String: NanaPendingIdentity] = [:]
 }
 
+enum NanaSignedOutDestination: Equatable { case welcome, login }
+
+struct NanaAccountExitProgress {
+    let title: String
+    let detail: String
+    let isWorking: Bool
+}
+
 enum NanaLocalAccountError: LocalizedError {
     case invalidEntry, missingIdentity, incompleteProfile, storageUnavailable
 
@@ -60,6 +68,20 @@ final class NanaSessionStore: ObservableObject {
     @Published private(set) var activeProfile: NanaAccountProfile?
     @Published private(set) var pendingIdentity: NanaPendingIdentity?
     @Published var sessionNotice: AccountEntryNotice?
+    @Published private(set) var suggestedSignInEmail = ""
+    @Published private(set) var signedOutDestination: NanaSignedOutDestination = .welcome
+    @Published private(set) var accountExitProgress: NanaAccountExitProgress?
+
+    var savedProfiles: [NanaAccountProfile] {
+        ledger.profiles.values.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    func startAccountEntry(emailAddress: String = "") {
+        signOut(destination: emailAddress.isEmpty ? .welcome : .login)
+        guard activeProfile == nil else { return }
+        // A convenience prefill only; choosing a saved profile never authenticates it.
+        suggestedSignInEmail = emailAddress
+    }
 
     private let defaults: UserDefaults
     private let keychainService = "com.nanalantern.harbortide.local-accounts"
@@ -163,17 +185,66 @@ final class NanaSessionStore: ObservableObject {
         } catch { showStorageNotice() }
     }
 
-    func signOut() {
+    @discardableResult
+    func signOut(destination: NanaSignedOutDestination = .login) -> Bool {
         do {
             try loadLedgerIfNeeded()
             var updated = ledger
             updated.activeAccountScope = nil
             updated.pendingIdentity = nil
             try persist(updated)
+            suggestedSignInEmail = ""
+            signedOutDestination = destination
             sessionRevision = UUID()
             activeProfile = nil
             pendingIdentity = nil
-        } catch { showStorageNotice() }
+            return true
+        } catch { showStorageNotice(); return false }
+    }
+
+    /// The current account service is device-local. Never claim remote deletion
+    /// or Apple token revocation from this local storage operation.
+    func exitAccount(deleting: Bool, contentStore: NanaContentStore, coinStore: NanaCoinStore) async {
+        guard accountExitProgress == nil, let profile = activeProfile else { return }
+        guard coinStore.purchasingProductID == nil else {
+            sessionNotice = AccountEntryNotice(title: "Purchase in progress", explanation: "Wait for the current purchase to finish before leaving this account.")
+            return
+        }
+        let scope = profile.localAccountScope
+        accountExitProgress = NanaAccountExitProgress(title: deleting ? "Deleting local account…" : "Logging out…",
+            detail: deleting ? "Removing this account’s data from this device." : "Keeping your saved details for next time.", isWorking: true)
+        // Allow the loading transition to appear before protected storage writes.
+        try? await Task.sleep(for: .milliseconds(300))
+        guard activeProfile?.localAccountScope == scope else { accountExitProgress = nil; return }
+        do {
+            try loadLedgerIfNeeded()
+            var updated = ledger
+            updated.activeAccountScope = nil
+            updated.pendingIdentity = nil
+            if deleting {
+                try contentStore.deleteLocalAccountData(accountID: scope)
+                try coinStore.deleteLocalAccountData(accountID: scope)
+                let avatar = try avatarURL(for: scope)
+                if FileManager.default.fileExists(atPath: avatar.path) { try FileManager.default.removeItem(at: avatar) }
+                updated.profiles.removeValue(forKey: scope)
+                if let appleID = profile.appleUserID { updated.appleIntroductions.removeValue(forKey: appleID) }
+            }
+            try persist(updated)
+            sessionRevision = UUID()
+            try? await NanaCheckInReminder.configure(enabled: false)
+            accountExitProgress = NanaAccountExitProgress(title: deleting ? "Local account deleted" : "Logged out successfully",
+                detail: deleting ? "Returning to welcome…" : "Returning to sign-in…", isWorking: false)
+            try? await Task.sleep(for: .milliseconds(1000))
+            suggestedSignInEmail = ""
+            signedOutDestination = deleting ? .welcome : .login
+            pendingIdentity = nil
+            activeProfile = nil
+            accountExitProgress = nil
+        } catch {
+            accountExitProgress = nil
+            sessionNotice = AccountEntryNotice(title: deleting ? "Deletion did not complete" : "Couldn’t log out",
+                explanation: deleting ? "Some local data may already have been removed. Please retry to finish deleting this account." : "Your session is still open. Please try again.")
+        }
     }
 
     @discardableResult
@@ -203,33 +274,36 @@ final class NanaSessionStore: ObservableObject {
 
     /// Check the real Apple credential on cold launch and foreground return.
     /// Temporary lookup failures do not erase a previously authorized local session.
-    func validateAppleSession() async {
-        guard ledgerLoaded, !checkingAppleCredential else { return }
+    @discardableResult
+    func validateAppleSession() async -> Bool {
+        guard ledgerLoaded, !checkingAppleCredential, accountExitProgress == nil else { return false }
         let savedProfile = ledger.activeAccountScope.flatMap { ledger.profiles[$0] }
         guard let userID = savedProfile?.appleUserID ?? ledger.pendingIdentity?.appleUserID else {
             if savedProfile?.signInMethod == "apple" { signOut() }
-            return
+            return false
         }
         checkingAppleCredential = true
         defer { checkingAppleCredential = false }
         let revision = sessionRevision
         do {
             let state = try await ASAuthorizationAppleIDProvider().credentialState(forUserID: userID)
-            guard revision == sessionRevision, !Task.isCancelled else { return }
+            guard revision == sessionRevision, !Task.isCancelled else { return false }
             switch state {
             case .authorized:
                 activeProfile = savedProfile
                 pendingIdentity = ledger.pendingIdentity
+                return true
             case .revoked, .notFound, .transferred:
                 handleAppleCredentialRevocation()
             @unknown default:
                 handleAppleCredentialRevocation()
             }
         } catch {
-            guard revision == sessionRevision, !Task.isCancelled else { return }
+            guard revision == sessionRevision, !Task.isCancelled else { return false }
             sessionNotice = AccountEntryNotice(title: "Apple sign-in couldn't be checked",
                 explanation: "Please check your connection and sign in with Apple again.")
         }
+        return false
     }
 
     func handleAppleCredentialRevocation() {
@@ -251,6 +325,7 @@ final class NanaSessionStore: ObservableObject {
         updated.activeAccountScope = profile.localAccountScope
         updated.pendingIdentity = nil
         try persist(updated)
+        suggestedSignInEmail = ""
         sessionRevision = UUID()
         activeProfile = profile
         pendingIdentity = nil

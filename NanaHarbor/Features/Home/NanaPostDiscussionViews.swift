@@ -50,6 +50,12 @@ enum NanaPostCommentSamples {
     }
 }
 
+struct NanaCommentSafetySelection: Identifiable {
+    let id = UUID()
+    let context: NanaPostDiscussion
+    let action: NanaPostSafetyAction
+}
+
 struct NanaPostCommentsSheet: View {
     let context: NanaPostDiscussion
     var focusComposer = false
@@ -57,6 +63,7 @@ struct NanaPostCommentsSheet: View {
     @EnvironmentObject private var contentStore: NanaContentStore
     @EnvironmentObject private var sessionStore: NanaSessionStore
     @State private var draft = ""
+    @State private var safetySelection: NanaCommentSafetySelection?
     @FocusState private var focused: Bool
     private var comments: [NanaPostComment] { contentStore.comments(for: context) }
 
@@ -74,11 +81,20 @@ struct NanaPostCommentsSheet: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 22) {
-                        ForEach(comments) { comment in NanaPostCommentRow(comment: comment) }
+                        if comments.isEmpty {
+                            Text("No comments to show. Start a kind conversation.")
+                                .font(.subheadline).foregroundStyle(NanaPalette.mutedWhite).padding(.vertical, 20)
+                        }
+                        ForEach(comments) { comment in
+                            NanaPostCommentRow(comment: comment) { action in
+                                focused = false
+                                safetySelection = NanaCommentSafetySelection(context: contentStore.discussion(for: comment, in: context), action: action)
+                            }.id(comment.id)
+                        }
                     }.padding(18)
                 }
-                .onChange(of: comments.last?.id) { _, id in
-                    if let id { withAnimation { proxy.scrollTo(id, anchor: .bottom) } }
+                .onChange(of: comments.count) { oldCount, newCount in
+                    if newCount > oldCount, let id = comments.last?.id { withAnimation { proxy.scrollTo(id, anchor: .bottom) } }
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
@@ -96,6 +112,9 @@ struct NanaPostCommentsSheet: View {
         }
         .onChange(of: draft) { _, value in if value.count > 500 { draft = String(value.prefix(500)) } }
         .onDisappear { _ = contentStore.saveDraft(draft, for: "post-comment-\(context.key)") }
+        .sheet(item: $safetySelection) { selection in
+            NanaPostSafetySheet(context: selection.context, initialAction: selection.action) { safetySelection = nil }
+        }
         .overlay {
             if let notice = contentStore.actionNotice {
                 AccountConsentNotice(notice: notice) { contentStore.dismissActionNotice() }
@@ -125,18 +144,23 @@ struct NanaPostCommentsSheet: View {
 
 struct NanaPostCommentRow: View {
     let comment: NanaPostComment
+    let performSafety: (NanaPostSafetyAction) -> Void
     @EnvironmentObject private var contentStore: NanaContentStore
     @EnvironmentObject private var sessionStore: NanaSessionStore
     private var liked: Bool { contentStore.preference("comment-like-\(comment.id)", default: false) }
+    private var isCurrentUser: Bool { comment.authorID == "local-account" || comment.authorID == sessionStore.activeProfile?.localAccountScope }
 
     var body: some View {
         HStack(alignment: .top, spacing: 11) {
             avatar
             VStack(alignment: .leading, spacing: 6) {
-                Text(comment.authorName).font(.system(size: 13, weight: .semibold))
+                Text(isCurrentUser ? sessionStore.activeProfile?.displayName ?? "You" : comment.authorName).font(.system(size: 13, weight: .semibold))
                 Text(comment.body).font(.system(size: 13)).lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true).foregroundStyle(.white.opacity(0.9))
                 Text(comment.timeLabel).font(.system(size: 10)).foregroundStyle(NanaPalette.mutedWhite)
+                if !isCurrentUser {
+                    NanaSafetyOptionsButton(subject: "comment by \(comment.authorName)", perform: performSafety)
+                }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Button { contentStore.setPreference("comment-like-\(comment.id)", value: !liked) } label: {
                 Image(systemName: liked ? "heart.fill" : "heart").font(.system(size: 15))
@@ -148,14 +172,14 @@ struct NanaPostCommentRow: View {
 
     private var avatar: some View {
         Group {
-            if comment.authorID == "local-account", let data = sessionStore.activeProfile?.avatarData,
-               let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
+            if isCurrentUser {
+                NanaAccountAvatarView(data: sessionStore.activeProfile?.avatarData, size: 36)
             } else {
                 NanaAvatarView(title: comment.authorName, assetKey: comment.avatarAssetKey, size: 36)
             }
         }.frame(width: 36, height: 36).clipShape(Circle())
     }
+
 }
 
 enum NanaPostSafetyAction: String, Identifiable {
@@ -163,27 +187,22 @@ enum NanaPostSafetyAction: String, Identifiable {
     var id: String { rawValue }
 }
 
-struct NanaPostSafetyButtons: View {
+struct NanaSafetyOptionsButton: View {
     var subject = "post"
     let perform: (NanaPostSafetyAction) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            button("Report", symbol: "flag", action: .report, tint: .white)
-            button("Block", symbol: "person.slash", action: .block, tint: NanaPalette.softPink)
+        Button { perform(.options) } label: {
+            Text("More")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                .padding(.horizontal, 18).frame(minHeight: 44)
+                .background {
+                    Image("NanaCheckInGuideButton").resizable().opacity(0.72).accessibilityHidden(true)
+                }
         }
         .buttonStyle(.plain)
-    }
-
-    private func button(_ title: String, symbol: String, action: NanaPostSafetyAction, tint: Color) -> some View {
-        Button { perform(action) } label: {
-            Label(title, systemImage: symbol)
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(tint)
-                .padding(.horizontal, 13).frame(minHeight: 44)
-                .background(.black.opacity(0.28), in: Capsule())
-                .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 0.5))
-        }
-        .accessibilityLabel(action == .report ? "Report \(subject)" : "Block user")
+        .accessibilityLabel("More options for \(subject)")
+        .accessibilityHint("Choose report or block")
     }
 }
 
@@ -213,6 +232,12 @@ struct NanaPostSafetySheet: View {
                     Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
                         .accessibilityLabel("Close options")
                 }
+                if context.kind == .comment {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(context.authorName).font(.subheadline.weight(.semibold))
+                        Text(context.title).font(.footnote).foregroundStyle(NanaPalette.mutedWhite).lineLimit(3)
+                    }
+                }
                 if page == "options" {
                     action("Report \(subject)", subtitle: "Choose a reason and hide this content", symbol: "flag", tint: NanaPalette.electricLilac) { page = "report" }
                     action("Block user", subtitle: context.authorName, symbol: "person.slash", tint: NanaPalette.softPink) { page = "block" }
@@ -229,7 +254,9 @@ struct NanaPostSafetySheet: View {
                     }
                     primary("Report & hide \(subject)") {
                         if contentStore.reportContent(context, reason: reason) {
-                            successNotice = AccountEntryNotice(title: "Report saved", explanation: "Your report has been saved. This content is now hidden from your lists.")
+                            successNotice = AccountEntryNotice(title: "Report saved on this device", explanation: context.kind == .comment
+                                ? "This comment is now hidden. Your report is stored locally; it has not been sent to a moderation service."
+                                : "This content is now hidden from your lists. Your report is stored locally; it has not been sent to a moderation service.")
                         }
                     }
                 } else if page == "block" {

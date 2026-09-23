@@ -776,9 +776,7 @@ struct NanaFriendsListView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 2) {
                 friendAction("envelope.fill", color: NanaPalette.neonPink, label: "Message \(profile.displayName)") {
-                    if let conversation = contentStore.visibleConversations.first(where: { $0.profileID == profile.id }) {
-                        selectedConversation = conversation
-                    } else { contentStore.explainUnavailable("Starting a private conversation") }
+                    selectedConversation = contentStore.conversation(for: profile)
                 }
                 friendAction("video.fill", color: NanaPalette.violet, label: "Call \(profile.displayName)") { callProfile = profile }
             }
@@ -807,6 +805,10 @@ struct NanaFriendsListView: View {
                         .font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
                     Text(profile.introduction).font(.system(size: 12))
                         .foregroundStyle(NanaPalette.mutedWhite).lineLimit(2)
+                    if contentStore.isWelcomeFollower(profile.id) {
+                        Text("Welcome interaction · simulated locally")
+                            .font(.system(size: 11)).foregroundStyle(NanaPalette.mutedWhite)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "arrow.right").font(.system(size: 16, weight: .bold))
@@ -1066,10 +1068,8 @@ struct NanaConversationView: View {
     @State private var draftAccountID: String?
     @State private var showingCall = false
     @State private var showingProfile = false
-    @State private var showingMore = false
     @State private var showingAccessories = false
     @State private var showingEmoji = false
-    @State private var pendingSafetyAction: NanaPostSafetyAction?
     @State private var safetyAction: NanaPostSafetyAction?
     @FocusState private var composerFocused: Bool
 
@@ -1085,7 +1085,7 @@ struct NanaConversationView: View {
                 VStack(spacing: 0) {
                     NanaDetailPageHeader(trailingSymbol: "ellipsis.circle", trailingLabel: "Conversation options") {
                         composerFocused = false
-                        showingMore = true
+                        safetyAction = .options
                     }
                     messageHistory
                 }
@@ -1114,15 +1114,12 @@ struct NanaConversationView: View {
                 if let profile { NanaVideoCallView(profile: profile) }
                 else { NanaUnavailableSurface(title: "Profile unavailable", detail: "Please try again later.") }
             }
-            .sheet(isPresented: $showingMore, onDismiss: {
-                safetyAction = pendingSafetyAction
-                pendingSafetyAction = nil
-            }) { conversationOptions }
             .sheet(item: $safetyAction) { action in
                 NanaPostSafetySheet(context: contentStore.discussion(for: conversation), initialAction: action) { dismiss() }
             }
             .onChange(of: contentStore.safetyDismissalID) { _, _ in
-                if !contentStore.visibleConversations.contains(where: { $0.id == conversation.id }) { dismiss() }
+                if contentStore.hiddenAuthorIDs.contains(conversation.profileID)
+                    || contentStore.personal.hiddenConversationIDs.contains(conversation.id) { dismiss() }
             }
         }
         .preferredColorScheme(.dark)
@@ -1191,9 +1188,9 @@ struct NanaConversationView: View {
             .disabled(profile == nil)
             if let profile {
                 HStack(spacing: 10) {
-                    profileStat("Fans", value: "\(profile.followerCount)", color: .green)
+                    profileStat("Follower", value: "\(profile.followerCount)", color: .green)
                     profileStat("Friends", value: "—", color: .cyan)
-                    profileStat("Follow", value: "\(profile.followingCount)", color: .orange)
+                    profileStat("Following", value: "\(profile.followingCount)", color: .orange)
                 }
                 if !profile.introduction.isEmpty {
                     Text(profile.introduction).font(.system(size: 13))
@@ -1246,8 +1243,9 @@ struct NanaConversationView: View {
                 Button {
                     if hasDraft {
                         // Keep the draft when delivery is unavailable or fails.
+                        guard draftAccountID != nil && draftAccountID == contentStore.accountScope else { return }
                         _ = contentStore.saveDraft(draft, for: draftKey)
-                        contentStore.appendMessage(to: conversation.id, body: draft)
+                        contentStore.appendMessage(to: conversation, body: draft)
                     } else {
                         showingAccessories.toggle()
                         composerFocused = false
@@ -1295,25 +1293,7 @@ struct NanaConversationView: View {
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 
-    private var conversationOptions: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Conversation options").font(.system(size: 22, weight: .bold))
-            NanaPostSafetyButtons(subject: "conversation") { action in
-                pendingSafetyAction = action
-                showingMore = false
-            }
-            Button { showingMore = false } label: {
-                Text("Cancel").frame(maxWidth: .infinity, minHeight: 48)
-                    .background(.white.opacity(0.09), in: Capsule())
-            }.buttonStyle(.plain)
-        }
-        .foregroundStyle(NanaPalette.warmWhite)
-        .padding(24)
-        .presentationDetents([.height(260)])
-        .presentationDragIndicator(.visible)
-        .presentationCornerRadius(28)
-        .presentationBackground(Color(red: 0.075, green: 0.055, blue: 0.105))
-    }
+
 }
 
 struct NanaVideoCallView: View {

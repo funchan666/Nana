@@ -1,6 +1,12 @@
 import Foundation
 
 struct NanaProfile: Identifiable, Codable, Hashable {
+    /// Small, stable counts for the supplied replay cast, never live account data.
+    static let replaySocialCounts: [String: (followers: Int, following: Int)] = [
+        "profile-ava": (128, 36), "profile-jules": (76, 29),
+        "profile-mira": (93, 41), "profile-noah": (164, 58),
+        "profile-lin": (47, 23), "profile-replay-sienna": (62, 34)
+    ]
     let id: String
     var displayName: String
     var handle: String
@@ -101,9 +107,11 @@ struct NanaPostDiscussion {
     let authorAvatar: String?
     let videoAssetKey: String?
     var kind: NanaSafetyContentKind = .post
+    var parentContentKey: String? = nil
+    var commentID: String? = nil
 }
 
-enum NanaSafetyContentKind: String, Codable { case post, room, profile, conversation }
+enum NanaSafetyContentKind: String, Codable { case post, room, profile, conversation, comment }
 
 struct NanaSafetyReport: Codable {
     let contentKey: String
@@ -111,6 +119,9 @@ struct NanaSafetyReport: Codable {
     let authorID: String
     let reason: String
     let createdAt: Date
+    var parentContentKey: String? = nil
+    var commentID: String? = nil
+    var contentExcerpt: String? = nil
 }
 
 struct NanaPostComment: Identifiable, Codable {
@@ -272,14 +283,14 @@ extension NanaContentSnapshot {
     #if DEBUG
     static let sample: NanaContentSnapshot = {
         let profiles = [
-            NanaProfile(id: "profile-ava", displayName: "Ava Monroe", handle: "ava.m", region: "Toronto", language: "English", gender: "Female", age: 27, introduction: "Music, late-night conversations, and small rooms with good energy.", avatarAssetKey: "nana.pic.Dc0SA4UiUy3", isConnected: true, followerCount: 1280, followingCount: 86, level: 7),
-            NanaProfile(id: "profile-jules", displayName: "Jules Harper", handle: "jules.h", region: "London", language: "English", gender: "Non-binary", age: 29, introduction: "A quiet corner for creative people and curious listeners.", avatarAssetKey: "nana.pic.Dc0XoT9DgeO", isConnected: false, followerCount: 920, followingCount: 145, level: 5),
-            NanaProfile(id: "profile-mira", displayName: "Mira Laurent", handle: "mira.l", region: "Paris", language: "French", gender: "Female", age: 25, introduction: "Sharing stories, studio notes, and a little daylight.", avatarAssetKey: "nana.pic.Dc1CvDfCCHN", isConnected: false, followerCount: 640, followingCount: 72, level: 4),
-            NanaProfile(id: "profile-noah", displayName: "Noah Reed", handle: "noah.r", region: "New York", language: "English", gender: "Male", age: 31, introduction: "Live sessions, headphones, and the occasional good question.", avatarAssetKey: "nana.pic.Dc1Ii5HACCq", isConnected: false, followerCount: 740, followingCount: 104, level: 6),
-            NanaProfile(id: "profile-lin", displayName: "Lin Wei", handle: "lin.w", region: "Singapore", language: "Mandarin", gender: "Female", age: 26, introduction: "I host gentle rooms for people who like to stay awhile.", avatarAssetKey: "nana.pic.Dc1UKGTDL1J", isConnected: false, followerCount: 510, followingCount: 52, level: 3)
+            NanaProfile(id: "profile-ava", displayName: "Ava Monroe", handle: "ava.m", region: "Toronto", language: "English", gender: "Female", age: 27, introduction: "Music, late-night conversations, and small rooms with good energy.", avatarAssetKey: "nana.pic.Dc0SA4UiUy3", isConnected: false, followerCount: 128, followingCount: 36, level: 7),
+            NanaProfile(id: "profile-jules", displayName: "Jules Harper", handle: "jules.h", region: "London", language: "English", gender: "Non-binary", age: 29, introduction: "A quiet corner for creative people and curious listeners.", avatarAssetKey: "nana.pic.Dc0XoT9DgeO", isConnected: false, followerCount: 76, followingCount: 29, level: 5),
+            NanaProfile(id: "profile-mira", displayName: "Mira Laurent", handle: "mira.l", region: "Paris", language: "French", gender: "Female", age: 25, introduction: "Sharing stories, studio notes, and a little daylight.", avatarAssetKey: "nana.pic.Dc1CvDfCCHN", isConnected: false, followerCount: 93, followingCount: 41, level: 4),
+            NanaProfile(id: "profile-noah", displayName: "Noah Reed", handle: "noah.r", region: "New York", language: "English", gender: "Male", age: 31, introduction: "Live sessions, headphones, and the occasional good question.", avatarAssetKey: "nana.pic.Dc1Ii5HACCq", isConnected: false, followerCount: 164, followingCount: 58, level: 6),
+            NanaProfile(id: "profile-lin", displayName: "Lin Wei", handle: "lin.w", region: "Singapore", language: "Mandarin", gender: "Female", age: 26, introduction: "I host gentle rooms for people who like to stay awhile.", avatarAssetKey: "nana.pic.Dc1UKGTDL1J", isConnected: false, followerCount: 47, followingCount: 23, level: 3)
         ]
         let rooms = [
-            NanaLiveRoom(id: "room-aurora", title: "Afterglow conversations", subtitle: "A soft place for unfinished thoughts", category: "Late night", hostID: "profile-ava", hostName: "Ava Monroe", hostAvatarAssetKey: "nana.pic.Dc0SA4UiUy3", viewerCount: 186, seatCapacity: 6, streamAssetKey: "nana.video.ariffathulhakim_Dbzl1fLurT2", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: true),
+            NanaLiveRoom(id: "room-aurora", title: "Afterglow conversations", subtitle: "A soft place for unfinished thoughts", category: "Late night", hostID: "profile-ava", hostName: "Ava Monroe", hostAvatarAssetKey: "nana.pic.Dc0SA4UiUy3", viewerCount: 186, seatCapacity: 6, streamAssetKey: "nana.video.ariffathulhakim_Dbzl1fLurT2", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false),
             NanaLiveRoom(id: "room-studio", title: "Studio notes", subtitle: "Playlists, process, and quiet work", category: "Creative", hostID: "profile-jules", hostName: "Jules Harper", hostAvatarAssetKey: "nana.pic.Dc0XoT9DgeO", viewerCount: 93, seatCapacity: 9, streamAssetKey: "nana.video.berniemor_DddsSyxCRiE", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false),
             NanaLiveRoom(id: "room-lantern", title: "The lantern table", subtitle: "Come in, listen for a while", category: "Open talk", hostID: "profile-mira", hostName: "Mira Laurent", hostAvatarAssetKey: "nana.pic.Dc1CvDfCCHN", viewerCount: 68, seatCapacity: 3, streamAssetKey: "nana.video.capt.carterbrown_DbYh5-rhrZj", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false),
             NanaLiveRoom(id: "room-midnight", title: "Midnight radio", subtitle: "One song, one story, one new voice", category: "Music", hostID: "profile-noah", hostName: "Noah Reed", hostAvatarAssetKey: "nana.pic.Dc1Ii5HACCq", viewerCount: 242, seatCapacity: 12, streamAssetKey: "nana.video.coletrotta_DbWqTuiPTGg", streamSourceType: "simulatedReplay", roomState: "Live now", isFollowingHost: false)

@@ -35,7 +35,7 @@ struct WaterlineWelcomeView: View {
             roomIDs: featuredRooms.map(\.id),
             selectedID: featuredRoomID,
             isPaused: scenePhase != .active || isDraggingFeaturedRoom
-                || reduceMotion || voiceOverEnabled
+                || reduceMotion || voiceOverEnabled || contentStore.preference("pauseRoomCarousel", default: false)
                 || showingSearch || showingRanking || showingLiveCreation
                 || selectedRoom != nil || selectedVideo != nil
                 || contentStore.actionNotice != nil
