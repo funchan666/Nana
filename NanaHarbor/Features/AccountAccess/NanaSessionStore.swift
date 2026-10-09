@@ -51,13 +51,14 @@ struct NanaAccountExitProgress {
 }
 
 enum NanaLocalAccountError: LocalizedError {
-    case invalidEntry, missingIdentity, incompleteProfile, storageUnavailable
+    case invalidEntry, missingIdentity, incompleteProfile, visitorUnavailable, storageUnavailable
 
     var errorDescription: String? {
         switch self {
         case .invalidEntry: return "Enter a valid email address and a password of 8–128 characters."
         case .missingIdentity: return "Please return to sign-in and start again."
         case .incompleteProfile: return "Add your name, gender, country, date of birth and at least one tag."
+        case .visitorUnavailable: return "Guest access is not available right now. Please choose another sign-in method."
         case .storageUnavailable: return "Nana couldn't save your details. Please try again."
         }
     }
@@ -146,6 +147,17 @@ final class NanaSessionStore: ObservableObject {
         try loadLedgerIfNeeded()
         let scope = "email.\(email)"
         let profile = ledger.profiles[scope] ?? NanaAccountProfile(emailAddress: email, displayName: "Nana member", gender: "", country: "", birthDate: nil, interests: [], avatarData: nil, signInMethod: "password", appleUserID: nil)
+        try activate(profile)
+    }
+
+    func signInAsVisitor() async throws {
+        guard loginMethods.visitor else { throw NanaLocalAccountError.visitorUnavailable }
+        let result = try await authentication.enterAsVisitor()
+        remoteTokenRequest = result.tokenRequest
+        try loadLedgerIfNeeded()
+        let visitorEmail = "visitor.\(UUID().uuidString.lowercased())@nana.local"
+        let profile = NanaAccountProfile(emailAddress: visitorEmail, displayName: "Guest", gender: "", country: "", birthDate: nil,
+            interests: [], avatarData: nil, signInMethod: "visitor", appleUserID: nil)
         try activate(profile)
     }
 

@@ -172,6 +172,10 @@ struct NanaAuthenticationBoundary {
         try await authenticate(entryMode: "register", scene: "create-account", email: request.emailAddress, password: request.password)
     }
 
+    func enterAsVisitor() async throws -> NanaAuthenticationResult {
+        try await authenticate(entryMode: "visitor", scene: "guest-entry")
+    }
+
     func exchangeAppleCredential(_ request: NanaAppleCredentialExchangeRequest) async throws -> NanaAuthenticationResult {
         let identity = AppleIdentityResult(stableIdentity: request.userIdentifier, emailAddress: nil, displayName: nil, identityToken: request.identityToken, authorizationCode: request.authorizationCode)
         return try await authenticate(entryMode: "apple", scene: "sign-in", apple: identity)
