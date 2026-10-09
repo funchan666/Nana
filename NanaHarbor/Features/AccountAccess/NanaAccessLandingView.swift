@@ -91,6 +91,9 @@ struct NanaAccessLandingView: View {
         .disabled(entryNotice != nil || isAppleLoading || isVisitorLoading || methodsLoading)
         .task {
             await sessionStore.loadLoginMethods()
+            if sessionStore.loginMethods.visitor {
+                hasAcceptedAgreements = true
+            }
             methodsLoading = false
         }
         .overlay {
