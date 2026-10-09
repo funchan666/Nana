@@ -81,9 +81,9 @@ struct NanaAuthenticationBoundary {
     private let pushTokens: NanaPushTokenCoordinator
     private let deviceIdentity: NanaDeviceIdentity
 
-    init(client: NanaAServiceClient = NanaAServiceClient(), pushTokens: NanaPushTokenCoordinator = .shared, deviceIdentity: NanaDeviceIdentity = NanaDeviceIdentity()) {
+    init(client: NanaAServiceClient = NanaAServiceClient(), pushTokens: NanaPushTokenCoordinator? = nil, deviceIdentity: NanaDeviceIdentity = NanaDeviceIdentity()) {
         self.client = client
-        self.pushTokens = pushTokens
+        self.pushTokens = pushTokens ?? NanaPushTokenCoordinator.shared
         self.deviceIdentity = deviceIdentity
     }
 

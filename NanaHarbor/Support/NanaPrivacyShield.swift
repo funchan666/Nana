@@ -28,7 +28,7 @@ final class NanaCaptureState: ObservableObject {
     private static var isAnyScreenCaptured: Bool {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.screens)
+            .map(\.screen)
             .contains { $0.isCaptured }
     }
 

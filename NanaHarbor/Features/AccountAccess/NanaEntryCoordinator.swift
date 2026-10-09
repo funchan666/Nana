@@ -103,8 +103,6 @@ struct NanaEntryCoordinator: View {
                 NanaAccountExitOverlay(progress: progress)
             } else if coinStore.purchasingProductID != nil {
                 NanaPaymentOverlay()
-            } else if let gift = coinStore.welcomeGift {
-                NanaWelcomeGiftOverlay(gift: gift) { coinStore.dismissWelcomeGift() }
             } else if let notice = coinStore.notice {
                 AccountConsentNotice(notice: notice) { coinStore.dismissNotice() }
             } else if let notice = sessionStore.sessionNotice {
@@ -171,7 +169,7 @@ struct NanaEntryCoordinator: View {
                 case .notPage: break
                 }
             case .expire:
-                _ = sessionStore.signOut(destination: .login)
+                _ = sessionStore.signOut(destination: .welcome)
             case .externalOpen:
                 if let address = event.externalURL { UIApplication.shared.open(address, options: [:], completionHandler: nil) }
             case .purchase:
@@ -184,9 +182,10 @@ struct NanaEntryCoordinator: View {
 
     private var routeLoading: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            AccountArtworkSurface(artworkName: "NanaAccountArtwork")
             AccountLoadingDots()
         }
+        .ignoresSafeArea(.all)
     }
 
     private var launchLoading: some View {

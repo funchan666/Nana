@@ -27,9 +27,15 @@ struct NanaHarborWebView: View {
                 .foregroundStyle(.white)
                 .background(Color.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 22))
                 .padding(24)
+            } else if !didFinish {
+                ZStack {
+                    AccountArtworkSurface(artworkName: "NanaAccountArtwork")
+                    AccountLoadingDots()
+                }
+                .ignoresSafeArea(.all)
             }
         }
-        .background(Color.black)
+        .background(AccountEntryAppearance.violet)
         .preferredColorScheme(.dark)
     }
 }

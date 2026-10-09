@@ -77,8 +77,8 @@ final class NanaCoinStore: ObservableObject {
     private var transactionUpdatesTask: Task<Void, Never>?
     private let authentication: NanaAuthenticationBoundary
 
-    init(authentication: NanaAuthenticationBoundary = NanaAuthenticationBoundary()) {
-        self.authentication = authentication
+    init(authentication: NanaAuthenticationBoundary? = nil) {
+        self.authentication = authentication ?? NanaAuthenticationBoundary()
     }
 
     deinit {

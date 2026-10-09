@@ -95,9 +95,9 @@ final class NanaSessionStore: ObservableObject {
     private var sessionRevision = UUID()
     private var checkingAppleCredential = false
 
-    init(defaults: UserDefaults = .standard, authentication: NanaAuthenticationBoundary = NanaAuthenticationBoundary()) {
+    init(defaults: UserDefaults = .standard, authentication: NanaAuthenticationBoundary? = nil) {
         self.defaults = defaults
-        self.authentication = authentication
+        self.authentication = authentication ?? NanaAuthenticationBoundary()
         // Restore after the app is active, when protected Keychain data is available.
     }
 
@@ -272,10 +272,10 @@ final class NanaSessionStore: ObservableObject {
             sessionRevision = UUID()
             try? await NanaCheckInReminder.configure(enabled: false)
             accountExitProgress = NanaAccountExitProgress(title: deleting ? "Local account deleted" : "Logged out successfully",
-                detail: deleting ? "Returning to welcome…" : "Returning to sign-in…", isWorking: false)
+                detail: "Returning to welcome…", isWorking: false)
             try? await Task.sleep(for: .milliseconds(1000))
             suggestedSignInEmail = ""
-            signedOutDestination = deleting ? .welcome : .login
+            signedOutDestination = .welcome
             pendingIdentity = nil
             activeProfile = nil
             accountExitProgress = nil
