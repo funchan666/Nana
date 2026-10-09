@@ -84,10 +84,17 @@ private final class NanaSecureHostingController<Content: View>: UIViewController
             didAttemptCanvas = true
             secureCanvas = secureTextField.subviews.first(where: { String(describing: type(of: $0)).contains("CanvasView") })
         }
-        host.view.frame = (secureCanvas ?? view).bounds
-        if let secureCanvas, host.view.superview !== secureCanvas {
+        let canvasIsUsable = secureCanvas.map { $0.bounds.width > 1 && $0.bounds.height > 1 } == true
+        let target: UIView
+        if canvasIsUsable, let secureCanvas {
+            target = secureCanvas
+        } else {
+            target = view
+        }
+        host.view.frame = target.bounds
+        if host.view.superview !== target {
             host.view.removeFromSuperview()
-            secureCanvas.addSubview(host.view)
+            target.addSubview(host.view)
         }
     }
 

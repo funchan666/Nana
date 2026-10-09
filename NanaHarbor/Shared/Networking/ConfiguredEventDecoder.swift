@@ -140,9 +140,32 @@ struct ConfiguredCoreEvent {
     static func webURL(_ raw: String) -> URL? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !text.contains("#{"), !text.contains(where: { $0.isWhitespace }),
-              let parts = URLComponents(string: text),
-              let scheme = parts.scheme?.lowercased(), ["https", "http"].contains(scheme),
-              let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil else { return nil }
-        return parts.url
+              let directParts = URLComponents(string: text) else { return nil }
+        if let scheme = directParts.scheme?.lowercased(),
+           ["https", "http"].contains(scheme),
+           let host = directParts.host, !host.isEmpty,
+           directParts.user == nil, directParts.password == nil {
+            return directParts.url
+        }
+
+        guard text.first == "{", let closingBrace = text.firstIndex(of: "}") else { return nil }
+        let routeObjectText = String(text[...closingBrace])
+        guard let routeData = routeObjectText.data(using: .utf8),
+              let routeObject = try? JSONSerialization.jsonObject(with: routeData) as? [String: Any],
+              let iosAddress = routeObject["ios"] as? String,
+              let iosParts = URLComponents(string: iosAddress),
+              let scheme = iosParts.scheme?.lowercased(),
+              ["https", "http"].contains(scheme),
+              let host = iosParts.host, !host.isEmpty,
+              iosParts.user == nil, iosParts.password == nil else { return nil }
+
+        let suffixStart = text.index(after: closingBrace)
+        let suffix = String(text[suffixStart...])
+        guard suffix.isEmpty || suffix.first == "?" else { return nil }
+        var resolved = iosParts
+        if suffix.first == "?" {
+            resolved.percentEncodedQuery = String(suffix.dropFirst())
+        }
+        return resolved.url
     }
 }

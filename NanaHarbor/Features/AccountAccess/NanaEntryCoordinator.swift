@@ -12,6 +12,7 @@ struct NanaEntryCoordinator: View {
     @State private var entryRoute: AccountRoute = .landing
     @State private var harborAddress: URL?
     @State private var realtimeTransport = ConfiguredRealtimeTransport()
+    @State private var realtimeScope: String?
     @State private var routeDecision: NanaEntryDecision = .waiting
     @State private var routeTimer: Task<Void, Never>?
 
@@ -73,6 +74,7 @@ struct NanaEntryCoordinator: View {
                 routeDecision = .waiting
                 routeTimer?.cancel()
                 realtimeTransport.stop()
+                realtimeScope = nil
                 entryRoute = sessionStore.signedOutDestination == .login ? .login : .landing
                 selectedHarbor = .home
             } else {
@@ -111,11 +113,14 @@ struct NanaEntryCoordinator: View {
     }
 
     private func startRealtime() {
+        guard let scope = sessionStore.activeProfile?.localAccountScope,
+              realtimeScope != scope else { return }
         guard let token = sessionStore.remoteTokenRequest,
               let configuration = try? ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID) else {
             routeDecision = .a
             return
         }
+        realtimeScope = scope
         routeTimer?.cancel()
         routeTimer = Task { @MainActor in
             try? await Task.sleep(for: .seconds(15))

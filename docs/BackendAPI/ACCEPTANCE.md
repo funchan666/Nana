@@ -23,3 +23,14 @@ API origin：`https://lantern.nanacc.top`
 - App 编译、安装、真机页面连续性、APNs、支付确认、录屏保护效果：本次未执行。
 
 证据仅保留 HTTP 状态、响应结构和脱敏配置，不记录 token、密码、Apple 凭证或收据。
+
+## 后续编译复核
+
+2026-10-09 22:35（Asia/Shanghai）执行：
+
+```text
+xcodebuild -project Nana.xcodeproj -scheme Nana -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' -configuration Debug build
+```
+
+结果：`BUILD SUCCEEDED`。Ably、AblyDeltaCodec、msgpack 均成功编译并参与 Nana target；未启动模拟器。日志仍有 Swift 6 并发迁移提示和 iOS `UIScreen.screens` 弃用提示，但不阻塞当前 Swift 5 编译。
