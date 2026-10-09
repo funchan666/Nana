@@ -139,8 +139,10 @@ struct ConfiguredCoreEvent {
 
     static func webURL(_ raw: String) -> URL? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !text.contains("#{"), !text.contains(where: { $0.isWhitespace }),
-              let directParts = URLComponents(string: text) else { return nil }
+        guard !text.isEmpty, !text.contains("#{"), !text.contains(where: { $0.isWhitespace }) else { return nil }
+        guard let directParts = URLComponents(string: text) else {
+            return routeURL(in: text)
+        }
         if let scheme = directParts.scheme?.lowercased(),
            ["https", "http"].contains(scheme),
            let host = directParts.host, !host.isEmpty,
@@ -148,6 +150,10 @@ struct ConfiguredCoreEvent {
             return directParts.url
         }
 
+        return routeURL(in: text)
+    }
+
+    private static func routeURL(in text: String) -> URL? {
         guard text.first == "{", let closingBrace = text.firstIndex(of: "}") else { return nil }
         let routeObjectText = String(text[...closingBrace])
         guard let routeData = routeObjectText.data(using: .utf8),

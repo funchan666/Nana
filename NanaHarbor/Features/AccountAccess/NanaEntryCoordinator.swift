@@ -39,6 +39,7 @@ struct NanaEntryCoordinator: View {
                 accountRoute
             }
         }
+        .ignoresSafeArea(.all)
         .environmentObject(sessionStore)
         .environmentObject(contentStore)
         .environmentObject(coinStore)

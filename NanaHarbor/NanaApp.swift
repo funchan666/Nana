@@ -6,6 +6,7 @@ struct NanaApp: App {
     var body: some Scene {
         WindowGroup {
             NanaEntryCoordinator()
+                .ignoresSafeArea(.all)
                 .preferredColorScheme(.dark)
                 .onOpenURL { NanaURLRouter.shared.receive($0) }
         }

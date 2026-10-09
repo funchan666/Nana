@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 
+@MainActor
 final class NanaCaptureState: ObservableObject {
     static let shared = NanaCaptureState()
     @Published private(set) var isCaptured = false
@@ -8,14 +9,27 @@ final class NanaCaptureState: ObservableObject {
     private var sceneObservers: [NSObjectProtocol] = []
 
     private init() {
-        isCaptured = UIScreen.screens.contains { $0.isCaptured }
+        isCaptured = Self.isAnyScreenCaptured
         observer = NotificationCenter.default.addObserver(forName: UIScreen.capturedDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.isCaptured = UIScreen.screens.contains { $0.isCaptured }
+            Task { @MainActor in
+                self?.isCaptured = Self.isAnyScreenCaptured
+            }
         }
         sceneObservers = [
-            NotificationCenter.default.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] _ in self?.isCaptured = self?.isCaptured ?? false },
-            NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] _ in self?.isCaptured = UIScreen.screens.contains { $0.isCaptured } }
+            NotificationCenter.default.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.isCaptured = self?.isCaptured ?? false }
+            },
+            NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.isCaptured = Self.isAnyScreenCaptured }
+            }
         ]
+    }
+
+    private static var isAnyScreenCaptured: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.screens)
+            .contains { $0.isCaptured }
     }
 
     deinit {
@@ -30,7 +44,7 @@ struct NanaPrivacyShield: ViewModifier {
 
     func body(content: Content) -> some View {
         ZStack {
-            NanaSecureContentCanvas(content: content)
+            NanaSecureContentCanvas(content: content.ignoresSafeArea(.all))
             if scenePhase != .active || captureState.isCaptured {
                 Color.black.ignoresSafeArea().overlay {
                     Text("Nana is protected while this screen is unavailable.")
@@ -68,12 +82,15 @@ private final class NanaSecureHostingController<Content: View>: UIViewController
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        view.insetsLayoutMarginsFromSafeArea = false
         secureTextField.isSecureTextEntry = true
         secureTextField.isUserInteractionEnabled = false
         secureTextField.backgroundColor = .clear
         view.addSubview(secureTextField)
         addChild(host)
         view.addSubview(host.view)
+        host.view.backgroundColor = .clear
+        host.view.insetsLayoutMarginsFromSafeArea = false
         host.didMove(toParent: self)
     }
 

@@ -26,6 +26,7 @@ struct NanaHarborShellView: View {
             NanaTabRail(selectedHarbor: $selectedHarbor)
         }
         .background(NanaPalette.tabBarBackground)
+        .ignoresSafeArea(.all)
         .preferredColorScheme(.dark)
         // The notice intercepts background taps itself. Disabling this presenter
         // also disables notices inside its full-screen rooms and nested sheets.

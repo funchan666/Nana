@@ -20,16 +20,15 @@ struct NanaAuthenticationResult {
     let message: String
 }
 
+@MainActor
 final class NanaPushTokenCoordinator: NSObject, UIApplicationDelegate {
     static let shared = NanaPushTokenCoordinator()
-    private let lock = NSLock()
     private var latestToken: String?
-    private var waiters: [UUID: CheckedContinuation<String, Never>] = [:]
     private var registrationStarted = false
 
     func start() {
-        lock.lock(); let shouldStart = !registrationStarted; registrationStarted = true; lock.unlock()
-        guard shouldStart else { return }
+        guard !registrationStarted else { return }
+        registrationStarted = true
         Task { @MainActor in
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             if settings.authorizationStatus == .notDetermined {
@@ -41,40 +40,21 @@ final class NanaPushTokenCoordinator: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-        lock.lock(); latestToken = token; let pending = waiters.values; waiters.removeAll(); lock.unlock()
-        pending.forEach { $0.resume(returning: token) }
+        latestToken = token
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        lock.lock(); let pending = waiters.values; waiters.removeAll(); lock.unlock()
-        pending.forEach { $0.resume(returning: "") }
+        latestToken = ""
     }
 
     func waitForCurrentToken(timeout: Duration = .seconds(5)) async -> String {
-        lock.lock()
-        if let latestToken { lock.unlock(); return latestToken }
-        let waiterID = UUID()
-        lock.unlock()
-        return await withTaskCancellationHandler(operation: {
-            await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-                lock.lock()
-                if let latest = latestToken { lock.unlock(); continuation.resume(returning: latest); return }
-                waiters[waiterID] = continuation
-                lock.unlock()
-                Task {
-                    try? await Task.sleep(for: timeout)
-                    lock.lock()
-                    let timedOut = waiters.removeValue(forKey: waiterID)
-                    lock.unlock()
-                    timedOut?.resume(returning: "")
-                }
-            }
-        }, onCancel: {
-            self.lock.lock()
-            let cancelled = self.waiters.removeValue(forKey: waiterID)
-            self.lock.unlock()
-            cancelled?.resume(returning: "")
-        })
+        if let latestToken { return latestToken }
+        let deadline = ContinuousClock.now + timeout
+        while latestToken == nil && ContinuousClock.now < deadline {
+            guard !Task.isCancelled else { return "" }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return latestToken ?? ""
     }
 }
 
@@ -95,6 +75,7 @@ struct NanaDeviceIdentity {
     }
 }
 
+@MainActor
 struct NanaAuthenticationBoundary {
     private let client: NanaAServiceClient
     private let pushTokens: NanaPushTokenCoordinator
