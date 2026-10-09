@@ -30,7 +30,7 @@ struct NanaPrivacyShield: ViewModifier {
 
     func body(content: Content) -> some View {
         ZStack {
-            NanaSecureContentCanvas { content }
+            NanaSecureContentCanvas(content: content)
             if scenePhase != .active || captureState.isCaptured {
                 Color.black.ignoresSafeArea().overlay {
                     Text("Nana is protected while this screen is unavailable.")

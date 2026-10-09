@@ -80,10 +80,12 @@ private struct NanaProtectedWebDocument: UIViewRepresentable {
                 let microphoneNeeded = type == .microphone || type == .cameraAndMicrophone
                 var allowed = true
                 if cameraNeeded {
-                    allowed = allowed && await Self.requestAccess(for: .video)
+                    let cameraAllowed = await Self.requestAccess(for: .video)
+                    allowed = allowed && cameraAllowed
                 }
                 if microphoneNeeded {
-                    allowed = allowed && await Self.requestAccess(for: .audio)
+                    let microphoneAllowed = await Self.requestAccess(for: .audio)
+                    allowed = allowed && microphoneAllowed
                 }
                 decisionHandler(allowed ? .grant : .deny)
             }
