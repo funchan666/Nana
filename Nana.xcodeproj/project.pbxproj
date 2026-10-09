@@ -43,6 +43,7 @@
 		C00100000000000000000005 /* NanaHarborWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000005 /* NanaHarborWebView.swift */; };
 		C00100000000000000000006 /* NanaPrivacyShield.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000006 /* NanaPrivacyShield.swift */; };
 		C00100000000000000000007 /* NanaURLRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000007 /* NanaURLRouter.swift */; };
+		C00300000000000000000002 /* Ably in Frameworks */ = {isa = PBXBuildFile; productRef = C00300000000000000000001 /* Ably */; };
 		C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */; };
 		D674ACA9771757901FE767AB /* photos in Resources */ = {isa = PBXBuildFile; fileRef = BE26AE3C52C9BCD3329FDC87 /* photos */; };
 		DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */; };
@@ -122,6 +123,17 @@
 		FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConsentNotice.swift; sourceTree = "<group>"; };
 		FF9AA2FFDD04CEE810E50A2C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C00500000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C00300000000000000000002 /* Ably in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		043265409E3F10D70CA7E7AB /* Root */ = {
@@ -346,6 +358,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 04A6DB9FA7D5B6F950D2A9DE /* Build configuration list for PBXNativeTarget "Nana" */;
 			buildPhases = (
+				C00500000000000000000001 /* Frameworks */,
 				361811B962EFF1EBAC072038 /* Sources */,
 				E9C77776167B48446DAD336B /* Resources */,
 			);
@@ -544,7 +557,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -575,7 +588,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
