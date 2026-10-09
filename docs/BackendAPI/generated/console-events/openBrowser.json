@@ -1,0 +1,6 @@
+{
+  "signal": "LanternExternalLink",
+  "navigation": {
+    "href": "#{openUrl}"
+  }
+}

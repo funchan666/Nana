@@ -1,0 +1,68 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "rooms": [
+      {
+        "id": "room-aurora",
+        "title": "Afterglow conversations",
+        "subtitle": "A soft place for unfinished thoughts",
+        "category": "Late night",
+        "hostID": "profile-ava",
+        "hostName": "Ava Monroe",
+        "hostAvatarAssetKey": "nana.pic.Dc0SA4UiUy3",
+        "viewerCount": 186,
+        "seatCapacity": 6,
+        "streamAssetKey": "nana.video.ariffathulhakim_Dbzl1fLurT2",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      },
+      {
+        "id": "room-studio",
+        "title": "Studio notes",
+        "subtitle": "Playlists, process, and quiet work",
+        "category": "Creative",
+        "hostID": "profile-jules",
+        "hostName": "Jules Harper",
+        "hostAvatarAssetKey": "nana.pic.Dc0XoT9DgeO",
+        "viewerCount": 93,
+        "seatCapacity": 9,
+        "streamAssetKey": "nana.video.berniemor_DddsSyxCRiE",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      },
+      {
+        "id": "room-lantern",
+        "title": "The lantern table",
+        "subtitle": "Come in, listen for a while",
+        "category": "Open talk",
+        "hostID": "profile-mira",
+        "hostName": "Mira Laurent",
+        "hostAvatarAssetKey": "nana.pic.Dc1CvDfCCHN",
+        "viewerCount": 68,
+        "seatCapacity": 3,
+        "streamAssetKey": "nana.video.capt.carterbrown_DbYh5-rhrZj",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      },
+      {
+        "id": "room-midnight",
+        "title": "Midnight radio",
+        "subtitle": "One song, one story, one new voice",
+        "category": "Music",
+        "hostID": "profile-noah",
+        "hostName": "Noah Reed",
+        "hostAvatarAssetKey": "nana.pic.Dc1Ii5HACCq",
+        "viewerCount": 242,
+        "seatCapacity": 12,
+        "streamAssetKey": "nana.video.coletrotta_DbWqTuiPTGg",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      }
+    ]
+  }
+}

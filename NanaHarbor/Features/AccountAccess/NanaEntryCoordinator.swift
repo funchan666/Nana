@@ -9,12 +9,23 @@ struct NanaEntryCoordinator: View {
     @State private var hasPresentedLaunchArtwork = false
     @State private var selectedHarbor: NanaHarbor = .home
     @State private var entryRoute: AccountRoute = .landing
+    @State private var harborAddress: URL?
+    @State private var realtimeTransport = ConfiguredRealtimeTransport()
+    @State private var routeDecision: NanaEntryDecision = .waiting
+    @State private var routeTimer: Task<Void, Never>?
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if !hasPresentedLaunchArtwork {
                 launchLoading
+            } else if sessionStore.activeProfile != nil && routeDecision == .waiting {
+                routeLoading
+            } else if let harborAddress {
+                NanaHarborWebView(address: harborAddress) {
+                    self.harborAddress = nil
+                    routeDecision = .a
+                }
             } else if sessionStore.activeProfile != nil {
                 NanaHarborShellView(selectedHarbor: $selectedHarbor)
                     .environmentObject(sessionStore)
@@ -29,11 +40,14 @@ struct NanaEntryCoordinator: View {
         .environmentObject(sessionStore)
         .environmentObject(contentStore)
         .environmentObject(coinStore)
+        .modifier(NanaPrivacyShield())
         .disabled(sessionStore.accountExitProgress != nil)
         .accessibilityHidden(sessionStore.accountExitProgress != nil)
         .task {
             guard !hasPresentedLaunchArtwork else { return }
+            NanaPushTokenCoordinator.shared.start()
             await sessionStore.restoreLocalSession()
+            if sessionStore.activeProfile != nil { startRealtime() }
             do {
                 try await Task.sleep(for: .milliseconds(1500))
                 hasPresentedLaunchArtwork = true
@@ -54,8 +68,15 @@ struct NanaEntryCoordinator: View {
         }
         .onChange(of: sessionStore.activeProfile?.localAccountScope) { _, scope in
             if scope == nil {
+                harborAddress = nil
+                routeDecision = .waiting
+                routeTimer?.cancel()
+                realtimeTransport.stop()
                 entryRoute = sessionStore.signedOutDestination == .login ? .login : .landing
                 selectedHarbor = .home
+            } else {
+                routeDecision = .waiting
+                startRealtime()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -76,6 +97,8 @@ struct NanaEntryCoordinator: View {
         .overlay {
             if let progress = sessionStore.accountExitProgress {
                 NanaAccountExitOverlay(progress: progress)
+            } else if coinStore.purchasingProductID != nil {
+                NanaPaymentOverlay()
             } else if let gift = coinStore.welcomeGift {
                 NanaWelcomeGiftOverlay(gift: gift) { coinStore.dismissWelcomeGift() }
             } else if let notice = coinStore.notice {
@@ -83,6 +106,79 @@ struct NanaEntryCoordinator: View {
             } else if let notice = sessionStore.sessionNotice {
                 AccountConsentNotice(notice: notice) { sessionStore.sessionNotice = nil }
             }
+        }
+    }
+
+    private func startRealtime() {
+        guard let token = sessionStore.remoteTokenRequest,
+              let configuration = try? ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID) else {
+            routeDecision = .a
+            return
+        }
+        routeTimer?.cancel()
+        routeTimer = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled, routeDecision == .waiting else { return }
+            routeDecision = .a
+            sessionStore.sessionNotice = AccountEntryNotice(title: "Nana could not connect", explanation: "Your account session could not start. Please try again.")
+            _ = sessionStore.signOut(destination: .login)
+        }
+        realtimeTransport.onState = { state in
+            Task { @MainActor in
+                switch state {
+                case .connected:
+                    routeTimer?.cancel()
+                    routeTimer = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(3))
+                        guard !Task.isCancelled, routeDecision == .waiting else { return }
+                        routeDecision = .a
+                    }
+                case .failed:
+                    routeTimer?.cancel()
+                    routeDecision = .a
+                    sessionStore.sessionNotice = AccountEntryNotice(title: "Nana could not connect", explanation: "Your account session could not start. Please try again.")
+                    _ = sessionStore.signOut(destination: .login)
+                default: break
+                }
+            }
+        }
+        realtimeTransport.onMessage = { message in handleRealtimeMessage(message) }
+        realtimeTransport.start(configuration: configuration) { callback in
+            sessionStore.refreshRealtimeToken(completion: callback)
+        }
+    }
+
+    private func handleRealtimeMessage(_ message: ARTMessage) {
+        do {
+            let event = try ConfiguredCoreEvent.parse(requestID: UUID(), transportID: message.id, name: message.name, clientID: message.clientId, data: message.data)
+            switch event.kind {
+            case .page:
+                switch event.pageDestination {
+                case .url(let address):
+                    harborAddress = address
+                    routeDecision = .b
+                case .absent:
+                    routeDecision = .a
+                case .invalid:
+                    routeDecision = .a
+                case .notPage: break
+                }
+            case .expire:
+                _ = sessionStore.signOut(destination: .login)
+            case .externalOpen:
+                if let address = event.externalURL { UIApplication.shared.open(address, options: [:], completionHandler: nil) }
+            case .purchase:
+                guard let purchase = event.purchase,
+                      let pack = NanaCoinStore.packs.first(where: { $0.productID == purchase.sku }) else { break }
+                Task { await coinStore.purchase(pack: pack, orderCode: purchase.reference) }
+            }
+        } catch { }
+    }
+
+    private var routeLoading: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            AccountLoadingDots()
         }
     }
 
@@ -111,6 +207,8 @@ struct NanaEntryCoordinator: View {
         }
     }
 }
+
+private enum NanaEntryDecision { case waiting, a, b }
 
 enum AccountRoute {
     case landing

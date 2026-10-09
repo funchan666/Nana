@@ -1,0 +1,16 @@
+﻿role,method,path,response_file,note,response_chars,response_utf8_bytes
+loginMethods,GET,/nana/harbor/doorway,responses/login-methods.json,explicit configured response; backend capability is separate,107,107
+authenticate,POST,/nana/harbor/tidepass,responses/auth-response.json,explicit configured response; backend capability is separate,59,59
+confirmPurchase,POST,/nana/harbor/coin-confirm,responses/purchase-response.json,explicit configured response; backend capability is separate,32,32
+bootstrap,GET,/nana/harbor/bootstrap,responses/bootstrap.json,content file relative to BackendAPI,11069,11069
+homeFeed,GET,/nana/harbor/home-feed,responses/home-feed.json,content file relative to BackendAPI,2545,2545
+rooms,GET,/nana/harbor/rooms,responses/rooms.json,content file relative to BackendAPI,1584,1584
+auroraRoom,GET,/nana/harbor/rooms/aurora,responses/aurora-room.json,content file relative to BackendAPI,2429,2429
+avaProfile,GET,/nana/harbor/profiles/ava,responses/ava-profile.json,content file relative to BackendAPI,370,370
+echoesPost,GET,/nana/harbor/posts/echoes,responses/echoes-post.json,content file relative to BackendAPI,386,386
+search,GET,/nana/harbor/search,responses/search.json,content file relative to BackendAPI,4156,4156
+conversations,GET,/nana/harbor/conversations,responses/conversations.json,content file relative to BackendAPI,681,681
+avaMessages,GET,/nana/harbor/conversations/ava/messages,responses/ava-messages.json,content file relative to BackendAPI,423,423
+wallet,GET,/nana/harbor/wallet,responses/wallet.json,content file relative to BackendAPI,160,160
+gifts,GET,/nana/harbor/gifts,responses/gifts.json,content file relative to BackendAPI,806,806
+assetManifest,GET,/nana/harbor/assets,responses/asset-manifest.json,content file relative to BackendAPI,2029,2029

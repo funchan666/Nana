@@ -1,0 +1,6 @@
+{
+  "signal": "HarborPageReady",
+  "harbor": {
+    "destination": "#{h5Url}"
+  }
+}

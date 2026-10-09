@@ -8,6 +8,7 @@ struct NanaAccessLandingView: View {
     @State private var entryNotice: AccountEntryNotice?
     @State private var isAppleLoading = false
     @State private var appleService = AppleSignInService()
+    @State private var methodsLoading = true
 
     let openLogin: () -> Void
     let openRegistration: () -> Void
@@ -19,24 +20,25 @@ struct NanaAccessLandingView: View {
                 VStack(spacing: 0) {
                     Color.clear.frame(height: max(320, viewport.size.height * 0.54))
                     VStack(spacing: 0) {
-                        AccountArtworkButton(artworkName: "NanaLoginAction", spokenTitle: "Log in with email", action: {
-                            openLogin()
-                        })
-                        .padding(.horizontal, 17)
-                        Button {
-                            openRegistration()
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text("New to Nana?")
-                                    .foregroundStyle(AccountEntryAppearance.mutedText)
-                                Text("Create an account")
-                                    .underline()
-                                    .foregroundStyle(AccountEntryAppearance.linkLilac)
+                        if methodsLoading {
+                            AccountLoadingDots()
+                                .frame(maxWidth: .infinity, minHeight: 96)
+                        } else {
+                            if sessionStore.loginMethods.email {
+                                AccountArtworkButton(artworkName: "NanaLoginAction", spokenTitle: "Log in with email", action: { openLogin() })
+                                    .padding(.horizontal, 17)
                             }
-                            .font(.system(size: 12))
-                            .frame(minHeight: 48)
+                            if sessionStore.loginMethods.register {
+                                Button { openRegistration() } label: {
+                                    HStack(spacing: 5) {
+                                        Text("New to Nana?").foregroundStyle(AccountEntryAppearance.mutedText)
+                                        Text("Create an account").underline().foregroundStyle(AccountEntryAppearance.linkLilac)
+                                    }
+                                    .font(.system(size: 12)).frame(minHeight: 48)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
                         HStack(spacing: 5) {
                             Rectangle().frame(width: 24, height: 0.5)
                             Text("or continue with Apple")
@@ -45,8 +47,10 @@ struct NanaAccessLandingView: View {
                         }
                         .foregroundStyle(AccountEntryAppearance.mutedText)
                         .padding(.vertical, 18)
-                        AccountArtworkButton(artworkName: "NanaAppleAction", spokenTitle: "Sign in with Apple", action: beginAppleSignIn)
-                            .padding(.horizontal, 17)
+                        if sessionStore.loginMethods.apple {
+                            AccountArtworkButton(artworkName: "NanaAppleAction", spokenTitle: "Sign in with Apple", action: beginAppleSignIn)
+                                .padding(.horizontal, 17)
+                        }
                         AgreementConsentRow(isAccepted: $hasAcceptedAgreements) { selectedPolicy = $0 }
                             .padding(.top, 20)
                     }
@@ -61,8 +65,12 @@ struct NanaAccessLandingView: View {
         .ignoresSafeArea(.container)
         .background { AccountArtworkSurface(artworkName: "NanaAccountArtwork") }
         .background(.black)
-        .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
-        .disabled(entryNotice != nil || isAppleLoading)
+        .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark).modifier(NanaPrivacyShield()) }
+        .disabled(entryNotice != nil || isAppleLoading || methodsLoading)
+        .task {
+            await sessionStore.loadLoginMethods()
+            methodsLoading = false
+        }
         .overlay {
             if let entryNotice {
                 AccountConsentNotice(notice: entryNotice) { self.entryNotice = nil }
@@ -87,18 +95,22 @@ struct NanaAccessLandingView: View {
         guard requireAgreementConsent() else { return }
         isAppleLoading = true
         appleService.begin { result in
-            isAppleLoading = false
-            switch result {
-            case .success(let identity):
-                do {
-                    let hasCompletedProfile = try sessionStore.acceptAppleAuthorization(identity)
-                    if !hasCompletedProfile { openProfile() }
-                } catch {
-                    entryNotice = AccountEntryNotice(title: "Couldn't save your Apple profile", explanation: error.localizedDescription)
+            Task { @MainActor in
+                switch result {
+                case .success(let identity):
+                    do {
+                        let hasCompletedProfile = try await sessionStore.acceptAppleAuthorization(identity)
+                        isAppleLoading = false
+                        if !hasCompletedProfile { openProfile() }
+                    } catch {
+                        isAppleLoading = false
+                        entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: error.localizedDescription)
+                    }
+                case .failure(let error):
+                    isAppleLoading = false
+                    if let authorizationError = error as? ASAuthorizationError, authorizationError.code == .canceled { return }
+                    entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: "Please try Sign in with Apple again.")
                 }
-            case .failure(let error):
-                if let authorizationError = error as? ASAuthorizationError, authorizationError.code == .canceled { return }
-                entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: "Please try Sign in with Apple again.")
             }
         }
     }

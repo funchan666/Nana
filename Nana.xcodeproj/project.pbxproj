@@ -36,6 +36,13 @@
 		AACA8C2956A3AE7524052368 /* WarmThreadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6494A6E3FEE0378AB906383A /* WarmThreadsView.swift */; };
 		AE8D2B8FA6F0DC0D814DED24 /* videos in Resources */ = {isa = PBXBuildFile; fileRef = 768EC854236C626754AF0D37 /* videos */; };
 		B9CE65DA430A5369D5141C03 /* AccountEntryDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E89FD14C95B5F89D3454CA /* AccountEntryDraft.swift */; };
+		C00100000000000000000001 /* ConfiguredEventDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000001 /* ConfiguredEventDecoder.swift */; };
+		C00100000000000000000002 /* ConfiguredRealtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000002 /* ConfiguredRealtime.swift */; };
+		C00100000000000000000003 /* IntegrationContract.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000003 /* IntegrationContract.generated.swift */; };
+		C00100000000000000000004 /* NanaAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000004 /* NanaAppDelegate.swift */; };
+		C00100000000000000000005 /* NanaHarborWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000005 /* NanaHarborWebView.swift */; };
+		C00100000000000000000006 /* NanaPrivacyShield.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000006 /* NanaPrivacyShield.swift */; };
+		C00100000000000000000007 /* NanaURLRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000007 /* NanaURLRouter.swift */; };
 		C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */; };
 		D674ACA9771757901FE767AB /* photos in Resources */ = {isa = PBXBuildFile; fileRef = BE26AE3C52C9BCD3329FDC87 /* photos */; };
 		DA5F3A50C1234E6AB0000001 /* NanaLiveRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */; };
@@ -85,6 +92,13 @@
 		B691640B726CD039CFB5FD4A /* AccountPolicyBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountPolicyBrowser.swift; sourceTree = "<group>"; };
 		BCB3DE978120188D83EC8E8F /* NanaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaApp.swift; sourceTree = "<group>"; };
 		BE26AE3C52C9BCD3329FDC87 /* photos */ = {isa = PBXFileReference; lastKnownFileType = folder; name = photos; path = assets/photos; sourceTree = SOURCE_ROOT; };
+		C00200000000000000000001 /* ConfiguredEventDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfiguredEventDecoder.swift; sourceTree = "<group>"; };
+		C00200000000000000000002 /* ConfiguredRealtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfiguredRealtime.swift; sourceTree = "<group>"; };
+		C00200000000000000000003 /* IntegrationContract.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationContract.generated.swift; sourceTree = "<group>"; };
+		C00200000000000000000004 /* NanaAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAppDelegate.swift; sourceTree = "<group>"; };
+		C00200000000000000000005 /* NanaHarborWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaHarborWebView.swift; sourceTree = "<group>"; };
+		C00200000000000000000006 /* NanaPrivacyShield.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaPrivacyShield.swift; sourceTree = "<group>"; };
+		C00200000000000000000007 /* NanaURLRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaURLRouter.swift; sourceTree = "<group>"; };
 		D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveComponents.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveRoomView.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000004 /* NanaRoomReplayActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaRoomReplayActivityView.swift; sourceTree = "<group>"; };
@@ -147,6 +161,9 @@
 		20C8EF6CAC2B6ED5E27BBA7D /* Support */ = {
 			isa = PBXGroup;
 			children = (
+				C00200000000000000000004 /* NanaAppDelegate.swift */,
+				C00200000000000000000006 /* NanaPrivacyShield.swift */,
+				C00200000000000000000007 /* NanaURLRouter.swift */,
 				A10E7170B4575B52F8A46058 /* AppInfo.plist */,
 				B60A8D604151F941C1B3189C /* Nana.entitlements */,
 				39F3E5A735632E22B152C06A /* LaunchPresentation */,
@@ -208,6 +225,9 @@
 		530C08682C92E13CBEB927BD /* Networking */ = {
 			isa = PBXGroup;
 			children = (
+				C00200000000000000000001 /* ConfiguredEventDecoder.swift */,
+				C00200000000000000000002 /* ConfiguredRealtime.swift */,
+				C00200000000000000000003 /* IntegrationContract.generated.swift */,
 				F8FAB44DCF531B86DFB9B131 /* NanaAServiceClient.swift */,
 				F1AA70A839F4C14E55F057CC /* NanaAuthenticationBoundary.swift */,
 			);
@@ -283,6 +303,7 @@
 		C623CA3E1FDFE6E4C4F49CB2 /* AccountAccess */ = {
 			isa = PBXGroup;
 			children = (
+				C00200000000000000000005 /* NanaHarborWebView.swift */,
 				8F413E4222BA6213AD488FAB /* AccountArtworkSurface.swift */,
 				FE627739C59EDAB2370C39E6 /* AccountConsentNotice.swift */,
 				4C8BFF550EAEC135F636EFBF /* AccountCredentialRow.swift */,
@@ -334,6 +355,7 @@
 			);
 			name = Nana;
 			packageProductDependencies = (
+				C00300000000000000000001 /* Ably */,
 			);
 			productName = Nana;
 			productReference = 5387E006AC6DA430C36A36A8 /* Nana.app */;
@@ -358,6 +380,9 @@
 			);
 			mainGroup = 91A37A184D7DC03E612F4896;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C00400000000000000000001 /* XCRemoteSwiftPackageReference "ably-cocoa" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -397,6 +422,13 @@
 				903E1E5EA2A409E11839FD72 /* AppleSignInService.swift in Sources */,
 				863DDAA1663382A09FE3B359 /* EntryLoadingViews.swift in Sources */,
 				60939F615EAC72FA7CEF915F /* HarborGatheringView.swift in Sources */,
+				C00100000000000000000001 /* ConfiguredEventDecoder.swift in Sources */,
+				C00100000000000000000002 /* ConfiguredRealtime.swift in Sources */,
+				C00100000000000000000003 /* IntegrationContract.generated.swift in Sources */,
+				C00100000000000000000004 /* NanaAppDelegate.swift in Sources */,
+				C00100000000000000000005 /* NanaHarborWebView.swift in Sources */,
+				C00100000000000000000006 /* NanaPrivacyShield.swift in Sources */,
+				C00100000000000000000007 /* NanaURLRouter.swift in Sources */,
 				63BCAE5B1D0D4F56AB6D66BC /* NanaAServiceClient.swift in Sources */,
 				5E30B7B45A8F32FD239B88D0 /* NanaAccessLandingView.swift in Sources */,
 				0FEF682DBD4832FE7C0E50D8 /* NanaApp.swift in Sources */,
@@ -512,7 +544,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -543,7 +575,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nanalantern.harbortide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -648,6 +680,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C00400000000000000000001 /* XCRemoteSwiftPackageReference "ably-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ably/ably-cocoa";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C00300000000000000000001 /* Ably */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C00400000000000000000001 /* XCRemoteSwiftPackageReference "ably-cocoa" */;
+			productName = Ably;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C9E89ADC1D1FB8D084AD9E20 /* Project object */;
 }

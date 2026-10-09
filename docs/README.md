@@ -7,6 +7,7 @@
 - [发布准备记录](release-readiness.md)
 - [Codemagic 打包与上传](codemagic-build.md)
 - [发布包资源检查使用说明](release-resource-audit.md)
+- [Prada 后端契约与导入文件](BackendAPI/contract.json)
 - [设计与实现记录](brand-spec.md)
 - [房间音乐说明](room-music-notes.md)
 - [图片无损优化记录](release-image-inventory.json)

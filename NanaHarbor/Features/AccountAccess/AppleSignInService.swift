@@ -5,6 +5,8 @@ struct AppleIdentityResult {
     let stableIdentity: String
     let emailAddress: String?
     let displayName: String?
+    let identityToken: String?
+    let authorizationCode: String?
 }
 
 @MainActor
@@ -43,7 +45,9 @@ final class AppleSignInService: NSObject, ASAuthorizationControllerDelegate, ASA
         }
         let formatter = PersonNameComponentsFormatter()
         let name = credential.fullName.flatMap { formatter.string(from: $0) }
-        finish(.success(AppleIdentityResult(stableIdentity: credential.user, emailAddress: credential.email, displayName: name)))
+        let identityToken = credential.identityToken.flatMap { String(data: $0, encoding: .utf8) }
+        let authorizationCode = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
+        finish(.success(AppleIdentityResult(stableIdentity: credential.user, emailAddress: credential.email, displayName: name, identityToken: identityToken, authorizationCode: authorizationCode)))
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {

@@ -1,0 +1,103 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "rooms": [
+      {
+        "id": "room-aurora",
+        "title": "Afterglow conversations",
+        "subtitle": "A soft place for unfinished thoughts",
+        "category": "Late night",
+        "hostID": "profile-ava",
+        "hostName": "Ava Monroe",
+        "hostAvatarAssetKey": "nana.pic.Dc0SA4UiUy3",
+        "viewerCount": 186,
+        "seatCapacity": 6,
+        "streamAssetKey": "nana.video.ariffathulhakim_Dbzl1fLurT2",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      },
+      {
+        "id": "room-studio",
+        "title": "Studio notes",
+        "subtitle": "Playlists, process, and quiet work",
+        "category": "Creative",
+        "hostID": "profile-jules",
+        "hostName": "Jules Harper",
+        "hostAvatarAssetKey": "nana.pic.Dc0XoT9DgeO",
+        "viewerCount": 93,
+        "seatCapacity": 9,
+        "streamAssetKey": "nana.video.berniemor_DddsSyxCRiE",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      },
+      {
+        "id": "room-lantern",
+        "title": "The lantern table",
+        "subtitle": "Come in, listen for a while",
+        "category": "Open talk",
+        "hostID": "profile-mira",
+        "hostName": "Mira Laurent",
+        "hostAvatarAssetKey": "nana.pic.Dc1CvDfCCHN",
+        "viewerCount": 68,
+        "seatCapacity": 3,
+        "streamAssetKey": "nana.video.capt.carterbrown_DbYh5-rhrZj",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      },
+      {
+        "id": "room-midnight",
+        "title": "Midnight radio",
+        "subtitle": "One song, one story, one new voice",
+        "category": "Music",
+        "hostID": "profile-noah",
+        "hostName": "Noah Reed",
+        "hostAvatarAssetKey": "nana.pic.Dc1Ii5HACCq",
+        "viewerCount": 242,
+        "seatCapacity": 12,
+        "streamAssetKey": "nana.video.coletrotta_DbWqTuiPTGg",
+        "streamSourceType": "simulatedReplay",
+        "roomState": "Live now",
+        "isFollowingHost": false
+      }
+    ],
+    "posts": [
+      {
+        "id": "post-echoes",
+        "authorID": "profile-ava",
+        "authorName": "Ava Monroe",
+        "title": "What makes a room feel safe?",
+        "body": "I keep thinking it is not the number of people. It is the way someone leaves a little space for the next voice.",
+        "category": "Room culture",
+        "coverAssetKey": "nana.pic.Dc1fyTwF2Hv",
+        "commentCount": 28,
+        "publishedLabel": "12 min ago"
+      },
+      {
+        "id": "post-studio",
+        "authorID": "profile-jules",
+        "authorName": "Jules Harper",
+        "title": "Three songs for a slow afternoon",
+        "body": "A small listening list for when you want the day to move at a different pace.",
+        "category": "Music",
+        "coverAssetKey": "nana.pic.Dc2AwHAjPnJ",
+        "commentCount": 14,
+        "publishedLabel": "1 hr ago"
+      },
+      {
+        "id": "post-question",
+        "authorID": "profile-lin",
+        "authorName": "Lin Wei",
+        "title": "A question for the next room",
+        "body": "What is something you learned from a stranger that stayed with you?",
+        "category": "Community",
+        "coverAssetKey": "nana.pic.Dc3eSgKCMLY",
+        "commentCount": 42,
+        "publishedLabel": "Yesterday"
+      }
+    ]
+  }
+}

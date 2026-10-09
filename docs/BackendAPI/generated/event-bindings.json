@@ -1,0 +1,49 @@
+{
+  "linkSuccessMessage": {
+    "name": "HarborPageReady",
+    "discriminator": [
+      "signal"
+    ],
+    "values": {
+      "h5Url": [
+        "harbor",
+        "destination"
+      ]
+    }
+  },
+  "pay": {
+    "name": "LanternCheckout",
+    "discriminator": [
+      "signal"
+    ],
+    "values": {
+      "orderCode": [
+        "order",
+        "reference"
+      ],
+      "batchNo": [
+        "order",
+        "product"
+      ]
+    }
+  },
+  "logout": {
+    "name": "HarborSessionEnded",
+    "discriminator": [
+      "signal"
+    ],
+    "values": {}
+  },
+  "openBrowser": {
+    "name": "LanternExternalLink",
+    "discriminator": [
+      "signal"
+    ],
+    "values": {
+      "openUrl": [
+        "navigation",
+        "href"
+      ]
+    }
+  }
+}

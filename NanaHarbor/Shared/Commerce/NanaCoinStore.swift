@@ -21,10 +21,20 @@ struct NanaWelcomeGift {
     let detail: String
 }
 
+private struct NanaPendingPurchase: Codable, Hashable {
+    let transactionID: String
+    let productID: String
+    let ownerAccountID: String
+    let receipt: String
+    var orderCode: String?
+}
+
 private struct NanaCoinAccountRecord: Codable {
     var balance: Int
     var receivedWelcomeGift: Bool
     var processedTransactionIDs: Set<UInt64>
+    var pendingPurchases: [String: NanaPendingPurchase]? = nil
+    var pendingOrderCodes: [String: String]? = nil
     // Optional for compatibility with previously saved account ledgers.
     var roomGiftReceipts: [NanaRoomGiftReceipt]? = nil
     var purchaseAccountToken: UUID? = nil
@@ -65,6 +75,11 @@ final class NanaCoinStore: ObservableObject {
     private var ledgerLoaded = false
     private var accountScope: String?
     private var transactionUpdatesTask: Task<Void, Never>?
+    private let authentication: NanaAuthenticationBoundary
+
+    init(authentication: NanaAuthenticationBoundary = NanaAuthenticationBoundary()) {
+        self.authentication = authentication
+    }
 
     deinit {
         transactionUpdatesTask?.cancel()
@@ -79,6 +94,7 @@ final class NanaCoinStore: ObservableObject {
         products = []
         notice = nil
         welcomeGift = nil
+        startTransactionListener()
         guard let accountID else { return }
 
         do {
@@ -93,10 +109,37 @@ final class NanaCoinStore: ObservableObject {
                 welcomeGift = gift
                 try persistLedger()
             }
-            startTransactionListener()
+            Task { await retryPendingServerConfirmations(accountID: accountID) }
         } catch {
             notice = AccountEntryNotice(title: "Wallet unavailable", explanation: "Nana couldn't open your coin balance. Please try again.")
         }
+    }
+
+    private func retryPendingServerConfirmations(accountID: String) async {
+        guard accountScope == accountID else { return }
+        do {
+            try loadLedgerIfNeeded()
+            guard var record = ledger.accounts[accountID] else { return }
+            var changed = false
+            for pending in (record.pendingPurchases ?? [:]).values {
+                guard let orderCode = pending.orderCode, !orderCode.isEmpty,
+                      let pack = Self.packs.first(where: { $0.productID == pending.productID }) else { continue }
+                do {
+                    try await authentication.confirmPurchase(transactionID: pending.transactionID, receipt: pending.receipt, orderCode: orderCode)
+                    record.pendingPurchases?.removeValue(forKey: pending.transactionID)
+                    record.pendingOrderCodes?.removeValue(forKey: pending.productID)
+                    if let id = UInt64(pending.transactionID) { record.processedTransactionIDs.insert(id) }
+                    record.balance += pack.coins
+                    changed = true
+                } catch { }
+            }
+            guard changed else { return }
+            var updated = ledger
+            updated.accounts[accountID] = record
+            try persistLedger(updated)
+            ledger = updated
+            balance = record.balance
+        } catch { }
     }
 
     func dismissWelcomeGift() {
@@ -151,7 +194,7 @@ final class NanaCoinStore: ObservableObject {
         products.first(where: { $0.id == pack.productID })?.displayPrice ?? "View price"
     }
 
-    func purchase(pack: NanaCoinPack) async {
+    func purchase(pack: NanaCoinPack, orderCode: String? = nil) async {
         guard purchasingProductID == nil else { return }
         guard let purchasingAccount = accountScope else {
             notice = AccountEntryNotice(title: "Sign in required", explanation: "Sign in before adding coins to your balance.")
@@ -170,6 +213,11 @@ final class NanaCoinStore: ObservableObject {
             guard var record = ledger.accounts[purchasingAccount] else { return }
             let token = record.purchaseAccountToken ?? UUID()
             record.purchaseAccountToken = token
+            if let orderCode, !orderCode.isEmpty {
+                var pendingOrderCodes = record.pendingOrderCodes ?? [:]
+                pendingOrderCodes[pack.productID] = orderCode
+                record.pendingOrderCodes = pendingOrderCodes
+            }
             var updated = ledger
             updated.accounts[purchasingAccount] = record
             try persistLedger(updated)
@@ -272,33 +320,52 @@ final class NanaCoinStore: ObservableObject {
         }
         do {
             try loadLedgerIfNeeded()
-            guard !ledger.accounts.values.contains(where: { $0.processedTransactionIDs.contains(transaction.id) }),
+            guard !(ledger.accounts.values.contains { $0.processedTransactionIDs.contains(transaction.id) }),
                   !(ledger.removedAccountTransactionIDs ?? []).contains(transaction.id) else {
                 await transaction.finish()
                 return
             }
-            // Delayed approvals remain attached to the purchasing account after a switch.
             let owner: String?
             if let token = transaction.appAccountToken {
                 owner = ledger.accounts.first(where: { $0.value.purchaseAccountToken == token })?.key
-            } else {
-                owner = purchasingAccount
-            }
+            } else { owner = purchasingAccount }
             guard let owner, var record = ledger.accounts[owner] else {
-                notice = AccountEntryNotice(title: "Purchase needs account verification",
-                    explanation: "This purchase could not be linked to its original Nana account. No coins were assigned to the current account.")
+                notice = AccountEntryNotice(title: "Purchase needs account verification", explanation: "This purchase could not be linked to its original Nana account. No coins were assigned to the current account.")
                 return
             }
-            record.processedTransactionIDs.insert(transaction.id)
-            record.balance += expectedPack.coins
+            guard let receiptURL = Bundle.main.appStoreReceiptURL,
+                  let receiptData = try? Data(contentsOf: receiptURL), !receiptData.isEmpty else {
+                notice = AccountEntryNotice(title: "Purchase awaiting receipt", explanation: "Apple confirmed the purchase. Nana will verify it when the receipt is available.")
+                return
+            }
+            let transactionID = String(transaction.id)
+            let existing = record.pendingPurchases?[transactionID]
+            let pending = NanaPendingPurchase(transactionID: transactionID, productID: expectedPack.productID, ownerAccountID: owner, receipt: existing?.receipt ?? receiptData.base64EncodedString(), orderCode: existing?.orderCode ?? record.pendingOrderCodes?[expectedPack.productID])
+            var pendingPurchases = record.pendingPurchases ?? [:]
+            pendingPurchases[transactionID] = pending
+            record.pendingPurchases = pendingPurchases
             var updatedLedger = ledger
             updatedLedger.accounts[owner] = record
             try persistLedger(updatedLedger)
             ledger = updatedLedger
-            if accountScope == owner { balance = record.balance }
+            guard let orderCode = pending.orderCode, !orderCode.isEmpty else {
+                notice = AccountEntryNotice(title: "Purchase awaiting confirmation", explanation: "Apple confirmed the purchase. Nana will finish it after the order is confirmed.")
+                return
+            }
+            try await authentication.confirmPurchase(transactionID: pending.transactionID, receipt: pending.receipt, orderCode: orderCode)
+            guard var confirmedRecord = ledger.accounts[owner], confirmedRecord.pendingPurchases?[transactionID] != nil else { return }
+            confirmedRecord.pendingPurchases?.removeValue(forKey: transactionID)
+            confirmedRecord.pendingOrderCodes?.removeValue(forKey: expectedPack.productID)
+            confirmedRecord.processedTransactionIDs.insert(transaction.id)
+            confirmedRecord.balance += expectedPack.coins
+            var confirmedLedger = ledger
+            confirmedLedger.accounts[owner] = confirmedRecord
+            try persistLedger(confirmedLedger)
+            ledger = confirmedLedger
+            if accountScope == owner { balance = confirmedRecord.balance }
             await transaction.finish()
         } catch {
-            notice = AccountEntryNotice(title: "Balance not updated", explanation: "The purchase was verified, but Nana couldn't save the new balance. Please keep the app open and try again.")
+            notice = AccountEntryNotice(title: "Purchase awaiting confirmation", explanation: "Apple confirmed the purchase, but Nana could not finish server confirmation. Please keep the app open and try again.")
         }
     }
 
@@ -368,6 +435,26 @@ enum NanaRoomGiftError: LocalizedError {
 private enum NanaCoinPurchaseError: Error {
     case productNotFound
     case storageUnavailable
+}
+
+struct NanaPaymentOverlay: View {
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.78).ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text("Processing purchase…").font(.headline)
+                Text("Keep Nana open while Apple and the account service confirm this order.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(.white)
+            .padding(28)
+            .frame(maxWidth: 320)
+            .background(Color(red: 0.12, green: 0.08, blue: 0.18), in: RoundedRectangle(cornerRadius: 22))
+        }
+        .allowsHitTesting(true)
+    }
 }
 
 struct NanaWelcomeGiftOverlay: View {

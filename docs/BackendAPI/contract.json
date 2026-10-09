@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "namespace": "nana",
+  "baseURL": "https://lantern.nanacc.top",
+  "webBaseURL": "https://nanacc.top",
+  "sourceAppId": "67746202",
+  "endpoints": {
+    "loginMethods": "/nana/harbor/doorway",
+    "authenticate": "/nana/harbor/tidepass",
+    "confirmPurchase": "/nana/harbor/coin-confirm"
+  },
+  "endpointResponses": {
+    "loginMethods": "responses/login-methods.json",
+    "authenticate": "responses/auth-response.json",
+    "confirmPurchase": "responses/purchase-response.json"
+  },
+  "requestFields": {
+    "appVersion": "release_tag",
+    "pushToken": "pulse_token",
+    "deviceNo": "device_fingerprint",
+    "transactionId": "store_receipt_id",
+    "payload": "receipt_blob",
+    "callbackResult": "order_reference",
+    "roomPushMsgType": "room_delivery_kind"
+  },
+  "h5Fields": {
+    "orderCode": "order_ref",
+    "batchNo": "product_sku",
+    "openUrl": "launch_url"
+  },
+  "additionalLoginFields": {
+    "loginType": "entry_mode",
+    "scene": "entry_context",
+    "email": "mailbox",
+    "password": "secret_phrase",
+    "appleToken": "apple_assertion",
+    "appleAuthorizationCode": "apple_code",
+    "appleUserId": "apple_subject"
+  },
+  "responseFields": {
+    "code": "code",
+    "message": "message",
+    "data": "data",
+    "token": "token"
+  },
+  "loginFlags": {
+    "apple": "apple_lantern",
+    "email": "email_tide",
+    "visitor": "visitor_harbor",
+    "register": "register_current"
+  },
+  "ably": {
+    "clientId": "app",
+    "serverClientIds": [
+      "serve"
+    ],
+    "allowMissingServerClientId": true,
+    "rewind": 1
+  },
+  "eventTransport": {
+    "jsonEnvelopeEventKinds": [
+      "logout"
+    ]
+  },
+  "events": {
+    "linkSuccessMessage": {
+      "name": "HarborPageReady",
+      "discriminator": [
+        "signal"
+      ],
+      "template": {
+        "signal": "HarborPageReady",
+        "harbor": {
+          "destination": "#{h5Url}"
+        }
+      }
+    },
+    "pay": {
+      "name": "LanternCheckout",
+      "discriminator": [
+        "signal"
+      ],
+      "template": {
+        "signal": "LanternCheckout",
+        "order": {
+          "reference": "#{orderCode}",
+          "product": "#{batchNo}"
+        }
+      }
+    },
+    "logout": {
+      "name": "HarborSessionEnded",
+      "discriminator": [
+        "signal"
+      ],
+      "template": {
+        "signal": "HarborSessionEnded"
+      }
+    },
+    "openBrowser": {
+      "name": "LanternExternalLink",
+      "discriminator": [
+        "signal"
+      ],
+      "template": {
+        "signal": "LanternExternalLink",
+        "navigation": {
+          "href": "#{openUrl}"
+        }
+      }
+    }
+  },
+  "contentRoutes": [
+    {
+      "key": "bootstrap",
+      "path": "/nana/harbor/bootstrap",
+      "file": "responses/bootstrap.json"
+    },
+    {
+      "key": "homeFeed",
+      "path": "/nana/harbor/home-feed",
+      "file": "responses/home-feed.json"
+    },
+    {
+      "key": "rooms",
+      "path": "/nana/harbor/rooms",
+      "file": "responses/rooms.json"
+    },
+    {
+      "key": "auroraRoom",
+      "path": "/nana/harbor/rooms/aurora",
+      "file": "responses/aurora-room.json"
+    },
+    {
+      "key": "avaProfile",
+      "path": "/nana/harbor/profiles/ava",
+      "file": "responses/ava-profile.json"
+    },
+    {
+      "key": "echoesPost",
+      "path": "/nana/harbor/posts/echoes",
+      "file": "responses/echoes-post.json"
+    },
+    {
+      "key": "search",
+      "path": "/nana/harbor/search",
+      "file": "responses/search.json"
+    },
+    {
+      "key": "conversations",
+      "path": "/nana/harbor/conversations",
+      "file": "responses/conversations.json"
+    },
+    {
+      "key": "avaMessages",
+      "path": "/nana/harbor/conversations/ava/messages",
+      "file": "responses/ava-messages.json"
+    },
+    {
+      "key": "wallet",
+      "path": "/nana/harbor/wallet",
+      "file": "responses/wallet.json"
+    },
+    {
+      "key": "gifts",
+      "path": "/nana/harbor/gifts",
+      "file": "responses/gifts.json"
+    },
+    {
+      "key": "assetManifest",
+      "path": "/nana/harbor/assets",
+      "file": "responses/asset-manifest.json"
+    }
+  ]
+}

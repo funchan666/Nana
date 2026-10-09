@@ -1,0 +1,56 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "gifts": [
+      {
+        "id": "gift-music-note",
+        "title": "Music note",
+        "coinCost": 0,
+        "assetKey": "nana.voice.voice_asset_077"
+      },
+      {
+        "id": "gift-gamepad",
+        "title": "Gamepad",
+        "coinCost": 0,
+        "assetKey": "nana.voice.voice_asset_088"
+      },
+      {
+        "id": "gift-karaoke",
+        "title": "Karaoke",
+        "coinCost": 29,
+        "assetKey": "nana.voice.voice_asset_089"
+      },
+      {
+        "id": "gift-drum",
+        "title": "Drum",
+        "coinCost": 39,
+        "assetKey": "nana.voice.voice_asset_122"
+      },
+      {
+        "id": "gift-headphones",
+        "title": "Headphones",
+        "coinCost": 49,
+        "assetKey": "nana.voice.voice_asset_090"
+      },
+      {
+        "id": "gift-microphone",
+        "title": "Microphone",
+        "coinCost": 59,
+        "assetKey": "nana.voice.voice_asset_118"
+      },
+      {
+        "id": "gift-record",
+        "title": "Record",
+        "coinCost": 69,
+        "assetKey": "nana.voice.voice_asset_091"
+      },
+      {
+        "id": "gift-keyboard",
+        "title": "Keyboard",
+        "coinCost": 79,
+        "assetKey": "nana.voice.voice_asset_164"
+      }
+    ]
+  }
+}

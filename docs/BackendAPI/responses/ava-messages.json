@@ -1,0 +1,26 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "messages": [
+      {
+        "id": "message-1",
+        "conversationID": "conversation-ava",
+        "senderID": "profile-ava",
+        "senderName": "Ava Monroe",
+        "body": "I saved you a seat in the afterglow room.",
+        "sentAtLabel": "8 min",
+        "isFromCurrentUser": false
+      },
+      {
+        "id": "message-2",
+        "conversationID": "conversation-ava",
+        "senderID": "local",
+        "senderName": "You",
+        "body": "I will be there soon.",
+        "sentAtLabel": "6 min",
+        "isFromCurrentUser": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "assets": [
+      {
+        "assetKey": "nana.pic.Dc0SA4UiUy3",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc0SA4UiUy3"
+      },
+      {
+        "assetKey": "nana.pic.Dc0XoT9DgeO",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc0XoT9DgeO"
+      },
+      {
+        "assetKey": "nana.pic.Dc1CvDfCCHN",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc1CvDfCCHN"
+      },
+      {
+        "assetKey": "nana.pic.Dc1Ii5HACCq",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc1Ii5HACCq"
+      },
+      {
+        "assetKey": "nana.pic.Dc1UKGTDL1J",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc1UKGTDL1J"
+      },
+      {
+        "assetKey": "nana.pic.Dc1fyTwF2Hv",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc1fyTwF2Hv"
+      },
+      {
+        "assetKey": "nana.pic.Dc2AwHAjPnJ",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc2AwHAjPnJ"
+      },
+      {
+        "assetKey": "nana.pic.Dc3eSgKCMLY",
+        "kind": "portrait",
+        "bundlePath": "nana.pic.Dc3eSgKCMLY"
+      },
+      {
+        "assetKey": "nana.video.ariffathulhakim_Dbzl1fLurT2",
+        "kind": "video",
+        "bundlePath": "nana.video.ariffathulhakim_Dbzl1fLurT2"
+      },
+      {
+        "assetKey": "nana.video.berniemor_DddsSyxCRiE",
+        "kind": "video",
+        "bundlePath": "nana.video.berniemor_DddsSyxCRiE"
+      },
+      {
+        "assetKey": "nana.video.capt.carterbrown_DbYh5-rhrZj",
+        "kind": "video",
+        "bundlePath": "nana.video.capt.carterbrown_DbYh5-rhrZj"
+      },
+      {
+        "assetKey": "nana.video.coletrotta_DbWqTuiPTGg",
+        "kind": "video",
+        "bundlePath": "nana.video.coletrotta_DbWqTuiPTGg"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_077",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_077"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_088",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_088"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_089",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_089"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_090",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_090"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_091",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_091"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_118",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_118"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_122",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_122"
+      },
+      {
+        "assetKey": "nana.voice.voice_asset_164",
+        "kind": "voice",
+        "bundlePath": "nana.voice.voice_asset_164"
+      }
+    ]
+  }
+}

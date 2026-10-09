@@ -187,9 +187,9 @@ struct NanaCredentialAccessView: View {
                 try await Task.sleep(for: .seconds(3.4))
                 try Task.checkCancellation()
                 if mode == .login {
-                    try sessionStore.signIn(emailAddress: email, password: secret)
+                    try await sessionStore.signIn(emailAddress: email, password: secret)
                 } else {
-                    try sessionStore.preparePasswordRegistration(emailAddress: email, password: secret)
+                    try await sessionStore.preparePasswordRegistration(emailAddress: email, password: secret)
                     openProfile()
                 }
                 password = ""

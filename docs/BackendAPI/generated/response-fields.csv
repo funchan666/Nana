@@ -1,0 +1,9 @@
+﻿scope,semantic_key,actual_field
+responseFields,code,code
+responseFields,message,message
+responseFields,data,data
+responseFields,token,token
+loginFlags,apple,apple_lantern
+loginFlags,email,email_tide
+loginFlags,visitor,visitor_harbor
+loginFlags,register,register_current

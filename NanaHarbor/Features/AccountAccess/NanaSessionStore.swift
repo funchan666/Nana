@@ -71,6 +71,10 @@ final class NanaSessionStore: ObservableObject {
     @Published private(set) var suggestedSignInEmail = ""
     @Published private(set) var signedOutDestination: NanaSignedOutDestination = .welcome
     @Published private(set) var accountExitProgress: NanaAccountExitProgress?
+    @Published private(set) var loginMethods = NanaLoginMethods(apple: false, email: false, visitor: false, register: false)
+    private(set) var remoteTokenRequest: [String: Any]?
+
+    private let authentication: NanaAuthenticationBoundary
 
     var savedProfiles: [NanaAccountProfile] {
         ledger.profiles.values.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -90,8 +94,9 @@ final class NanaSessionStore: ObservableObject {
     private var sessionRevision = UUID()
     private var checkingAppleCredential = false
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, authentication: NanaAuthenticationBoundary = NanaAuthenticationBoundary()) {
         self.defaults = defaults
+        self.authentication = authentication
         // Restore after the app is active, when protected Keychain data is available.
     }
 
@@ -101,37 +106,57 @@ final class NanaSessionStore: ObservableObject {
         do {
             try loadLedgerIfNeeded()
             let profile = ledger.activeAccountScope.flatMap { ledger.profiles[$0] }
-            if profile?.signInMethod != "apple" { activeProfile = profile }
-            if ledger.pendingIdentity?.signInMethod != "apple" { pendingIdentity = ledger.pendingIdentity }
+            if let profile {
+                let result = try await authentication.refresh()
+                remoteTokenRequest = result.tokenRequest
+                activeProfile = profile
+            } else {
+                await loadLoginMethods()
+            }
             await validateAppleSession()
         } catch {
-            showStorageNotice()
+            activeProfile = nil
+            remoteTokenRequest = nil
+            await loadLoginMethods()
         }
     }
 
-    /// This is a local format-only entry gate, not password or mailbox verification.
-    /// The password is deliberately neither compared, persisted nor transmitted.
-    func signIn(emailAddress: String, password: String) throws {
+    func loadLoginMethods() async {
+        do { loginMethods = try await authentication.loginMethods() }
+        catch { loginMethods = NanaLoginMethods(apple: true, email: true, visitor: false, register: true) }
+    }
+
+    func refreshRealtimeToken(completion: @escaping (Result<ConfiguredRealtimeConfiguration, Error>) -> Void) {
+        Task { @MainActor in
+            do {
+                let result = try await authentication.refresh()
+                remoteTokenRequest = result.tokenRequest
+                completion(.success(try ConfiguredRealtimeConfiguration(tokenRequest: result.tokenRequest, expectedClientID: IntegrationContract.ablyClientID)))
+            } catch { completion(.failure(error)) }
+        }
+    }
+
+    /// Validate locally, then complete the remote account exchange without persisting the password.
+    func signIn(emailAddress: String, password: String) async throws {
         let entry = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
         guard entry.validationMessage(for: .signIn) == nil else { throw NanaLocalAccountError.invalidEntry }
-        try loadLedgerIfNeeded()
         let email = entry.normalizedEmailAddress
+        let result = try await authentication.signIn(NanaCredentialSignInRequest(emailAddress: email, password: password))
+        remoteTokenRequest = result.tokenRequest
+        try loadLedgerIfNeeded()
         let scope = "email.\(email)"
-        let profile = ledger.profiles[scope] ?? NanaAccountProfile(
-            emailAddress: email, displayName: "Nana member", gender: "", country: "",
-            birthDate: nil, interests: [], avatarData: nil, signInMethod: "password", appleUserID: nil
-        )
+        let profile = ledger.profiles[scope] ?? NanaAccountProfile(emailAddress: email, displayName: "Nana member", gender: "", country: "", birthDate: nil, interests: [], avatarData: nil, signInMethod: "password", appleUserID: nil)
         try activate(profile)
     }
 
-    func preparePasswordRegistration(emailAddress: String, password: String) throws {
+    func preparePasswordRegistration(emailAddress: String, password: String) async throws {
         let entry = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
         guard entry.validationMessage(for: .createAccount) == nil else { throw NanaLocalAccountError.invalidEntry }
+        let result = try await authentication.register(NanaCredentialSignInRequest(emailAddress: entry.normalizedEmailAddress, password: password))
+        remoteTokenRequest = result.tokenRequest
         try loadLedgerIfNeeded()
         var updated = ledger
-        updated.pendingIdentity = NanaPendingIdentity(emailAddress: entry.normalizedEmailAddress,
-            displayName: ledger.profiles["email.\(entry.normalizedEmailAddress)"]?.displayName ?? "",
-            signInMethod: "password", appleUserID: nil)
+        updated.pendingIdentity = NanaPendingIdentity(emailAddress: entry.normalizedEmailAddress, displayName: ledger.profiles["email.\(entry.normalizedEmailAddress)"]?.displayName ?? "", signInMethod: "password", appleUserID: nil)
         try persist(updated)
         sessionRevision = UUID()
         pendingIdentity = updated.pendingIdentity
@@ -139,8 +164,10 @@ final class NanaSessionStore: ObservableObject {
 
     /// Called only after a successful AuthenticationServices authorization.
     /// Returns true for a completed local profile, false when details are needed.
-    func acceptAppleAuthorization(_ identity: AppleIdentityResult) throws -> Bool {
+    func acceptAppleAuthorization(_ identity: AppleIdentityResult) async throws -> Bool {
         guard !identity.stableIdentity.isEmpty else { throw NanaLocalAccountError.missingIdentity }
+        let result = try await authentication.exchangeAppleCredential(NanaAppleCredentialExchangeRequest(authorizationCode: identity.authorizationCode ?? "", identityToken: identity.identityToken ?? "", userIdentifier: identity.stableIdentity))
+        remoteTokenRequest = result.tokenRequest
         try loadLedgerIfNeeded()
         if let profile = ledger.profiles.values.first(where: { $0.appleUserID == identity.stableIdentity }) {
             try activate(profile)
@@ -198,12 +225,12 @@ final class NanaSessionStore: ObservableObject {
             sessionRevision = UUID()
             activeProfile = nil
             pendingIdentity = nil
+            remoteTokenRequest = nil
             return true
         } catch { showStorageNotice(); return false }
     }
 
-    /// The current account service is device-local. Never claim remote deletion
-    /// or Apple token revocation from this local storage operation.
+    /// Clear the local session and release the in-memory remote session.
     func exitAccount(deleting: Bool, contentStore: NanaContentStore, coinStore: NanaCoinStore) async {
         guard accountExitProgress == nil, let profile = activeProfile else { return }
         guard coinStore.purchasingProductID == nil else {

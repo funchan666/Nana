@@ -1,0 +1,17 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "post": {
+      "id": "post-echoes",
+      "authorID": "profile-ava",
+      "authorName": "Ava Monroe",
+      "title": "What makes a room feel safe?",
+      "body": "I keep thinking it is not the number of people. It is the way someone leaves a little space for the next voice.",
+      "category": "Room culture",
+      "coverAssetKey": "nana.pic.Dc1fyTwF2Hv",
+      "commentCount": 28,
+      "publishedLabel": "12 min ago"
+    }
+  }
+}

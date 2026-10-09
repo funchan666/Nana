@@ -1,0 +1,21 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "profile": {
+      "id": "profile-ava",
+      "displayName": "Ava Monroe",
+      "handle": "ava.m",
+      "region": "Toronto",
+      "language": "English",
+      "gender": "Female",
+      "age": 27,
+      "introduction": "Music, late-night conversations, and small rooms with good energy.",
+      "avatarAssetKey": "nana.pic.Dc0SA4UiUy3",
+      "isConnected": false,
+      "followerCount": 128,
+      "followingCount": 36,
+      "level": 7
+    }
+  }
+}

@@ -1,0 +1,30 @@
+# Synthetic request values only; do not send as a real purchase.
+### loginMethods
+GET https://lantern.nanacc.top/nana/harbor/doorway
+Accept: application/json
+
+### authenticate
+POST https://lantern.nanacc.top/nana/harbor/tidepass
+Accept: application/json
+Content-Type: application/json
+
+{
+  "release_tag": "1.0",
+  "pulse_token": "",
+  "device_fingerprint": "fixture-installation-id",
+  "room_delivery_kind": 2
+}
+
+### confirmPurchase
+POST https://lantern.nanacc.top/nana/harbor/coin-confirm
+Accept: application/json
+Content-Type: application/json
+
+{
+  "release_tag": "1.0",
+  "device_fingerprint": "fixture-installation-id",
+  "store_receipt_id": "fixture-apple-transaction",
+  "receipt_blob": "SYNTHETIC_RECEIPT_NOT_VALID_FOR_PAYMENT",
+  "order_reference": "fixture-backend-order"
+}
+

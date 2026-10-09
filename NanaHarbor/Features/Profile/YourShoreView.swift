@@ -1402,7 +1402,7 @@ struct NanaWalletView: View {
                             .clipped()
                     }
                     Group {
-                        if coinStore.purchasingProductID == pack.productID { ProgressView().tint(.white) }
+                        if coinStore.purchasingProductID == pack.productID { Text("Processing…") }
                         else { Text(coinStore.priceLabel(for: pack)) }
                     }
                     .font(.system(size: 13, weight: .medium))

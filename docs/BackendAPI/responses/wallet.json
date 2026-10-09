@@ -1,0 +1,14 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "wallet": {
+      "coinBalance": 1231,
+      "totalSpent": 3840,
+      "roomContribution": 820,
+      "activityPoints": 1320,
+      "level": 7,
+      "nextLevelPoints": 2200
+    }
+  }
+}

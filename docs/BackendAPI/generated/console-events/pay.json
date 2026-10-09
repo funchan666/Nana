@@ -1,0 +1,7 @@
+{
+  "signal": "LanternCheckout",
+  "order": {
+    "reference": "#{orderCode}",
+    "product": "#{batchNo}"
+  }
+}

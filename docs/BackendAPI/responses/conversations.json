@@ -1,0 +1,35 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "conversations": [
+      {
+        "id": "conversation-ava",
+        "profileID": "profile-ava",
+        "displayName": "Ava Monroe",
+        "preview": "I saved you a seat in the afterglow room.",
+        "sentAtLabel": "8 min",
+        "unreadCount": 2,
+        "avatarAssetKey": "nana.pic.Dc0SA4UiUy3"
+      },
+      {
+        "id": "conversation-jules",
+        "profileID": "profile-jules",
+        "displayName": "Jules Harper",
+        "preview": "That playlist made the room feel warmer.",
+        "sentAtLabel": "Yesterday",
+        "unreadCount": 0,
+        "avatarAssetKey": "nana.pic.Dc0XoT9DgeO"
+      },
+      {
+        "id": "conversation-lin",
+        "profileID": "profile-lin",
+        "displayName": "Lin Wei",
+        "preview": "See you in the next conversation.",
+        "sentAtLabel": "Mon",
+        "unreadCount": 0,
+        "avatarAssetKey": "nana.pic.Dc1CvDfCCHN"
+      }
+    ]
+  }
+}
