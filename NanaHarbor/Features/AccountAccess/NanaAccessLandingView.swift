@@ -3,7 +3,9 @@ import SwiftUI
 
 struct NanaAccessLandingView: View {
     @EnvironmentObject private var sessionStore: NanaSessionStore
-    @State private var hasAcceptedAgreements = false
+    @State private var hasAcceptedAgreements = true
+    @State private var hasAcceptedAppleAgreements = false
+    @State private var appleAttempt: UUID?
     @State private var selectedPolicy: AccountPolicyDocument?
     @State private var entryNotice: AccountEntryNotice?
     @State private var isAppleLoading = false
@@ -60,20 +62,31 @@ struct NanaAccessLandingView: View {
                                     .padding(.top, 2)
                                 }
                             }
-                            HStack(spacing: 5) {
-                                Rectangle().frame(width: 24, height: 0.5)
-                                Text("or continue with Apple")
-                                    .font(.system(size: 12))
-                                Rectangle().frame(width: 24, height: 0.5)
+                            if sessionStore.loginMethods.visitor {
+                                AgreementConsentRow(isAccepted: $hasAcceptedAgreements) { selectedPolicy = $0 }
+                                    .padding(.top, 20)
                             }
-                            .foregroundStyle(AccountEntryAppearance.mutedText)
-                            .padding(.vertical, 18)
                             if sessionStore.loginMethods.apple {
+                                HStack(spacing: 5) {
+                                    Rectangle().frame(width: 24, height: 0.5)
+                                    Text("or continue with Apple")
+                                        .font(.system(size: 12))
+                                    Rectangle().frame(width: 24, height: 0.5)
+                                }
+                                .foregroundStyle(AccountEntryAppearance.mutedText)
+                                .padding(.vertical, 18)
                                 AccountArtworkButton(artworkName: "NanaAppleAction", spokenTitle: "Sign in with Apple", action: beginAppleSignIn)
                                     .padding(.horizontal, 17)
+                                AgreementConsentRow(isAccepted: $hasAcceptedAppleAgreements) { selectedPolicy = $0 }
+                                    .padding(.top, 20)
                             }
-                            AgreementConsentRow(isAccepted: $hasAcceptedAgreements) { selectedPolicy = $0 }
-                                .padding(.top, 20)
+                            if sessionStore.isEntryInProgress || isAppleLoading || isVisitorLoading {
+                                AccountSubmissionProgress().padding(.top, 12)
+                            }
+                            if !methodsLoading && !sessionStore.loginMethods.hasAvailableEntry {
+                                Text("Sign-in is currently unavailable. Please try again later.")
+                                    .foregroundStyle(AccountEntryAppearance.mutedText)
+                            }
                         }
                         .padding(.horizontal, 30)
                         .padding(.bottom, 32)
@@ -87,8 +100,8 @@ struct NanaAccessLandingView: View {
             }
         }
         .ignoresSafeArea(.all)
-        .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark).modifier(NanaPrivacyShield()) }
-        .disabled(entryNotice != nil || isAppleLoading || isVisitorLoading || methodsLoading)
+        .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
+        .disabled(entryNotice != nil || isAppleLoading || isVisitorLoading || methodsLoading || sessionStore.isEntryInProgress)
         .task {
             await sessionStore.loadLoginMethods()
             if sessionStore.loginMethods.visitor {
@@ -99,14 +112,12 @@ struct NanaAccessLandingView: View {
         .overlay {
             if let entryNotice {
                 AccountConsentNotice(notice: entryNotice) { self.entryNotice = nil }
-            } else if isAppleLoading || isVisitorLoading {
-                AccountSubmissionProgress()
             }
         }
     }
 
-    private func requireAgreementConsent() -> Bool {
-        guard hasAcceptedAgreements else {
+    private func requireAgreementConsent(_ accepted: Bool) -> Bool {
+        guard accepted else {
             entryNotice = AccountEntryNotice(
                 title: "Your agreement comes first",
                 explanation: "Please review both agreements and tick the box before continuing."
@@ -117,21 +128,29 @@ struct NanaAccessLandingView: View {
     }
 
     private func beginAppleSignIn() {
-        guard requireAgreementConsent() else { return }
+        guard requireAgreementConsent(hasAcceptedAppleAgreements),
+              let attempt = try? sessionStore.beginEntryAttempt() else { return }
+        appleAttempt = attempt
         isAppleLoading = true
         appleService.begin { result in
             Task { @MainActor in
+                guard appleAttempt == attempt, sessionStore.entryGeneration == attempt else { return }
+                defer { appleAttempt = nil }
                 switch result {
                 case .success(let identity):
                     do {
-                        let hasCompletedProfile = try await sessionStore.acceptAppleAuthorization(identity)
+                        let hasCompletedProfile = try await sessionStore.acceptAppleAuthorization(identity, attempt: attempt)
                         isAppleLoading = false
                         if !hasCompletedProfile { openProfile() }
+                    } catch is CancellationError {
+                        isAppleLoading = false
                     } catch {
+                        sessionStore.cancelEntryAttempt(attempt)
                         isAppleLoading = false
                         entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: error.localizedDescription)
                     }
                 case .failure(let error):
+                    sessionStore.cancelEntryAttempt(attempt)
                     isAppleLoading = false
                     if let authorizationError = error as? ASAuthorizationError, authorizationError.code == .canceled { return }
                     entryNotice = AccountEntryNotice(title: "Apple sign-in didn't finish", explanation: "Please try Sign in with Apple again.")
@@ -141,11 +160,13 @@ struct NanaAccessLandingView: View {
     }
 
     private func beginVisitorSignIn() {
-        guard requireAgreementConsent() else { return }
+        guard !sessionStore.isEntryInProgress, requireAgreementConsent(hasAcceptedAgreements) else { return }
         isVisitorLoading = true
         Task { @MainActor in
             do {
                 try await sessionStore.signInAsVisitor()
+                isVisitorLoading = false
+            } catch is CancellationError {
                 isVisitorLoading = false
             } catch {
                 isVisitorLoading = false

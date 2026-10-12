@@ -168,7 +168,8 @@ struct ConfiguredCoreEvent {
         guard suffix.isEmpty || suffix.first == "?" else { return nil }
         var resolved = iosParts
         if suffix.first == "?" {
-            resolved.percentEncodedQuery = String(suffix.dropFirst())
+            guard let query = URLComponents(string: "https://route.invalid/" + suffix)?.percentEncodedQuery else { return nil }
+            resolved.percentEncodedQuery = query
         }
         return resolved.url
     }

@@ -41,7 +41,6 @@
 		C00100000000000000000003 /* IntegrationContract.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000003 /* IntegrationContract.generated.swift */; };
 		C00100000000000000000004 /* NanaAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000004 /* NanaAppDelegate.swift */; };
 		C00100000000000000000005 /* NanaHarborWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000005 /* NanaHarborWebView.swift */; };
-		C00100000000000000000006 /* NanaPrivacyShield.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000006 /* NanaPrivacyShield.swift */; };
 		C00100000000000000000007 /* NanaURLRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00200000000000000000007 /* NanaURLRouter.swift */; };
 		C00300000000000000000002 /* Ably in Frameworks */ = {isa = PBXBuildFile; productRef = C00300000000000000000001 /* Ably */; };
 		C454DDD34319DE55D010671D /* YourShoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E323D0C6CF3DCB8216C36B /* YourShoreView.swift */; };
@@ -98,7 +97,6 @@
 		C00200000000000000000003 /* IntegrationContract.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationContract.generated.swift; sourceTree = "<group>"; };
 		C00200000000000000000004 /* NanaAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaAppDelegate.swift; sourceTree = "<group>"; };
 		C00200000000000000000005 /* NanaHarborWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaHarborWebView.swift; sourceTree = "<group>"; };
-		C00200000000000000000006 /* NanaPrivacyShield.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaPrivacyShield.swift; sourceTree = "<group>"; };
 		C00200000000000000000007 /* NanaURLRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaURLRouter.swift; sourceTree = "<group>"; };
 		D34EB954414902A4A1824DCB /* NanaLiveComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveComponents.swift; sourceTree = "<group>"; };
 		DA5F3A50C1234E6AB0000002 /* NanaLiveRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NanaLiveRoomView.swift; sourceTree = "<group>"; };
@@ -174,7 +172,6 @@
 			isa = PBXGroup;
 			children = (
 				C00200000000000000000004 /* NanaAppDelegate.swift */,
-				C00200000000000000000006 /* NanaPrivacyShield.swift */,
 				C00200000000000000000007 /* NanaURLRouter.swift */,
 				A10E7170B4575B52F8A46058 /* AppInfo.plist */,
 				B60A8D604151F941C1B3189C /* Nana.entitlements */,
@@ -440,7 +437,6 @@
 				C00100000000000000000003 /* IntegrationContract.generated.swift in Sources */,
 				C00100000000000000000004 /* NanaAppDelegate.swift in Sources */,
 				C00100000000000000000005 /* NanaHarborWebView.swift in Sources */,
-				C00100000000000000000006 /* NanaPrivacyShield.swift in Sources */,
 				C00100000000000000000007 /* NanaURLRouter.swift in Sources */,
 				63BCAE5B1D0D4F56AB6D66BC /* NanaAServiceClient.swift in Sources */,
 				5E30B7B45A8F32FD239B88D0 /* NanaAccessLandingView.swift in Sources */,

@@ -11,14 +11,7 @@ struct NanaCoinPack: Identifiable, Hashable {
 
     var id: String { productID }
     var bonusCoins: Int { baseCoins * bonusPercent / 100 }
-    /// The same total powers the storefront and verified purchase credit.
     var coins: Int { baseCoins + bonusCoins }
-}
-
-struct NanaWelcomeGift {
-    let amount: Int
-    let title: String
-    let detail: String
 }
 
 private struct NanaPendingPurchase: Codable, Hashable {
@@ -35,15 +28,12 @@ private struct NanaCoinAccountRecord: Codable {
     var processedTransactionIDs: Set<UInt64>
     var pendingPurchases: [String: NanaPendingPurchase]? = nil
     var pendingOrderCodes: [String: String]? = nil
-    // Optional for compatibility with previously saved account ledgers.
     var roomGiftReceipts: [NanaRoomGiftReceipt]? = nil
     var purchaseAccountToken: UUID? = nil
 }
 
 private struct NanaCoinLedger: Codable {
     var accounts: [String: NanaCoinAccountRecord] = [:]
-    // Unlinked transaction IDs prevent completed purchases being credited again
-    // after local account removal. No profile or account identifier is retained.
     var removedAccountTransactionIDs: Set<UInt64>? = nil
 }
 
@@ -66,8 +56,11 @@ final class NanaCoinStore: ObservableObject {
     @Published private(set) var products: [Product] = []
     @Published private(set) var isLoadingProducts = false
     @Published private(set) var purchasingProductID: String?
+    @Published private(set) var purchasingAccountScope: String?
+    var isPresentingPurchase: Bool {
+        purchasingProductID != nil && accountScope != nil && accountScope == purchasingAccountScope
+    }
     @Published var notice: AccountEntryNotice?
-    @Published private(set) var welcomeGift: NanaWelcomeGift?
 
     private let keychainService = "com.nanalantern.harbortide.coins"
     private let keychainAccount = "ledger.v1"
@@ -93,7 +86,6 @@ final class NanaCoinStore: ObservableObject {
         roomGiftReceipts = []
         products = []
         notice = nil
-        welcomeGift = nil
         startTransactionListener()
         guard let accountID else { return }
 
@@ -103,10 +95,8 @@ final class NanaCoinStore: ObservableObject {
                 balance = record.balance
                 roomGiftReceipts = record.roomGiftReceipts ?? []
             } else {
-                let gift = NanaWelcomeGift(amount: 1_200, title: "Your first spark.", detail: "A little gift to light up your first day.")
-                ledger.accounts[accountID] = NanaCoinAccountRecord(balance: gift.amount, receivedWelcomeGift: true, processedTransactionIDs: [])
-                balance = gift.amount
-                welcomeGift = gift
+                ledger.accounts[accountID] = NanaCoinAccountRecord(balance: 1_200, receivedWelcomeGift: true, processedTransactionIDs: [])
+                balance = 1_200
                 try persistLedger()
             }
             Task { await retryPendingServerConfirmations(accountID: accountID) }
@@ -142,10 +132,6 @@ final class NanaCoinStore: ObservableObject {
         } catch { }
     }
 
-    func dismissWelcomeGift() {
-        welcomeGift = nil
-    }
-
     func deleteLocalAccountData(accountID: String) throws {
         guard accountScope == accountID, purchasingProductID == nil else { throw NanaRoomGiftError.accountChanged }
         try loadLedgerIfNeeded()
@@ -158,11 +144,9 @@ final class NanaCoinStore: ObservableObject {
         transactionUpdatesTask = nil
         balance = 0
         roomGiftReceipts = []
-        welcomeGift = nil
         notice = nil
     }
 
-    /// Seed only an account with no local record. Purchases and local spending are never overwritten by a refresh.
     func hydrateRemoteBalance(_ remoteBalance: Int) {
         guard let accountScope, remoteBalance >= 0 else { return }
         do {
@@ -176,7 +160,6 @@ final class NanaCoinStore: ObservableObject {
         }
     }
 
-    /// Prices come from Apple's current storefront, never the reference USD catalog.
     func loadProducts() async {
         guard !isLoadingProducts, let scope = accountScope else { return }
         isLoadingProducts = true
@@ -186,7 +169,6 @@ final class NanaCoinStore: ObservableObject {
             guard accountScope == scope else { return }
             products = loaded.filter { $0.type == .consumable }
         } catch {
-            // Each purchase button can retry product loading on demand.
         }
     }
 
@@ -200,8 +182,9 @@ final class NanaCoinStore: ObservableObject {
             notice = AccountEntryNotice(title: "Sign in required", explanation: "Sign in before adding coins to your balance.")
             return
         }
+        purchasingAccountScope = purchasingAccount
         purchasingProductID = pack.productID
-        defer { purchasingProductID = nil }
+        defer { purchasingProductID = nil; purchasingAccountScope = nil }
         do {
             let product = try await product(for: pack.productID)
             guard accountScope == purchasingAccount else { return }
@@ -241,7 +224,6 @@ final class NanaCoinStore: ObservableObject {
         notice = nil
     }
 
-    /// Read-only affordability check. Purchases still require verified StoreKit transactions.
     func canAfford(_ amount: Int, action: String) -> Bool {
         guard balance >= amount else {
             notice = AccountEntryNotice(title: "More coins needed", explanation: "\(action) needs \(amount) coins. Open Wallet to add more.")
@@ -250,8 +232,6 @@ final class NanaCoinStore: ObservableObject {
         return true
     }
 
-    /// Commits the debit and its receipt in one Keychain write. It represents a
-    /// local gift interaction, not a server-confirmed delivery to another account.
     func sendRoomGift(_ receipt: NanaRoomGiftReceipt, accountID: String) throws {
         guard accountScope == accountID else { throw NanaRoomGiftError.accountChanged }
         try loadLedgerIfNeeded()
@@ -268,7 +248,6 @@ final class NanaCoinStore: ObservableObject {
         var updatedLedger = ledger
         updatedLedger.accounts[accountID] = record
         try persistLedger(updatedLedger)
-        // Publish only after the debit AND history have been durably saved.
         ledger = updatedLedger
         balance = record.balance
         roomGiftReceipts = record.roomGiftReceipts ?? []
@@ -292,7 +271,6 @@ final class NanaCoinStore: ObservableObject {
 
     private func startTransactionListener() {
         transactionUpdatesTask = Task { [weak self] in
-            // Recover approved purchases interrupted by termination or a failed ledger write.
             for await verification in StoreKit.Transaction.unfinished {
                 guard !Task.isCancelled else { return }
                 await self?.handle(verification)
@@ -372,8 +350,6 @@ final class NanaCoinStore: ObservableObject {
     private func verifiedTransaction(from verification: VerificationResult<StoreKit.Transaction>) -> StoreKit.Transaction? {
         guard case .verified(let transaction) = verification else { return nil }
         #if !DEBUG
-        // Apple sandbox transactions remain valid for TestFlight and App Review.
-        // Xcode's local StoreKit test transactions are never fulfillment in Release.
         guard transaction.environment != .xcode else { return nil }
         #endif
         return transaction
@@ -454,117 +430,5 @@ struct NanaPaymentOverlay: View {
             .background(Color(red: 0.12, green: 0.08, blue: 0.18), in: RoundedRectangle(cornerRadius: 22))
         }
         .allowsHitTesting(true)
-    }
-}
-
-struct NanaWelcomeGiftOverlay: View {
-    let gift: NanaWelcomeGift
-    let dismiss: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hasAppeared = false
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                Color.black.opacity(0.76).ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    card(artworkSize: geometry.size.height < 700 ? 180 : 220)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 24)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: geometry.size.height)
-                }
-                .scrollBounceBehavior(.basedOnSize)
-            }
-        }
-        .onAppear {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.55)) {
-                hasAppeared = true
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
-    }
-
-    private func card(artworkSize: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            Text("WELCOME TO NANA")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .tracking(2.6)
-                .foregroundStyle(NanaPalette.electricLilac)
-                .padding(.top, 28)
-
-            Image("NanaWelcomeCoin")
-                .resizable()
-                .scaledToFit()
-                .frame(width: artworkSize, height: artworkSize)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
-                .scaleEffect(hasAppeared || reduceMotion ? 1 : 0.9)
-                .offset(y: hasAppeared || reduceMotion ? 0 : 10)
-                .accessibilityHidden(true)
-
-            Text(gift.title)
-                .font(.system(size: 25, weight: .semibold, design: .rounded))
-                .foregroundStyle(NanaPalette.warmWhite)
-                .multilineTextAlignment(.center)
-                .accessibilityAddTraits(.isHeader)
-
-            VStack(spacing: 4) {
-                Text("+\(gift.amount.formatted())")
-                    .font(.system(size: 52, weight: .bold, design: .rounded))
-                    .tracking(-1.5)
-                    .foregroundStyle(Color(red: 1, green: 0.85, blue: 0.56))
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                Text("COINS ADDED")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2)
-                    .foregroundStyle(NanaPalette.electricLilac)
-            }
-            .padding(.top, 14)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(gift.amount.formatted()) coins added")
-
-            Text(gift.detail)
-                .font(.system(size: 14))
-                .foregroundStyle(NanaPalette.mutedWhite)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 16)
-
-            Button(action: dismiss) {
-                Text("Let's explore")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(NanaPrimaryButtonStyle(tint: NanaPalette.violet))
-            .padding(.top, 24)
-            .padding(.bottom, 28)
-        }
-        .padding(.horizontal, 28)
-        .frame(maxWidth: 350)
-        .background {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color(red: 0.12, green: 0.055, blue: 0.22), NanaPalette.deepSpace],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .strokeBorder(LinearGradient(
-                    colors: [NanaPalette.electricLilac.opacity(0.45), NanaPalette.electricLilac.opacity(0.08)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ), lineWidth: 1)
-                .allowsHitTesting(false)
-        }
-        .shadow(color: .black.opacity(0.4), radius: 24, y: 16)
-        .opacity(hasAppeared || reduceMotion ? 1 : 0)
-        .offset(y: hasAppeared || reduceMotion ? 0 : 16)
     }
 }

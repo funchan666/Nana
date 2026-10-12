@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// An orbital movement below the launch artwork; the image itself already supplies the logo.
 struct NanaLaunchProgress: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(spacing: 20) {
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || scenePhase != .active)) { timeline in
                 let phase = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate * 2.8
                 ZStack {
                     Ellipse()
@@ -36,12 +36,12 @@ struct NanaLaunchProgress: View {
     }
 }
 
-/// A separate, quiet rhythm for account submission and web-document loading.
 struct AccountLoadingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || scenePhase != .active)) { timeline in
             HStack(spacing: 10) {
                 ForEach(0..<3) { position in
                     let phase = timeline.date.timeIntervalSinceReferenceDate * 5 - Double(position) * 0.85
@@ -61,24 +61,9 @@ struct AccountLoadingDots: View {
 
 struct AccountSubmissionProgress: View {
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.68).ignoresSafeArea()
-            VStack(spacing: 16) {
-                AccountLoadingDots()
-                Text("Please wait…")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-            .padding(.vertical, 30)
-            .frame(width: 200)
-            .background(Color(red: 0.085, green: 0.045, blue: 0.14), in: RoundedRectangle(cornerRadius: 24))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(AccountEntryAppearance.linkLilac.opacity(0.35), lineWidth: 1)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Please wait. Account request in progress.")
-            .accessibilityAddTraits(.isModal)
-        }
+        Text("Preparing your session…")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white)
+            .accessibilityAddTraits(.updatesFrequently)
     }
 }

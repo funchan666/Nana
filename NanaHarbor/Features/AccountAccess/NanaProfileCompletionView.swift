@@ -61,12 +61,16 @@ struct NanaProfileCompletionView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 4)
-                .padding(.bottom, 36)
+                if sessionStore.isEntryInProgress {
+                    AccountSubmissionProgress().frame(maxWidth: .infinity)
+                }
             }
+            .padding(.bottom, 36)
             .padding(.horizontal, 30)
             .frame(maxWidth: 480)
             .frame(maxWidth: .infinity)
         }
+        .disabled(sessionStore.isEntryInProgress)
         .ignoresSafeArea(.container)
         .background { AccountArtworkSurface(artworkName: "NanaPlainArtwork") }
         .background(.black)
@@ -168,6 +172,7 @@ struct NanaProfileCompletionView: View {
     }
 
     private func finishProfile() {
+        guard !sessionStore.isEntryInProgress else { return }
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !gender.isEmpty, !country.isEmpty, !selectedInterests.isEmpty else {
             notice = AccountEntryNotice(title: "A little more to fill in", explanation: "Add your name, gender, country, and at least one tag before entering Nana.")

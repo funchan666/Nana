@@ -16,7 +16,6 @@ struct NanaAccountProfile: Codable, Equatable {
     let appleUserID: String?
     var introduction: String? = nil
 
-    /// Apple identities never share a local account with the email-only entry flow.
     var localAccountScope: String {
         if let appleUserID {
             let digest = SHA256.hash(data: Data(appleUserID.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -37,8 +36,6 @@ private struct NanaLocalAccountLedger: Codable {
     var profiles: [String: NanaAccountProfile] = [:]
     var activeAccountScope: String?
     var pendingIdentity: NanaPendingIdentity?
-    // Apple may return name/email only on the first authorization. Retain them
-    // even when the user leaves profile completion and signs in again later.
     var appleIntroductions: [String: NanaPendingIdentity] = [:]
 }
 
@@ -73,6 +70,9 @@ final class NanaSessionStore: ObservableObject {
     @Published private(set) var signedOutDestination: NanaSignedOutDestination = .welcome
     @Published private(set) var accountExitProgress: NanaAccountExitProgress?
     @Published private(set) var loginMethods = NanaLoginMethods(apple: false, email: false, visitor: false, register: false)
+    @Published private(set) var isEntryInProgress = false
+    private(set) var entryGeneration = UUID()
+    @Published private(set) var entryScreenRevision = UUID()
     private(set) var remoteTokenRequest: [String: Any]?
 
     private let authentication: NanaAuthenticationBoundary
@@ -84,7 +84,6 @@ final class NanaSessionStore: ObservableObject {
     func startAccountEntry(emailAddress: String = "") {
         signOut(destination: emailAddress.isEmpty ? .welcome : .login)
         guard activeProfile == nil else { return }
-        // A convenience prefill only; choosing a saved profile never authenticates it.
         suggestedSignInEmail = emailAddress
     }
 
@@ -98,27 +97,53 @@ final class NanaSessionStore: ObservableObject {
     init(defaults: UserDefaults = .standard, authentication: NanaAuthenticationBoundary? = nil) {
         self.defaults = defaults
         self.authentication = authentication ?? NanaAuthenticationBoundary()
-        // Restore after the app is active, when protected Keychain data is available.
     }
 
     var isSignedIn: Bool { activeProfile != nil }
 
+    func beginEntryAttempt() throws -> UUID {
+        guard !isEntryInProgress else { throw CancellationError() }
+        entryGeneration = UUID()
+        isEntryInProgress = true
+        return entryGeneration
+    }
+
+    func checkEntryAttempt(_ attempt: UUID) throws {
+        try Task.checkCancellation()
+        guard entryGeneration == attempt else { throw CancellationError() }
+    }
+
+    func resumeEntryPreparation() {
+        isEntryInProgress = true
+    }
+
+    func finishEntryPreparation() {
+        isEntryInProgress = false
+    }
+
+    func cancelEntryAttempt(_ attempt: UUID) {
+        guard entryGeneration == attempt else { return }
+        entryGeneration = UUID()
+        isEntryInProgress = false
+    }
+
     func restoreLocalSession() async {
+        guard let attempt = try? beginEntryAttempt() else { return }
+        defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
         do {
             try loadLedgerIfNeeded()
             let profile = ledger.activeAccountScope.flatMap { ledger.profiles[$0] }
             if let profile {
                 let result = try await authentication.refresh()
+                try checkEntryAttempt(attempt)
                 remoteTokenRequest = result.tokenRequest
                 activeProfile = profile
-            } else {
-                await loadLoginMethods()
             }
             await validateAppleSession()
         } catch {
+            guard entryGeneration == attempt else { return }
             activeProfile = nil
             remoteTokenRequest = nil
-            await loadLoginMethods()
         }
     }
 
@@ -128,21 +153,39 @@ final class NanaSessionStore: ObservableObject {
     }
 
     func refreshRealtimeToken(completion: @escaping (Result<ConfiguredRealtimeConfiguration, Error>) -> Void) {
+        let revision = entryGeneration
+        let scope = activeProfile?.localAccountScope
         Task { @MainActor in
             do {
                 let result = try await authentication.refresh()
-                remoteTokenRequest = result.tokenRequest
-                completion(.success(try ConfiguredRealtimeConfiguration(tokenRequest: result.tokenRequest, expectedClientID: IntegrationContract.ablyClientID)))
+                guard revision == entryGeneration, let scope, activeProfile?.localAccountScope == scope, !Task.isCancelled else { throw CancellationError() }
+                guard let token = result.tokenRequest else { throw NanaAServiceError.authenticationUnavailable }
+                let configuration = try ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID)
+                remoteTokenRequest = token
+                completion(.success(configuration))
             } catch { completion(.failure(error)) }
         }
     }
 
-    /// Validate locally, then complete the remote account exchange without persisting the password.
+    private func authenticateForAttempt(_ attempt: UUID, operation: () async throws -> NanaAuthenticationResult) async throws -> NanaAuthenticationResult {
+        do {
+            let result = try await operation()
+            try checkEntryAttempt(attempt)
+            return result
+        } catch {
+            try checkEntryAttempt(attempt)
+            throw error
+        }
+    }
+
     func signIn(emailAddress: String, password: String) async throws {
+        let attempt = try beginEntryAttempt()
+        defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
         let entry = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
         guard entry.validationMessage(for: .signIn) == nil else { throw NanaLocalAccountError.invalidEntry }
         let email = entry.normalizedEmailAddress
-        let result = try await authentication.signIn(NanaCredentialSignInRequest(emailAddress: email, password: password))
+        let result = try await authenticateForAttempt(attempt) { try await authentication.signIn(NanaCredentialSignInRequest(emailAddress: email, password: password)) }
+        try checkEntryAttempt(attempt)
         remoteTokenRequest = result.tokenRequest
         try loadLedgerIfNeeded()
         let scope = "email.\(email)"
@@ -151,8 +194,11 @@ final class NanaSessionStore: ObservableObject {
     }
 
     func signInAsVisitor() async throws {
+        let attempt = try beginEntryAttempt()
+        defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
         guard loginMethods.visitor else { throw NanaLocalAccountError.visitorUnavailable }
-        let result = try await authentication.enterAsVisitor()
+        let result = try await authenticateForAttempt(attempt) { try await authentication.enterAsVisitor() }
+        try checkEntryAttempt(attempt)
         remoteTokenRequest = result.tokenRequest
         try loadLedgerIfNeeded()
         let visitorEmail = "visitor.\(UUID().uuidString.lowercased())@nana.local"
@@ -162,9 +208,12 @@ final class NanaSessionStore: ObservableObject {
     }
 
     func preparePasswordRegistration(emailAddress: String, password: String) async throws {
+        let attempt = try beginEntryAttempt()
+        defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
         let entry = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
         guard entry.validationMessage(for: .createAccount) == nil else { throw NanaLocalAccountError.invalidEntry }
-        let result = try await authentication.register(NanaCredentialSignInRequest(emailAddress: entry.normalizedEmailAddress, password: password))
+        let result = try await authenticateForAttempt(attempt) { try await authentication.register(NanaCredentialSignInRequest(emailAddress: entry.normalizedEmailAddress, password: password)) }
+        try checkEntryAttempt(attempt)
         remoteTokenRequest = result.tokenRequest
         try loadLedgerIfNeeded()
         var updated = ledger
@@ -174,11 +223,12 @@ final class NanaSessionStore: ObservableObject {
         pendingIdentity = updated.pendingIdentity
     }
 
-    /// Called only after a successful AuthenticationServices authorization.
-    /// Returns true for a completed local profile, false when details are needed.
-    func acceptAppleAuthorization(_ identity: AppleIdentityResult) async throws -> Bool {
+    func acceptAppleAuthorization(_ identity: AppleIdentityResult, attempt: UUID) async throws -> Bool {
+        try checkEntryAttempt(attempt)
+        defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
         guard !identity.stableIdentity.isEmpty else { throw NanaLocalAccountError.missingIdentity }
-        let result = try await authentication.exchangeAppleCredential(NanaAppleCredentialExchangeRequest(authorizationCode: identity.authorizationCode ?? "", identityToken: identity.identityToken ?? "", userIdentifier: identity.stableIdentity))
+        let result = try await authenticateForAttempt(attempt) { try await authentication.exchangeAppleCredential(NanaAppleCredentialExchangeRequest(authorizationCode: identity.authorizationCode ?? "", identityToken: identity.identityToken ?? "", userIdentifier: identity.stableIdentity)) }
+        try checkEntryAttempt(attempt)
         remoteTokenRequest = result.tokenRequest
         try loadLedgerIfNeeded()
         if let profile = ledger.profiles.values.first(where: { $0.appleUserID == identity.stableIdentity }) {
@@ -211,9 +261,13 @@ final class NanaSessionStore: ObservableObject {
         try activate(NanaAccountProfile(emailAddress: identity.emailAddress, displayName: name,
             gender: gender, country: country, birthDate: birthDate, interests: interests,
             avatarData: avatarData, signInMethod: identity.signInMethod, appleUserID: identity.appleUserID))
+        resumeEntryPreparation()
     }
 
     func discardPendingIdentity() {
+        entryGeneration = UUID()
+        isEntryInProgress = false
+        remoteTokenRequest = nil
         do {
             try loadLedgerIfNeeded()
             var updated = ledger
@@ -225,34 +279,39 @@ final class NanaSessionStore: ObservableObject {
     }
 
     @discardableResult
-    func signOut(destination: NanaSignedOutDestination = .login) -> Bool {
+    func signOut(destination: NanaSignedOutDestination = .welcome) -> Bool {
+        entryGeneration = UUID()
+        isEntryInProgress = false
+        defer {
+            ledger.activeAccountScope = nil
+            ledger.pendingIdentity = nil
+            entryScreenRevision = UUID()
+            sessionRevision = UUID()
+            suggestedSignInEmail = ""
+            signedOutDestination = destination
+            activeProfile = nil
+            pendingIdentity = nil
+            remoteTokenRequest = nil
+        }
         do {
             try loadLedgerIfNeeded()
             var updated = ledger
             updated.activeAccountScope = nil
             updated.pendingIdentity = nil
             try persist(updated)
-            suggestedSignInEmail = ""
-            signedOutDestination = destination
-            sessionRevision = UUID()
-            activeProfile = nil
-            pendingIdentity = nil
-            remoteTokenRequest = nil
             return true
         } catch { showStorageNotice(); return false }
     }
 
-    /// Clear the local session and release the in-memory remote session.
     func exitAccount(deleting: Bool, contentStore: NanaContentStore, coinStore: NanaCoinStore) async {
         guard accountExitProgress == nil, let profile = activeProfile else { return }
-        guard coinStore.purchasingProductID == nil else {
+        guard !coinStore.isPresentingPurchase else {
             sessionNotice = AccountEntryNotice(title: "Purchase in progress", explanation: "Wait for the current purchase to finish before leaving this account.")
             return
         }
         let scope = profile.localAccountScope
         accountExitProgress = NanaAccountExitProgress(title: deleting ? "Deleting local account…" : "Logging out…",
             detail: deleting ? "Removing this account’s data from this device." : "Keeping your saved details for next time.", isWorking: true)
-        // Allow the loading transition to appear before protected storage writes.
         try? await Task.sleep(for: .milliseconds(300))
         guard activeProfile?.localAccountScope == scope else { accountExitProgress = nil; return }
         do {
@@ -277,6 +336,10 @@ final class NanaSessionStore: ObservableObject {
             suggestedSignInEmail = ""
             signedOutDestination = .welcome
             pendingIdentity = nil
+            remoteTokenRequest = nil
+            entryGeneration = UUID()
+            entryScreenRevision = UUID()
+            isEntryInProgress = false
             activeProfile = nil
             accountExitProgress = nil
         } catch {
@@ -311,8 +374,6 @@ final class NanaSessionStore: ObservableObject {
         }
     }
 
-    /// Check the real Apple credential on cold launch and foreground return.
-    /// Temporary lookup failures do not erase a previously authorized local session.
     @discardableResult
     func validateAppleSession() async -> Bool {
         guard ledgerLoaded, !checkingAppleCredential, accountExitProgress == nil else { return false }
@@ -350,7 +411,6 @@ final class NanaSessionStore: ObservableObject {
                 || ledger.activeAccountScope.flatMap({ ledger.profiles[$0] })?.signInMethod == "apple"
                 || ledger.pendingIdentity?.signInMethod == "apple" else { return }
         signOut()
-        // Revocation always closes the visible session, even if protected storage is unavailable.
         sessionRevision = UUID()
         activeProfile = nil
         pendingIdentity = nil
@@ -384,8 +444,6 @@ final class NanaSessionStore: ObservableObject {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
-            // Preserve local profiles created by older app revisions, but do not
-            // revive their old active session without going through entry again.
             var migrated = NanaLocalAccountLedger()
             if let data = defaults.data(forKey: "nana.localAccounts.v2"),
                let accounts = try? JSONDecoder().decode([String: NanaAccountProfile].self, from: data) {

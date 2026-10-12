@@ -13,10 +13,12 @@ struct NanaLoginMethods {
     let email: Bool
     let visitor: Bool
     let register: Bool
+
+    var hasAvailableEntry: Bool { apple || email || visitor || register }
 }
 
 struct NanaAuthenticationResult {
-    let tokenRequest: [String: Any]
+    let tokenRequest: [String: Any]?
     let message: String
 }
 
@@ -32,8 +34,10 @@ final class NanaPushTokenCoordinator: NSObject, UIApplicationDelegate {
         Task { @MainActor in
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             if settings.authorizationStatus == .notDetermined {
-                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
+                let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+                guard granted else { latestToken = ""; return }
             }
+            guard settings.authorizationStatus != .denied else { latestToken = ""; return }
             UIApplication.shared.registerForRemoteNotifications()
         }
     }
@@ -99,6 +103,7 @@ struct NanaAuthenticationBoundary {
     func authenticate(entryMode: String, scene: String, email: String? = nil, password: String? = nil, apple: AppleIdentityResult? = nil, includeEntryContext: Bool = true) async throws -> NanaAuthenticationResult {
         pushTokens.start()
         let pushToken = await pushTokens.waitForCurrentToken()
+        try Task.checkCancellation()
         var body: [String: Any] = [
             ConfiguredWireFields.release_tag: NanaAServiceConfiguration.clientVersion,
             ConfiguredWireFields.pulse_token: pushToken,
@@ -117,16 +122,20 @@ struct NanaAuthenticationBoundary {
             if let code = apple.authorizationCode { body[ConfiguredWireFields.apple_code] = code }
         }
         let (_, object) = try await client.request(path: IntegrationContract.entryPath, method: "POST", body: body)
-        guard let code = object[ConfiguredWireFields.code] as? Int, code == 0 else {
+        if let data = object[ConfiguredWireFields.data] as? [String: Any], !data.isEmpty {
+            guard let token = data[ConfiguredWireFields.token] as? [String: Any], !token.isEmpty else {
+                throw NanaAServiceError.authenticationFailed("The account service returned an invalid realtime session.")
+            }
+            do { _ = try ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID) }
+            catch { throw NanaAServiceError.authenticationFailed("The account service returned an invalid realtime session.") }
+            return NanaAuthenticationResult(tokenRequest: token, message: object[ConfiguredWireFields.message] as? String ?? "ok")
+        }
+        let rawData = object[ConfiguredWireFields.data]
+        guard rawData == nil || rawData is NSNull || (rawData as? [String: Any])?.isEmpty == true,
+              let code = object[ConfiguredWireFields.code] as? Int, code == 0 else {
             throw NanaAServiceError.authenticationFailed(object[ConfiguredWireFields.message] as? String ?? "Sign-in is unavailable right now.")
         }
-        guard let data = object[ConfiguredWireFields.data] as? [String: Any], !data.isEmpty,
-              let token = data[ConfiguredWireFields.token] as? [String: Any], !token.isEmpty else {
-            throw NanaAServiceError.authenticationFailed("The account service returned no realtime session.")
-        }
-        do { _ = try ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID) }
-        catch { throw NanaAServiceError.authenticationFailed("The account service returned an invalid realtime session.") }
-        return NanaAuthenticationResult(tokenRequest: token, message: object[ConfiguredWireFields.message] as? String ?? "ok")
+        return NanaAuthenticationResult(tokenRequest: nil, message: object[ConfiguredWireFields.message] as? String ?? "ok")
     }
 
     func refresh() async throws -> NanaAuthenticationResult {

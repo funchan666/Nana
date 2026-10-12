@@ -59,6 +59,9 @@ struct NanaCredentialAccessView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.top, 18)
+                        if isSubmitting || sessionStore.isEntryInProgress {
+                            AccountSubmissionProgress().frame(maxWidth: .infinity).padding(.top, 12)
+                        }
                         HStack(spacing: 5) {
                             Text(mode.prompt).foregroundStyle(AccountEntryAppearance.mutedText)
                             Button(mode.promptAction) {
@@ -106,12 +109,10 @@ struct NanaCredentialAccessView: View {
             if mode == .login, emailAddress.isEmpty { emailAddress = sessionStore.suggestedSignInEmail }
         }
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
-        .disabled(entryNotice != nil || isSubmitting)
+        .disabled(entryNotice != nil || isSubmitting || sessionStore.isEntryInProgress)
         .overlay {
             if let entryNotice {
                 AccountConsentNotice(notice: entryNotice) { self.entryNotice = nil }
-            } else if isSubmitting {
-                AccountSubmissionProgress()
             }
         }
         .onDisappear {
@@ -170,6 +171,7 @@ struct NanaCredentialAccessView: View {
     }
 
     private func submit() {
+        guard !isSubmitting, !sessionStore.isEntryInProgress else { return }
         focusedField = nil
         guard hasAcceptedAgreements else {
             entryNotice = AccountEntryNotice(title: "Your agreement comes first", explanation: "Please review both agreements and tick the box before continuing.")
@@ -184,7 +186,6 @@ struct NanaCredentialAccessView: View {
         submissionTask = Task { @MainActor in
             defer { isSubmitting = false; submissionTask = nil }
             do {
-                try await Task.sleep(for: .seconds(3.4))
                 try Task.checkCancellation()
                 if mode == .login {
                     try await sessionStore.signIn(emailAddress: email, password: secret)
