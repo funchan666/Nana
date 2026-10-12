@@ -57,3 +57,19 @@ xcodebuild -project Nana.xcodeproj -scheme Nana -sdk iphonesimulator \
 静态检查：`git diff --check`、`plutil -lint`（工程及 AppInfo.plist）通过；当前 contract 和生成 JSON 可解析；改动 Swift 文件均仍关联 Sources，删除的防护源码无残余工程引用。检查了可选 TokenRequest / URLComponents 解包及新增主线程 WebView owner；静态阅读不等于 Swift 编译通过。
 
 未编译、未测试、未启动 App/模拟器、未截图，未请求真实业务接口、连接 Ably 或执行支付。页面实际呈现、真实网站权限及网络异常恢复需后续设备验证。
+
+## 2026-10-12 新版契约同步（增量、仅静态）
+
+本节取代历史记录中的 GET/四开关说明；历史编译或网络结果不是本次证据。此次保留原生布局与资产，仅将现有按钮组接入新的模式状态，不新增设计稿、图标或背景。
+
+- **F01/F02 契约与数据**：`contract.json` 删除 `loginFlags`，新增固定字段 `loginEntryField=harbor_entry`；显式登录响应保留 `#{h5Url}`。最新版 `render_contract.py --replace` 同步双模板、常量、CSV 和请求样例。离线逐项比较：12 份内容响应与 HEAD 完全相等；15 个接口的内层响应与来源相等；14 项配置映射相等；认证/支付响应不变；两层 JSON 紧凑；App ID、域名、所有原路径和事件不变。未重新导出或改写内容模型/素材。
+- **F03 工程**：生产 `IntegrationContract.generated.swift` 与生成物（去除普通注释后）一致，仍使用既有 Sources 成员。Ably 产品引用、SPM 版本/锁文件、Bundle ID Scheme、相机/麦克风/相册声明保留。新类型均位于已有 target 文件内；没有添加依赖或构建目标。
+- **F04 请求**：`NanaAServiceClient.request/perform` 统一使用 `IntegrationContract.apiMethod`。内容 POST 明确发送 `{}`，没有认证参数/APNs 等待；核心请求为 JSON，禁止自动重定向。认证单独允许 HTTP 401 中的非空有效 token，空 data 仍要求 2xx + 整数 code=0。登录方式和支付确认不共享该例外，成功码拒绝布尔和浮点。HEAD 仅判断是否收到真实 HTTP 响应，不跟随重定向。
+- **F04 APNs/设备**：启动注册与首个 active 的通知授权分开，实际 delegate 转交结果。`NanaPushTokenCoordinator` 以独立 continuation/5 秒定时器替换轮询；取消、失败/拒绝、超时和成功只完成当前等待者一次。`publicFields` 在其他字段合并后写入固定四参数并取最新 token；登录方式并行等待 HEAD 和 APNs，认证/恢复/续期共用构造器。设备 ID 仅在 Keychain 明确不存在时新建，写入后回读，不因读取失败换临时 ID。
+- **F05 入口**：生成的 `ConfiguredLoginEntryMode.parse` → `NanaLoginEntryState.checking/resolved/fallback` → 欢迎页按钮与协调器表单路由。仅游客/标准模式互斥，删除四开关与“全关闭”分支。入口检测按欢迎周期缓存；表单返回不重查已完成结果；离开/后台取消未完成任务。网络失败显示可操作的标准 fallback，以 2/4/8/16/30 秒退避或网络恢复唤醒；用户开始认证时冻结模式并取消检测。游客协议初始为 true，网络恢复不重置手动选择；其他协议状态独立。各实际提交入口同步取得共享 attempt 锁后再启动异步工作。
+- **网络监听适配**：使用独立 `NanaEntryNetworkWaiter`（系统 `NWPathMonitor`）配合现有 URLSession，无全局监听覆盖。已查阅 [Alamofire 5.12.2 官方源码](https://github.com/Alamofire/Alamofire/blob/5.12.2/Source/Features/NetworkReachabilityManager.swift)：其 `NetworkReachabilityManager` 在 iOS 17.4 起弃用并建议 NWPathMonitor；本项目最低 iOS 17，故采用该等效原生实现，不额外引入弃用依赖。只读取官方元数据/源码，没有调用项目业务接口。
+- **F06/F07/F08 分流与网页**：保持全消息订阅、generation 校验、首次 connected 3 秒期限及迟到 page 隔离。补齐 WKWebView 的 AirPlay/行内播放/无需用户手势媒体配置及返回手势。`NanaWebSurface` 报告已挂载且具有尺寸；协调器要求本 scene active、稳定启动 host 已准备、当前主文档 HTTP/MIME + didFinish 成功后才展示 B。`commitEntryRoute` 在最终 A/B 决议时保存活动会话标记，未完成的首次认证不提前保存；资料编辑保留原有保存行为。Keychain 恢复策略不变。
+- **F09/F10 业务保留**：现有 StoreKit 商品、购买事务、奖励余额、本地互动和回执业务不重新接入。本轮仅把支付确认请求纳入统一 POST 常量并严格校验整数成功码，未修改商品表、余额算法或待确认账本。原 `apply` 的持久化 confirmed/processedTransactionIDs 在 finish 之前；历史补单与后台幂等仍不能据此静态记录声明端到端验收通过。
+- **F11 防护与清理**：上次已删除的 `NanaPrivacyShield`、录屏监听和安全文本画布没有重新引入，源码/工程残留搜索为空；密码安全输入和真实媒体权限保留。删除旧登录开关常量/模型，保留配置、全部响应源、部署资料和素材。此次新生成的运行时普通注释已移除。
+
+本次实际检查：JSON/CSV 离线比对、生成常量与生产调用点、Swift actor/continuation 取消边界、来源及 target 引用、`plutil -lint`、`git diff --check`。仅查询 Swift 工具链版本以核对依赖兼容性；未执行编译、测试、模拟器、App 启动或业务联调，未连接 Ably/执行支付。双模板待用户导入、校验并保存后，再按需验收线上行为。

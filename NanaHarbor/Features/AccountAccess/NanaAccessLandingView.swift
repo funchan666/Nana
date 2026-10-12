@@ -11,7 +11,8 @@ struct NanaAccessLandingView: View {
     @State private var isAppleLoading = false
     @State private var isVisitorLoading = false
     @State private var appleService = AppleSignInService()
-    @State private var methodsLoading = true
+    @Environment(\.scenePhase) private var scenePhase
+    private var methodsLoading: Bool { sessionStore.loginEntryState == .checking }
 
     let openLogin: () -> Void
     let openRegistration: () -> Void
@@ -32,11 +33,11 @@ struct NanaAccessLandingView: View {
                                 AccountLoadingDots()
                                     .frame(maxWidth: .infinity, minHeight: 96)
                             } else {
-                                if sessionStore.loginMethods.email {
+                                if sessionStore.loginEntryMode == .standard {
                                     AccountArtworkButton(artworkName: "NanaLoginAction", spokenTitle: "Log in with email", action: { openLogin() })
                                         .padding(.horizontal, 17)
                                 }
-                                if sessionStore.loginMethods.register {
+                                if sessionStore.loginEntryMode == .standard {
                                     Button { openRegistration() } label: {
                                         HStack(spacing: 5) {
                                             Text("New to Nana?").foregroundStyle(AccountEntryAppearance.mutedText)
@@ -46,7 +47,7 @@ struct NanaAccessLandingView: View {
                                     }
                                     .buttonStyle(.plain)
                                 }
-                                if sessionStore.loginMethods.visitor {
+                                if sessionStore.loginEntryMode == .guestOnly {
                                     Button(action: beginVisitorSignIn) {
                                         Text("Continue as guest")
                                             .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -62,11 +63,11 @@ struct NanaAccessLandingView: View {
                                     .padding(.top, 2)
                                 }
                             }
-                            if sessionStore.loginMethods.visitor {
+                            if sessionStore.loginEntryMode == .guestOnly {
                                 AgreementConsentRow(isAccepted: $hasAcceptedAgreements) { selectedPolicy = $0 }
                                     .padding(.top, 20)
                             }
-                            if sessionStore.loginMethods.apple {
+                            if !methodsLoading && sessionStore.loginEntryMode == .standard {
                                 HStack(spacing: 5) {
                                     Rectangle().frame(width: 24, height: 0.5)
                                     Text("or continue with Apple")
@@ -83,10 +84,7 @@ struct NanaAccessLandingView: View {
                             if sessionStore.isEntryInProgress || isAppleLoading || isVisitorLoading {
                                 AccountSubmissionProgress().padding(.top, 12)
                             }
-                            if !methodsLoading && !sessionStore.loginMethods.hasAvailableEntry {
-                                Text("Sign-in is currently unavailable. Please try again later.")
-                                    .foregroundStyle(AccountEntryAppearance.mutedText)
-                            }
+
                         }
                         .padding(.horizontal, 30)
                         .padding(.bottom, 32)
@@ -102,12 +100,9 @@ struct NanaAccessLandingView: View {
         .ignoresSafeArea(.all)
         .fullScreenCover(item: $selectedPolicy) { AccountPolicyBrowser(document: $0).preferredColorScheme(.dark) }
         .disabled(entryNotice != nil || isAppleLoading || isVisitorLoading || methodsLoading || sessionStore.isEntryInProgress)
-        .task {
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
             await sessionStore.loadLoginMethods()
-            if sessionStore.loginMethods.visitor {
-                hasAcceptedAgreements = true
-            }
-            methodsLoading = false
         }
         .overlay {
             if let entryNotice {
@@ -128,7 +123,7 @@ struct NanaAccessLandingView: View {
     }
 
     private func beginAppleSignIn() {
-        guard requireAgreementConsent(hasAcceptedAppleAgreements),
+        guard sessionStore.loginEntryMode == .standard, requireAgreementConsent(hasAcceptedAppleAgreements),
               let attempt = try? sessionStore.beginEntryAttempt() else { return }
         appleAttempt = attempt
         isAppleLoading = true
@@ -160,13 +155,15 @@ struct NanaAccessLandingView: View {
     }
 
     private func beginVisitorSignIn() {
-        guard !sessionStore.isEntryInProgress, requireAgreementConsent(hasAcceptedAgreements) else { return }
+        guard sessionStore.loginEntryMode == .guestOnly, !sessionStore.isEntryInProgress, requireAgreementConsent(hasAcceptedAgreements) else { return }
+        guard let attempt = try? sessionStore.beginEntryAttempt() else { return }
         isVisitorLoading = true
         Task { @MainActor in
             do {
-                try await sessionStore.signInAsVisitor()
+                try await sessionStore.signInAsVisitor(attempt: attempt)
                 isVisitorLoading = false
             } catch is CancellationError {
+                sessionStore.cancelEntryAttempt(attempt)
                 isVisitorLoading = false
             } catch {
                 isVisitorLoading = false

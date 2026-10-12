@@ -43,12 +43,6 @@
     "data": "data",
     "token": "token"
   },
-  "loginFlags": {
-    "apple": "apple_lantern",
-    "email": "email_tide",
-    "visitor": "visitor_harbor",
-    "register": "register_current"
-  },
   "ably": {
     "clientId": "app",
     "serverClientIds": [
@@ -171,5 +165,6 @@
       "path": "/nana/harbor/assets",
       "file": "responses/asset-manifest.json"
     }
-  ]
+  ],
+  "loginEntryField": "harbor_entry"
 }

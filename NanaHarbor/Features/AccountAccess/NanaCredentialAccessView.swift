@@ -180,6 +180,7 @@ struct NanaCredentialAccessView: View {
         let draft = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
         validationMessage = draft.validationMessage(for: mode == .login ? .signIn : .createAccount)
         guard validationMessage == nil else { return }
+        guard let attempt = try? sessionStore.beginEntryAttempt() else { return }
         isSubmitting = true
         let email = draft.normalizedEmailAddress
         let secret = password
@@ -188,13 +189,14 @@ struct NanaCredentialAccessView: View {
             do {
                 try Task.checkCancellation()
                 if mode == .login {
-                    try await sessionStore.signIn(emailAddress: email, password: secret)
+                    try await sessionStore.signIn(emailAddress: email, password: secret, attempt: attempt)
                 } else {
-                    try await sessionStore.preparePasswordRegistration(emailAddress: email, password: secret)
+                    try await sessionStore.preparePasswordRegistration(emailAddress: email, password: secret, attempt: attempt)
                     openProfile()
                 }
                 password = ""
             } catch is CancellationError {
+                sessionStore.cancelEntryAttempt(attempt)
                 return
             } catch {
                 entryNotice = AccountEntryNotice(title: "Couldn't finish", explanation: error.localizedDescription)

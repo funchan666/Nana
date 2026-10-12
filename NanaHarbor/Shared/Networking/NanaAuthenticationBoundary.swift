@@ -8,13 +8,15 @@ struct NanaAppleCredentialExchangeRequest: Encodable { let authorizationCode: St
 struct NanaSessionToken: Decodable { let accessToken: String; let refreshToken: String?; let expiresAt: Date }
 struct NanaAuthenticationFailure: Decodable { let code: String; let message: String }
 
-struct NanaLoginMethods {
-    let apple: Bool
-    let email: Bool
-    let visitor: Bool
-    let register: Bool
+enum NanaLoginEntryState: Equatable {
+    case checking
+    case resolved(ConfiguredLoginEntryMode)
+    case fallback
 
-    var hasAvailableEntry: Bool { apple || email || visitor || register }
+    var mode: ConfiguredLoginEntryMode {
+        if case .resolved(let mode) = self { return mode }
+        return .standard
+    }
 }
 
 struct NanaAuthenticationResult {
@@ -25,40 +27,72 @@ struct NanaAuthenticationResult {
 @MainActor
 final class NanaPushTokenCoordinator: NSObject, UIApplicationDelegate {
     static let shared = NanaPushTokenCoordinator()
-    private var latestToken: String?
+    private(set) var latestToken: String?
     private var registrationStarted = false
+    private var authorizationStarted = false
+    private var hasDegraded = false
+    private var waiters: [UUID: CheckedContinuation<String, Error>] = [:]
+    private var deadlines: [UUID: DispatchWorkItem] = [:]
 
     func start() {
-        guard !registrationStarted else { return }
-        registrationStarted = true
-        Task { @MainActor in
-            let settings = await UNUserNotificationCenter.current().notificationSettings()
-            if settings.authorizationStatus == .notDetermined {
-                let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-                guard granted else { latestToken = ""; return }
-            }
-            guard settings.authorizationStatus != .denied else { latestToken = ""; return }
+        if !registrationStarted {
+            registrationStarted = true
             UIApplication.shared.registerForRemoteNotifications()
+        }
+        guard !authorizationStarted, UIApplication.shared.applicationState == .active else { return }
+        authorizationStarted = true
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            if settings.authorizationStatus == .notDetermined {
+                let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+                if !granted { degrade() }
+            } else if settings.authorizationStatus == .denied {
+                degrade()
+            }
         }
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-        latestToken = token
+        latestToken = deviceToken.map { String(format: "%02x", $0) }.joined()
+        for id in Array(waiters.keys) { complete(id, result: .success(latestToken ?? "")) }
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        latestToken = ""
+        degrade()
     }
 
-    func waitForCurrentToken(timeout: Duration = .seconds(5)) async -> String {
+    private func degrade() {
+        hasDegraded = true
+        for id in Array(waiters.keys) { complete(id, result: .success(latestToken ?? "")) }
+    }
+
+    private func complete(_ id: UUID, result: Result<String, Error>) {
+        deadlines.removeValue(forKey: id)?.cancel()
+        waiters.removeValue(forKey: id)?.resume(with: result)
+    }
+
+    func waitForCurrentToken() async throws -> String {
+        start()
+        try Task.checkCancellation()
         if let latestToken { return latestToken }
-        let deadline = ContinuousClock.now + timeout
-        while latestToken == nil && ContinuousClock.now < deadline {
-            guard !Task.isCancelled else { return "" }
-            try? await Task.sleep(for: .milliseconds(100))
+        if hasDegraded { return "" }
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                waiters[id] = continuation
+                let deadline = DispatchWorkItem { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.complete(id, result: .success(self?.latestToken ?? ""))
+                    }
+                }
+                deadlines[id] = deadline
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.complete(id, result: .failure(CancellationError())) }
         }
-        return latestToken ?? ""
     }
 }
 
@@ -71,11 +105,17 @@ struct NanaDeviceIdentity {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8), !value.isEmpty { return value }
+        guard status == errSecItemNotFound else { throw NanaAServiceError.secureStorage }
         let value = UUID().uuidString.lowercased()
         let attributes: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
         let saveStatus = SecItemAdd(attributes as CFDictionary, nil)
         guard saveStatus == errSecSuccess || saveStatus == errSecDuplicateItem else { throw NanaAServiceError.secureStorage }
-        return value
+        var saved: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &saved) == errSecSuccess,
+              let bytes = saved as? Data, let stored = String(data: bytes, encoding: .utf8), !stored.isEmpty else {
+            throw NanaAServiceError.secureStorage
+        }
+        return stored
     }
 }
 
@@ -91,25 +131,34 @@ struct NanaAuthenticationBoundary {
         self.deviceIdentity = deviceIdentity
     }
 
-    func loginMethods() async throws -> NanaLoginMethods {
-        try await client.probeOrigin()
-        let (_, object) = try await client.request(path: IntegrationContract.optionsPath, method: "GET")
-        guard let code = object[ConfiguredWireFields.code] as? Int, code == 0,
-              let data = object[ConfiguredWireFields.data] as? [String: Any] else { throw NanaAServiceError.authenticationUnavailable }
-        func flag(_ name: String) -> Bool { (data[name] as? Int) == 1 }
-        return NanaLoginMethods(apple: flag(ConfiguredWireFields.apple_lantern), email: flag(ConfiguredWireFields.email_tide), visitor: flag(ConfiguredWireFields.visitor_harbor), register: flag(ConfiguredWireFields.register_current))
+    private func publicFields(pushToken: String, extras: [String: Any] = [:]) throws -> [String: Any] {
+        var body = extras
+        body[ConfiguredWireFields.release_tag] = NanaAServiceConfiguration.clientVersion
+        body[ConfiguredWireFields.pulse_token] = pushTokens.latestToken ?? pushToken
+        body[ConfiguredWireFields.device_fingerprint] = try deviceIdentity.value()
+        body[ConfiguredWireFields.room_delivery_kind] = IntegrationContract.continuationMode
+        return body
+    }
+
+    func loginMethods() async throws -> ConfiguredLoginEntryMode {
+        async let probe: Void = client.probeOrigin()
+        async let token: String = pushTokens.waitForCurrentToken()
+        let (_, readyToken) = try await (probe, token)
+        try Task.checkCancellation()
+        let body = try publicFields(pushToken: readyToken)
+        let (_, object) = try await client.request(path: IntegrationContract.optionsPath, body: body)
+        guard NanaAServiceClient.hasSuccessCode(object[ConfiguredWireFields.code]),
+              let mode = ConfiguredLoginEntryMode.parse(data: object[ConfiguredWireFields.data]) else {
+            throw NanaAServiceError.authenticationUnavailable
+        }
+        return mode
     }
 
     func authenticate(entryMode: String, scene: String, email: String? = nil, password: String? = nil, apple: AppleIdentityResult? = nil, includeEntryContext: Bool = true) async throws -> NanaAuthenticationResult {
         pushTokens.start()
-        let pushToken = await pushTokens.waitForCurrentToken()
+        let pushToken = try await pushTokens.waitForCurrentToken()
         try Task.checkCancellation()
-        var body: [String: Any] = [
-            ConfiguredWireFields.release_tag: NanaAServiceConfiguration.clientVersion,
-            ConfiguredWireFields.pulse_token: pushToken,
-            ConfiguredWireFields.device_fingerprint: try deviceIdentity.value(),
-            ConfiguredWireFields.room_delivery_kind: IntegrationContract.continuationMode
-        ]
+        var body: [String: Any] = [:]
         if includeEntryContext {
             body[ConfiguredWireFields.entry_mode] = entryMode
             body[ConfiguredWireFields.entry_context] = scene
@@ -121,7 +170,8 @@ struct NanaAuthenticationBoundary {
             if let token = apple.identityToken { body[ConfiguredWireFields.apple_assertion] = token }
             if let code = apple.authorizationCode { body[ConfiguredWireFields.apple_code] = code }
         }
-        let (_, object) = try await client.request(path: IntegrationContract.entryPath, method: "POST", body: body)
+        body = try publicFields(pushToken: pushToken, extras: body)
+        let (response, object) = try await client.request(path: IntegrationContract.entryPath, body: body, allowsAuthenticationResponse: true)
         if let data = object[ConfiguredWireFields.data] as? [String: Any], !data.isEmpty {
             guard let token = data[ConfiguredWireFields.token] as? [String: Any], !token.isEmpty else {
                 throw NanaAServiceError.authenticationFailed("The account service returned an invalid realtime session.")
@@ -132,7 +182,7 @@ struct NanaAuthenticationBoundary {
         }
         let rawData = object[ConfiguredWireFields.data]
         guard rawData == nil || rawData is NSNull || (rawData as? [String: Any])?.isEmpty == true,
-              let code = object[ConfiguredWireFields.code] as? Int, code == 0 else {
+              (200..<300).contains(response.statusCode), NanaAServiceClient.hasSuccessCode(object[ConfiguredWireFields.code]) else {
             throw NanaAServiceError.authenticationFailed(object[ConfiguredWireFields.message] as? String ?? "Sign-in is unavailable right now.")
         }
         return NanaAuthenticationResult(tokenRequest: nil, message: object[ConfiguredWireFields.message] as? String ?? "ok")
@@ -150,8 +200,8 @@ struct NanaAuthenticationBoundary {
             ConfiguredWireFields.receipt_blob: receipt,
             ConfiguredWireFields.order_reference: orderCode
         ]
-        let (_, object) = try await client.request(path: IntegrationContract.settlementPath, method: "POST", body: body)
-        guard let code = object[ConfiguredWireFields.code] as? Int, code == 0 else { throw NanaAServiceError.writeUnavailable }
+        let (_, object) = try await client.request(path: IntegrationContract.settlementPath, body: body)
+        guard NanaAServiceClient.hasSuccessCode(object[ConfiguredWireFields.code]) else { throw NanaAServiceError.writeUnavailable }
     }
 
     func signIn(_ request: NanaCredentialSignInRequest) async throws -> NanaAuthenticationResult {

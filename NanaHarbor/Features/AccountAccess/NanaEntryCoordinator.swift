@@ -96,15 +96,17 @@ struct NanaEntryCoordinator: View {
             guard sessionStore.activeProfile != nil else { return }
             switch phase {
             case .ready where routeDecision == .preparingB:
-                routeDecision = .showingB
-                sessionStore.finishEntryPreparation()
+                commitWebIfReady()
             case .failed(let message) where routeDecision == .preparingB || routeDecision == .showingB:
                 showWebFailure(message)
             default: break
             }
         }
+        .onChange(of: webDocument.isAttached) { _, _ in commitWebIfReady() }
+        .onChange(of: hasPresentedLaunchArtwork) { _, _ in commitWebIfReady() }
         .onChange(of: scenePhase) { _, phase in
             contentStore.setWelcomeFollowersActive(routeDecision == .showingA && phase == .active && sessionStore.accountExitProgress == nil)
+            if phase == .active { commitWebIfReady() }
             guard phase == .active, hasPresentedLaunchArtwork, sessionStore.accountExitProgress == nil else { return }
             Task {
                 await sessionStore.validateAppleSession()
@@ -202,8 +204,23 @@ struct NanaEntryCoordinator: View {
     private func commitNativeRoute() {
         guard routeDecision == .undecided else { return }
         routeTimer?.cancel()
+        guard sessionStore.commitEntryRoute() else {
+            resetRoute()
+            _ = sessionStore.signOut(destination: .welcome)
+            return
+        }
         routeDecision = .showingA
-        sessionStore.finishEntryPreparation()
+    }
+
+    private func commitWebIfReady() {
+        guard routeDecision == .preparingB, webDocument.phase == .ready, webDocument.isAttached,
+              scenePhase == .active, hasPresentedLaunchArtwork, sessionStore.activeProfile != nil else { return }
+        guard sessionStore.commitEntryRoute() else {
+            resetRoute()
+            _ = sessionStore.signOut(destination: .welcome)
+            return
+        }
+        routeDecision = .showingB
     }
 
     private func connectionFailed() {
@@ -301,9 +318,11 @@ struct NanaEntryCoordinator: View {
     @ViewBuilder private var accountRoute: some View {
         switch entryRoute {
         case .landing:
-            NanaAccessLandingView(openLogin: { entryRoute = .login }, openRegistration: { entryRoute = .registration }, openProfile: { entryRoute = .profile })
+            NanaAccessLandingView(openLogin: { if sessionStore.loginEntryMode == .standard { entryRoute = .login } }, openRegistration: { if sessionStore.loginEntryMode == .standard { entryRoute = .registration } }, openProfile: { entryRoute = .profile })
+        case .login where sessionStore.loginEntryMode == .guestOnly, .registration where sessionStore.loginEntryMode == .guestOnly:
+            NanaAccessLandingView(openLogin: {}, openRegistration: {}, openProfile: { entryRoute = .profile })
         case .login:
-            NanaCredentialAccessView(mode: .login, goBack: { entryRoute = .landing }, openRegistration: { entryRoute = .registration }, openProfile: { entryRoute = .profile })
+            NanaCredentialAccessView(mode: .login, goBack: { entryRoute = .landing }, openRegistration: { if sessionStore.loginEntryMode == .standard { entryRoute = .registration } }, openProfile: { entryRoute = .profile })
         case .registration:
             NanaCredentialAccessView(mode: .registration, goBack: { entryRoute = .landing }, openRegistration: nil, openProfile: { entryRoute = .profile })
         case .profile:

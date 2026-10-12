@@ -1,7 +1,15 @@
 # Synthetic request values only; do not send as a real purchase.
 ### loginMethods
-GET https://lantern.nanacc.top/nana/harbor/doorway
+POST https://lantern.nanacc.top/nana/harbor/doorway
 Accept: application/json
+Content-Type: application/json
+
+{
+  "release_tag": "1.0",
+  "pulse_token": "",
+  "device_fingerprint": "fixture-installation-id",
+  "room_delivery_kind": 2
+}
 
 ### authenticate
 POST https://lantern.nanacc.top/nana/harbor/tidepass
@@ -27,4 +35,88 @@ Content-Type: application/json
   "receipt_blob": "SYNTHETIC_RECEIPT_NOT_VALID_FOR_PAYMENT",
   "order_reference": "fixture-backend-order"
 }
+
+### bootstrap
+POST https://lantern.nanacc.top/nana/harbor/bootstrap
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### homeFeed
+POST https://lantern.nanacc.top/nana/harbor/home-feed
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### rooms
+POST https://lantern.nanacc.top/nana/harbor/rooms
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### auroraRoom
+POST https://lantern.nanacc.top/nana/harbor/rooms/aurora
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### avaProfile
+POST https://lantern.nanacc.top/nana/harbor/profiles/ava
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### echoesPost
+POST https://lantern.nanacc.top/nana/harbor/posts/echoes
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### search
+POST https://lantern.nanacc.top/nana/harbor/search
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### conversations
+POST https://lantern.nanacc.top/nana/harbor/conversations
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### avaMessages
+POST https://lantern.nanacc.top/nana/harbor/conversations/ava/messages
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### wallet
+POST https://lantern.nanacc.top/nana/harbor/wallet
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### gifts
+POST https://lantern.nanacc.top/nana/harbor/gifts
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+### assetManifest
+POST https://lantern.nanacc.top/nana/harbor/assets
+Accept: application/json
+Content-Type: application/json
+
+{}
 

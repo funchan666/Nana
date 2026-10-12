@@ -15,7 +15,8 @@ struct NanaHarborWebView: UIViewRepresentable {
 final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
     enum Phase: Equatable { case idle, loading, ready, failed(String) }
     @Published private(set) var phase: Phase = .idle
-    let webView: WKWebView
+    @Published private(set) var isAttached = false
+    let webView: NanaWebSurface
     private var address: URL?
     private var generation = UUID()
     private var navigation: WKNavigation?
@@ -26,8 +27,17 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
     override init() {
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        configuration.allowsAirPlayForMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        webView = NanaWebSurface(frame: .zero, configuration: configuration)
         super.init()
+        webView.onAttachmentChange = { [weak self] attached in
+            Task { @MainActor [weak self] in
+                guard let self, self.isAttached != attached else { return }
+                self.isAttached = attached
+            }
+        }
+        webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.isOpaque = false
@@ -104,7 +114,7 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         guard address != nil else { decisionHandler(.cancel); return }
         guard navigationResponse.isForMainFrame else { decisionHandler(.allow); return }
         guard let response = navigationResponse.response as? HTTPURLResponse,
-              (200..<300).contains(response.statusCode), navigationResponse.canShowMIMEType,
+              (200..<400).contains(response.statusCode), navigationResponse.canShowMIMEType,
               ["text/html", "application/xhtml+xml"].contains(response.mimeType?.lowercased() ?? "") else {
             decisionHandler(.cancel)
             fail("The page returned an unsupported or unsuccessful response.")
@@ -210,5 +220,24 @@ private final class NanaMediaAuthorization {
             return allowed
         default: return false
         }
+    }
+}
+
+@MainActor
+final class NanaWebSurface: WKWebView {
+    var onAttachmentChange: ((Bool) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        reportAttachment()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        reportAttachment()
+    }
+
+    private func reportAttachment() {
+        onAttachmentChange?(window != nil && bounds.width > 0 && bounds.height > 0)
     }
 }

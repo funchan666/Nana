@@ -6,6 +6,10 @@ final class NanaAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        Task { @MainActor in NanaPushTokenCoordinator.shared.start() }
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { @MainActor in
             NanaPushTokenCoordinator.shared.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)

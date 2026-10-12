@@ -3,6 +3,7 @@ import Combine
 import CryptoKit
 import Foundation
 import Security
+import Network
 
 struct NanaAccountProfile: Codable, Equatable {
     let emailAddress: String
@@ -69,7 +70,12 @@ final class NanaSessionStore: ObservableObject {
     @Published private(set) var suggestedSignInEmail = ""
     @Published private(set) var signedOutDestination: NanaSignedOutDestination = .welcome
     @Published private(set) var accountExitProgress: NanaAccountExitProgress?
-    @Published private(set) var loginMethods = NanaLoginMethods(apple: false, email: false, visitor: false, register: false)
+    @Published private(set) var loginEntryState: NanaLoginEntryState = .checking
+    var loginEntryMode: ConfiguredLoginEntryMode { loginEntryState.mode }
+    private var loginDetection: Task<Void, Never>?
+    private var loginDetectionGeneration = UUID()
+    private var loginDetectionComplete = false
+    private var loginDetectionFrozen = false
     @Published private(set) var isEntryInProgress = false
     private(set) var entryGeneration = UUID()
     @Published private(set) var entryScreenRevision = UUID()
@@ -103,6 +109,7 @@ final class NanaSessionStore: ObservableObject {
 
     func beginEntryAttempt() throws -> UUID {
         guard !isEntryInProgress else { throw CancellationError() }
+        freezeLoginDetection()
         entryGeneration = UUID()
         isEntryInProgress = true
         return entryGeneration
@@ -117,6 +124,20 @@ final class NanaSessionStore: ObservableObject {
         isEntryInProgress = true
     }
 
+    func commitEntryRoute() -> Bool {
+        guard let profile = activeProfile else { return false }
+        do {
+            var updated = ledger
+            updated.activeAccountScope = profile.localAccountScope
+            try persist(updated)
+            isEntryInProgress = false
+            return true
+        } catch {
+            showStorageNotice()
+            return false
+        }
+    }
+
     func finishEntryPreparation() {
         isEntryInProgress = false
     }
@@ -129,7 +150,12 @@ final class NanaSessionStore: ObservableObject {
 
     func restoreLocalSession() async {
         guard let attempt = try? beginEntryAttempt() else { return }
-        defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
+        defer {
+            if entryGeneration == attempt && activeProfile == nil {
+                finishEntryPreparation()
+                resetLoginDetection()
+            }
+        }
         do {
             try loadLedgerIfNeeded()
             let profile = ledger.activeAccountScope.flatMap { ledger.profiles[$0] }
@@ -147,9 +173,63 @@ final class NanaSessionStore: ObservableObject {
         }
     }
 
+    private func freezeLoginDetection() {
+        loginDetectionFrozen = true
+        loginDetectionGeneration = UUID()
+        loginDetection?.cancel()
+        loginDetection = nil
+        if loginEntryState == .checking { loginEntryState = .fallback }
+    }
+
+    private func resetLoginDetection() {
+        loginDetectionGeneration = UUID()
+        loginDetection?.cancel()
+        loginDetection = nil
+        loginDetectionComplete = false
+        loginDetectionFrozen = false
+        loginEntryState = .checking
+    }
+
     func loadLoginMethods() async {
-        do { loginMethods = try await authentication.loginMethods() }
-        catch { loginMethods = NanaLoginMethods(apple: true, email: true, visitor: false, register: true) }
+        guard !loginDetectionComplete, !loginDetectionFrozen, activeProfile == nil, pendingIdentity == nil else { return }
+        if let loginDetection { await loginDetection.value }
+        guard !Task.isCancelled, !loginDetectionComplete, !loginDetectionFrozen, activeProfile == nil else { return }
+        let revision = UUID()
+        loginDetectionGeneration = revision
+        let task = Task { @MainActor in
+            let wakeup = NanaEntryNetworkWaiter()
+            defer {
+                wakeup.stop()
+                if loginDetectionGeneration == revision { loginDetection = nil }
+            }
+            let delays: [TimeInterval] = [2, 4, 8, 16, 30]
+            var failures = 0
+            while !Task.isCancelled {
+                do {
+                    let mode = try await authentication.loginMethods()
+                    guard !Task.isCancelled, loginDetectionGeneration == revision, !loginDetectionFrozen else { return }
+                    loginEntryState = .resolved(mode)
+                    loginDetectionComplete = true
+                    return
+                } catch {
+                    guard !Task.isCancelled, loginDetectionGeneration == revision, !loginDetectionFrozen else { return }
+                    loginEntryState = .fallback
+                    let failure = NanaAServiceClient.sanitize(error)
+                    guard [.offline, .transport, .timeout].contains(failure) else {
+                        loginDetectionComplete = true
+                        return
+                    }
+                    await wakeup.wait(seconds: delays[min(failures, delays.count - 1)])
+                    failures += 1
+                }
+            }
+        }
+        loginDetection = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     func refreshRealtimeToken(completion: @escaping (Result<ConfiguredRealtimeConfiguration, Error>) -> Void) {
@@ -178,9 +258,10 @@ final class NanaSessionStore: ObservableObject {
         }
     }
 
-    func signIn(emailAddress: String, password: String) async throws {
-        let attempt = try beginEntryAttempt()
+    func signIn(emailAddress: String, password: String, attempt: UUID) async throws {
+        try checkEntryAttempt(attempt)
         defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
+        guard loginEntryMode == .standard else { throw NanaLocalAccountError.invalidEntry }
         let entry = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
         guard entry.validationMessage(for: .signIn) == nil else { throw NanaLocalAccountError.invalidEntry }
         let email = entry.normalizedEmailAddress
@@ -193,10 +274,10 @@ final class NanaSessionStore: ObservableObject {
         try activate(profile)
     }
 
-    func signInAsVisitor() async throws {
-        let attempt = try beginEntryAttempt()
+    func signInAsVisitor(attempt: UUID) async throws {
+        try checkEntryAttempt(attempt)
         defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
-        guard loginMethods.visitor else { throw NanaLocalAccountError.visitorUnavailable }
+        guard loginEntryMode == .guestOnly else { throw NanaLocalAccountError.visitorUnavailable }
         let result = try await authenticateForAttempt(attempt) { try await authentication.enterAsVisitor() }
         try checkEntryAttempt(attempt)
         remoteTokenRequest = result.tokenRequest
@@ -207,9 +288,10 @@ final class NanaSessionStore: ObservableObject {
         try activate(profile)
     }
 
-    func preparePasswordRegistration(emailAddress: String, password: String) async throws {
-        let attempt = try beginEntryAttempt()
+    func preparePasswordRegistration(emailAddress: String, password: String, attempt: UUID) async throws {
+        try checkEntryAttempt(attempt)
         defer { if entryGeneration == attempt && activeProfile == nil { finishEntryPreparation() } }
+        guard loginEntryMode == .standard else { throw NanaLocalAccountError.invalidEntry }
         let entry = AccountEntryDraft(emailAddress: emailAddress, accountPassword: password)
         guard entry.validationMessage(for: .createAccount) == nil else { throw NanaLocalAccountError.invalidEntry }
         let result = try await authenticateForAttempt(attempt) { try await authentication.register(NanaCredentialSignInRequest(emailAddress: entry.normalizedEmailAddress, password: password)) }
@@ -285,6 +367,7 @@ final class NanaSessionStore: ObservableObject {
         defer {
             ledger.activeAccountScope = nil
             ledger.pendingIdentity = nil
+            resetLoginDetection()
             entryScreenRevision = UUID()
             sessionRevision = UUID()
             suggestedSignInEmail = ""
@@ -338,6 +421,7 @@ final class NanaSessionStore: ObservableObject {
             pendingIdentity = nil
             remoteTokenRequest = nil
             entryGeneration = UUID()
+            resetLoginDetection()
             entryScreenRevision = UUID()
             isEntryInProgress = false
             activeProfile = nil
@@ -366,7 +450,7 @@ final class NanaSessionStore: ObservableObject {
         if let interests { profile.interests = interests }
         if let introduction { profile.introduction = String(introduction.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160)) }
         do {
-            try activate(profile)
+            try activate(profile, persistSession: true)
             return true
         } catch {
             showStorageNotice()
@@ -418,10 +502,10 @@ final class NanaSessionStore: ObservableObject {
             explanation: "Apple access is no longer available. Please authorize Nana again to continue.")
     }
 
-    private func activate(_ profile: NanaAccountProfile) throws {
+    private func activate(_ profile: NanaAccountProfile, persistSession: Bool = false) throws {
         var updated = ledger
         updated.profiles[profile.localAccountScope] = profile
-        updated.activeAccountScope = profile.localAccountScope
+        if persistSession { updated.activeAccountScope = profile.localAccountScope }
         updated.pendingIdentity = nil
         try persist(updated)
         suggestedSignInEmail = ""
@@ -531,5 +615,63 @@ final class NanaSessionStore: ObservableObject {
     private func showStorageNotice() {
         sessionNotice = AccountEntryNotice(title: "Couldn't save your details",
             explanation: NanaLocalAccountError.storageUnavailable.localizedDescription)
+    }
+}
+
+@MainActor
+private final class NanaEntryNetworkWaiter {
+    private let monitor = NWPathMonitor()
+    private var wasReachable = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var deadline: DispatchWorkItem?
+    private var waitID = UUID()
+
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            let reachable = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if reachable && !self.wasReachable { self.resume() }
+                self.wasReachable = reachable
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.nanalantern.entry-network"))
+    }
+
+    func wait(seconds: TimeInterval) async {
+        let id = UUID()
+        waitID = id
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(); return }
+                self.continuation = continuation
+                let deadline = DispatchWorkItem { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard self?.waitID == id else { return }
+                        self?.resume()
+                    }
+                }
+                self.deadline = deadline
+                DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: deadline)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard self?.waitID == id else { return }
+                self?.resume()
+            }
+        }
+    }
+
+    private func resume() {
+        deadline?.cancel()
+        deadline = nil
+        let pending = continuation
+        continuation = nil
+        pending?.resume()
+    }
+
+    func stop() {
+        monitor.cancel()
+        resume()
     }
 }

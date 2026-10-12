@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 struct NanaAServiceConfiguration {
     static let interfaceBaseURL = URL(string: IntegrationContract.baseURLString ?? "https://lantern.nanacc.top")!
@@ -124,25 +125,29 @@ struct NanaAServiceClient {
         request.httpMethod = "HEAD"
         request.timeoutInterval = 8
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<500).contains(http.statusCode) else { throw NanaAServiceError.transport }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 8
+        let probe = URLSession(configuration: configuration, delegate: NanaReadRedirectPolicy(), delegateQueue: nil)
+        defer { probe.invalidateAndCancel() }
+        let (_, response) = try await probe.data(for: request)
+        guard response is HTTPURLResponse else { throw NanaAServiceError.transport }
     }
 
-    func request(path: String, method: String, body: [String: Any]? = nil) async throws -> (HTTPURLResponse, [String: Any]) {
+    func request(path: String, body: [String: Any], allowsAuthenticationResponse: Bool = false) async throws -> (HTTPURLResponse, [String: Any]) {
         guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL,
-              url.scheme == "https", url.host == baseURL.host else { throw NanaAServiceError.invalidResponse }
+              url.scheme == "https", url.host == baseURL.host, url.port == baseURL.port else { throw NanaAServiceError.invalidResponse }
         var request = URLRequest(url: url)
-        request.httpMethod = method
+        request.httpMethod = IntegrationContract.apiMethod
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw NanaAServiceError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else {
+        guard (200..<300).contains(http.statusCode) || (allowsAuthenticationResponse && path == IntegrationContract.entryPath && http.statusCode == 401) else {
             switch http.statusCode { case 401: throw NanaAServiceError.unauthorizedContent; case 403: throw NanaAServiceError.forbidden; case 404: throw NanaAServiceError.notFound; default: throw NanaAServiceError.httpStatus(http.statusCode) }
         }
         guard data.count <= 8 * 1024 * 1024,
@@ -152,7 +157,9 @@ struct NanaAServiceClient {
 
     private func perform<Value: Decodable>(_ read: NanaReadRequest, as: Value.Type) async throws -> Value {
         var request = URLRequest(url: try read.url(relativeTo: baseURL))
-        request.httpMethod = "GET"
+        request.httpMethod = IntegrationContract.apiMethod
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
         request.timeoutInterval = 8
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -165,6 +172,12 @@ struct NanaAServiceClient {
         let envelope = try JSONDecoder().decode(NanaAPIEnvelope<Value>.self, from: data)
         guard envelope.code == 0 else { throw NanaAServiceError.authenticationFailed(envelope.message) }
         return envelope.data
+    }
+
+    static func hasSuccessCode(_ value: Any?) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              !["f", "d"].contains(String(cString: number.objCType)) else { return false }
+        return number.int64Value == 0
     }
 
     static func sanitize(_ error: Error) -> NanaAServiceError {
@@ -188,8 +201,7 @@ struct NanaAServiceClient {
 
 private final class NanaReadRedirectPolicy: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        guard let original = task.originalRequest?.url, let target = request.url, target.scheme == "https", target.host == original.host, target.port == original.port else { completionHandler(nil); return }
-        completionHandler(request)
+        completionHandler(nil)
     }
 }
 

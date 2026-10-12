@@ -10,6 +10,7 @@ enum IntegrationContract {
     static let allowsMissingSender: Bool = true
     static let acceptsSerializedExpiry: Bool = true
     static let continuationMode: Int = 2
+    static let apiMethod: String = "POST"
     static let optionsPath: String = "/nana/harbor/doorway"
     static let entryPath: String = "/nana/harbor/tidepass"
     static let settlementPath: String = "/nana/harbor/coin-confirm"
@@ -45,24 +46,35 @@ enum ConfiguredContentPaths {
 enum ConfiguredWireFields {
     static let `apple_assertion`: String = "apple_assertion"
     static let `apple_code`: String = "apple_code"
-    static let `apple_lantern`: String = "apple_lantern"
     static let `apple_subject`: String = "apple_subject"
     static let `code`: String = "code"
     static let `data`: String = "data"
     static let `device_fingerprint`: String = "device_fingerprint"
-    static let `email_tide`: String = "email_tide"
     static let `entry_context`: String = "entry_context"
     static let `entry_mode`: String = "entry_mode"
+    static let `harbor_entry`: String = "harbor_entry"
     static let `mailbox`: String = "mailbox"
     static let `message`: String = "message"
     static let `order_reference`: String = "order_reference"
     static let `pulse_token`: String = "pulse_token"
     static let `receipt_blob`: String = "receipt_blob"
-    static let `register_current`: String = "register_current"
     static let `release_tag`: String = "release_tag"
     static let `room_delivery_kind`: String = "room_delivery_kind"
     static let `secret_phrase`: String = "secret_phrase"
     static let `store_receipt_id`: String = "store_receipt_id"
     static let `token`: String = "token"
-    static let `visitor_harbor`: String = "visitor_harbor"
+}
+
+enum ConfiguredLoginEntryMode: Equatable {
+    case standard, guestOnly
+
+    // Call only for a successful login-methods response, never authentication data.
+    // nil means invalid configuration; UI falls back to standard and logs the failure.
+    static func parse(data: Any?) -> Self? {
+        guard let fields = data as? [String: Any],
+              let raw = fields[ConfiguredWireFields.`harbor_entry`] as? String else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.contains("#{") else { return nil }
+        return value.isEmpty ? .standard : .guestOnly
+    }
 }
