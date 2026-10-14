@@ -192,16 +192,20 @@ struct NanaAuthenticationBoundary {
         try await authenticate(entryMode: "restore", scene: "silent", includeEntryContext: false)
     }
 
-    func confirmPurchase(transactionID: String, receipt: String, orderCode: String) async throws {
+    func confirmPurchase(transactionID: String, receipt: String, confirmation: NanaPurchaseConfirmation, version: String, deviceID: String) async throws {
+        guard let origin = URL(string: confirmation.origin), origin.scheme == "https", origin.host != nil else {
+            throw NanaAServiceError.invalidResponse
+        }
         let body: [String: Any] = [
-            ConfiguredWireFields.release_tag: NanaAServiceConfiguration.clientVersion,
-            ConfiguredWireFields.device_fingerprint: try deviceIdentity.value(),
-            ConfiguredWireFields.store_receipt_id: transactionID,
-            ConfiguredWireFields.receipt_blob: receipt,
-            ConfiguredWireFields.order_reference: orderCode
+            confirmation.versionField: version,
+            confirmation.deviceField: deviceID,
+            confirmation.transactionField: transactionID,
+            confirmation.receiptField: receipt,
+            confirmation.orderField: confirmation.orderCode
         ]
-        let (_, object) = try await client.request(path: IntegrationContract.settlementPath, body: body)
-        guard NanaAServiceClient.hasSuccessCode(object[ConfiguredWireFields.code]) else { throw NanaAServiceError.writeUnavailable }
+        guard body.count == 5 else { throw NanaAServiceError.invalidResponse }
+        let (_, object) = try await NanaAServiceClient(baseURL: origin).request(path: confirmation.path, body: body)
+        guard NanaAServiceClient.hasSuccessCode(object[confirmation.successField]) else { throw NanaAServiceError.writeUnavailable }
     }
 
     func signIn(_ request: NanaCredentialSignInRequest) async throws -> NanaAuthenticationResult {

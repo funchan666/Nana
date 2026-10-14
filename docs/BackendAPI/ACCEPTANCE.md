@@ -73,3 +73,26 @@ xcodebuild -project Nana.xcodeproj -scheme Nana -sdk iphonesimulator \
 - **F11 防护与清理**：上次已删除的 `NanaPrivacyShield`、录屏监听和安全文本画布没有重新引入，源码/工程残留搜索为空；密码安全输入和真实媒体权限保留。删除旧登录开关常量/模型，保留配置、全部响应源、部署资料和素材。此次新生成的运行时普通注释已移除。
 
 本次实际检查：JSON/CSV 离线比对、生成常量与生产调用点、Swift actor/continuation 取消边界、来源及 target 引用、`plutil -lint`、`git diff --check`。仅查询 Swift 工具链版本以核对依赖兼容性；未执行编译、测试、模拟器、App 启动或业务联调，未连接 Ably/执行支付。双模板待用户导入、校验并保存后，再按需验收线上行为。
+
+## 2026-10-14 A/B 内购隔离与 Keychain 恢复（增量、仅静态）
+
+本节取代旧记录中“全部订单后台确认后给本地钱包加币”的行为说明。支付模式为客户端内部状态；当前 App ID `67746202`、域名、商品、冻结路径/字段/事件、响应源及双模板均不变，不需要重复导入后台。
+
+| 核对项 | 实际调用链与边界 |
+| --- | --- |
+| F09 入口隔离 | `NanaWalletView` → `NanaCoinStore.purchase(pack:)` 固定 `hostLocal`；`NanaEntryCoordinator.handleRealtimeMessage(.purchase)` → `purchaseFromRealtime` 固定 `ablyServer`，传递原商品、订单号、messageID、requestID。B 商品直接查 StoreKit，不再必须命中 A 面目录；保留现有消耗型购买范围。来源写入后不可因页面、当前账号、缺订单号或后台失败改变。 |
+| 唯一所有者 | `NanaAppDelegate.didFinishLaunching` → `NanaCoinStore.shared.start`，启动独立 `Transaction.updates` 与 `unfinished` 枚举。根界面复用同一实例。`beginSession` 只更新展示账号，logout/删除账号不取消监听。成功返回、updates、unfinished 均进入 `receive`，以 App/环境/transactionId 合并后进入唯一 `process`；并发回放复用同一处理任务，不阻塞其他交易的监听。 |
+| Keychain 账本 | 新增 `NanaPurchaseLedger`，固定独立 service `com.nanalantern.harbortide.purchase-orders.v1`，每单 UUID account；先枚举属性，再逐项读取数据，不依赖沙盒索引。保存来源、商品/类型、原账号、原 Apple 账号 token、App、版本、设备、原钱包标识和本地权益；B 另保存原订单/事件/requestID、origin、确认路径及实际五字段和成功字段。环境及原 transactionId 从 verified 交易补写。新记录 Add、既有 Update，关键写入后逐项回读；重复项读取后合并，冻结关联与终态不能被旧回调覆盖。 |
+| 本地交付 | `process(.hostLocal)` → 原钱包按 transactionId 幂等加 `pack.coins`，余额及 processedTransactionIDs 同一次 Keychain 写入并回读 → 订单 `localDelivered` 写入回读 → finish。不需要后台订单号、收据或确认接口。钱包沿用原 service、商品/奖励/送礼算法及保护级别；未整体搬迁。订单先标 `deliveringLocal`，中断重试查钱包幂等证据，原钱包 identity 缺失/改变则待核对，不把新空钱包当未交付。 |
+| 后台交付 | `process(.ablyServer)` → 读取当前 App receipt Base64 → `NanaAuthenticationBoundary.confirmPurchase` 使用订单冻结的服务/路径/版本/设备和五字段 → HTTP 2xx + 整数 code=0 → `serverConfirmed` 写入回读 → finish。不调用本地加币；不保存新完整收据，不用 JWS 代替。已交付回放只收尾；finish 后保存 `finished` 最小去重。 |
+| 有界恢复 | `wakeRecovery` 在启动、前台、protected-data 解锁及独立 NWPathMonitor 恢复联网时枚举；失败按交易分别 2/8/30 秒退避，本轮耗尽后等下次触发。记录/凭据缺失保留，不调用 purchase、AppStore.sync 或自动弹 Apple 登录。存储未就绪时不扣款，早到交易暂存并保留 Apple 未完成状态。后台单恢复不依赖登录/Ably/主页内容；原钱包暂不可读不阻断已知 B 单确认。静默处理不安装交互遮罩、不向新账号弹旧结果。 |
+| 迁移与未知记录 | 旧 `coins/ledger.v1` 实际混用了 A/B，`pendingOrderCodes` 仅按商品索引，`pendingPurchases` 缺模式、事件、购买时设备/服务等证据，不能靠 orderCode 存在推断真实来源。逐笔复制最小关联为 `legacyUnknown/needsReview`，保留旧 Keychain 原始副本；重复迁移识别 legacyKey，不覆盖已交付订单。坏单隔离、读写失败保留来源；旧未知单不触发加币、验单或 finish。钱包删除前检查待处理关联，避免把未交付的原权益仓库一并删掉。 |
+| 反馈和并发 | 交互购买同步设置唯一锁再查商品/向 Apple 提交，沿用原纯文字反馈；成功、取消、pending 或转持久待处理后释放交互锁。原订单重放不再次扣款。存在同账号同商品且尚无交易号的未决关联时，先等待核对，不启动另一笔造成混淆；已明确关联且后台等待的单不阻塞其他原生购买。 |
+| F03/F11 工程/生命周期 | `NanaPurchaseLedger.swift` 已加入实际 Nana Sources/Commerce 分组，`project.yml` 原 NanaHarbor 递归源目录涵盖它。新增状态属于 MainActor owner，网络回调转主线程；无新增 SDK、协议、权限或防截屏/录屏代码。登录与订单命名空间隔离，退出不能重置订单、恢复旧登录或给当前账号发放旧权益。 |
+
+### 仍需真实证据的恢复边界
+
+- 原 `appAccountToken` 是每账号 UUID，继续保留其含义。`purchase` 成功返回提供可信的当前调用关联；已写 transactionId 的订单可在重启/同身份重装后按原模式恢复。但 Apple 已付款、成功返回/transactionId 关键写尚未完成即进程中断，以及 Ask to Buy 仅通过后续回放到达的场景，没有可信逐单 UUID 或既有服务端对账接口，不能凭账号 token + 商品猜配；保留 Keychain intent 和 Apple unfinished 待核对。内存中的成功返回关联可在本次进程存储恢复后重试，但不能承诺跨进程消除此窗口。
+- 历史提前 finish、原订单缺字段、已删除的关联、Keychain 丢失/访问配置变化均不能凭本次升级追回。旧未知单已保留，不把它们统一判成 A 或 B，也不新增猜测接口。Keychain 可读、同 App/原环境及有效 Apple 交易/收据是重装恢复条件。
+- B 后端必须真实验单、持久入账并按 App/环境/transactionId 幂等。响应丢失仅原单重验，客户端不能验证该服务能力。收据缺失保持待处理，不以强制同步或启动循环弹授权“修好”。
+- 本次仅做源码调用链、存储顺序、当前 SDK 声明、工程引用、契约/模板差异和 `git diff --check` / `plutil -lint` 静态核对。未编译、未测试、未启动 App/模拟器、未购买、未卸载重装、未连接后台/Ably；不能据此声称真实到账或重装专项验收通过。

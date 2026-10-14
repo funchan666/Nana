@@ -7,7 +7,7 @@ struct NanaEntryCoordinator: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var sessionStore = NanaSessionStore()
     @StateObject private var contentStore = NanaContentStore()
-    @StateObject private var coinStore = NanaCoinStore()
+    @StateObject private var coinStore = NanaCoinStore.shared
     @State private var hasPresentedLaunchArtwork = false
     @State private var selectedHarbor: NanaHarbor = .home
     @State private var entryRoute: AccountRoute = .landing
@@ -258,13 +258,12 @@ struct NanaEntryCoordinator: View {
             case .externalOpen:
                 if let address = event.externalURL { UIApplication.shared.open(address, options: [:], completionHandler: nil) }
             case .purchase:
-                guard let purchase = event.purchase,
-                      let pack = NanaCoinStore.packs.first(where: { $0.productID == purchase.sku }) else { return }
+                guard let purchase = event.purchase else { return }
                 let revision = routeGeneration
                 let attempt = sessionStore.entryGeneration
                 Task { @MainActor in
                     guard isCurrent(revision, attempt: attempt) else { return }
-                    await coinStore.purchase(pack: pack, orderCode: purchase.reference)
+                    await coinStore.purchaseFromRealtime(productID: purchase.sku, orderCode: purchase.reference, messageID: event.messageID, requestID: event.requestID)
                 }
             }
         } catch {
