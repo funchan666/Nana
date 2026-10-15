@@ -18,7 +18,7 @@ workflows:
         XCODE_SCHEME: "Nana"
         APP_STORE_APPLE_ID: "6815122501"
 
-      xcode: latest
+      xcode: "26.5"
 
     scripts:
       - name: Verify native iOS project configuration
