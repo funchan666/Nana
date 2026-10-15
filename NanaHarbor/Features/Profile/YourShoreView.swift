@@ -361,7 +361,7 @@ struct NanaUserProfileView: View {
         var seen = Set<String>()
         let publishedPhotos = (liveProfile.publicPhotoAssetKeys ?? []) + posts.compactMap(\.coverAssetKey)
         return publishedPhotos.filter {
-            !$0.hasPrefix("nana.video.") && NanaAssetLibrary.image(for: $0) != nil && seen.insert($0).inserted
+            !$0.hasPrefix("nana.video.") && NanaAssetLibrary.hasImageSource(for: $0) && seen.insert($0).inserted
         }
     }
     private var cover: String? { liveProfile.avatarAssetKey ?? photos.first }
@@ -556,7 +556,7 @@ struct NanaUserProfileView: View {
         }
         ForEach(posts) { post in
             VStack(alignment: .leading, spacing: 10) {
-                if let asset = post.coverAssetKey, NanaAssetLibrary.image(for: asset) != nil {
+                if let asset = post.coverAssetKey, NanaAssetLibrary.hasImageSource(for: asset) {
                     Button { openPhoto(asset) } label: {
                         NanaMediaPreview(assetKey: asset).frame(height: 260).clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 13))

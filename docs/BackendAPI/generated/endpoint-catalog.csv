@@ -1,6 +1,6 @@
 ﻿role,method,path,response_file,note,response_chars,response_utf8_bytes
 loginMethods,POST,/nana/harbor/doorway,responses/login-methods.json,explicit configured response; backend capability is separate,60,60
-authenticate,POST,/nana/harbor/tidepass,responses/auth-response.json,explicit configured response; backend capability is separate,59,59
+authenticate,POST,/nana/harbor/tidepass,responses/auth-response.json,explicit configured response; backend capability is separate,151,151
 confirmPurchase,POST,/nana/harbor/coin-confirm,responses/purchase-response.json,explicit configured response; backend capability is separate,32,32
 bootstrap,POST,/nana/harbor/bootstrap,responses/bootstrap.json,JSON request body {}; content file relative to BackendAPI,11069,11069
 homeFeed,POST,/nana/harbor/home-feed,responses/home-feed.json,JSON request body {}; content file relative to BackendAPI,2545,2545

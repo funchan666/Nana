@@ -3,6 +3,7 @@
 import Foundation
 
 enum IntegrationContract {
+    static let realtimeTransport: String = "rtLink"
     static let namespace: String = "nana"
     static let baseURLString: String? = "https://lantern.nanacc.top"
     static let ablyClientID: String = "app"

@@ -1,31 +1,40 @@
 {
-  "originHash" : "b7a406d1842c2e9afe9e9e9e877fa27ec09d49c04c7250d7c48ac7607e79b610",
+  "originHash" : "c7e5f8f92f65de1f5cfeaaf3755dec6274c173cdc90fa1dda99d8e962fde38d8",
   "pins" : [
     {
-      "identity" : "ably-cocoa",
+      "identity" : "swift-asn1",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ably/ably-cocoa",
+      "location" : "https://github.com/apple/swift-asn1",
       "state" : {
-        "revision" : "cd74cf2d1bf704e95d1a340db1bca77137660232",
-        "version" : "1.4.0"
+        "revision" : "3b6410f7dee09eb33cdd26260c5fd47fda19b0e2",
+        "version" : "1.7.3"
       }
     },
     {
-      "identity" : "delta-codec-cocoa",
+      "identity" : "swift-certificates",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ably/delta-codec-cocoa",
+      "location" : "https://github.com/apple/swift-certificates.git",
       "state" : {
-        "revision" : "d53eec08f9443c6160d941327a6f9d8bbb93cea2",
-        "version" : "1.3.5"
+        "revision" : "ff86b924ead66f853b8baf91f3c41926a8f36177",
+        "version" : "1.21.0"
       }
     },
     {
-      "identity" : "msgpack-objective-c",
+      "identity" : "swift-crypto",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/rvi/msgpack-objective-C",
+      "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "3e36b48e04ecd756cb927bd5f5b9bf6d45e475f9",
-        "version" : "0.4.0"
+        "revision" : "da9d28d69ebe3894b18376c8f2395c2f37b8448f",
+        "version" : "4.5.2"
+      }
+    },
+    {
+      "identity" : "tpinappreceipt",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tikhop/TPInAppReceipt.git",
+      "state" : {
+        "revision" : "3ec500058c3cb62d0e736bf83c22b93b60279bd0",
+        "version" : "4.0.2"
       }
     }
   ],

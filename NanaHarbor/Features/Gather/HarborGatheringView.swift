@@ -332,7 +332,7 @@ enum NanaRoomPortraitAllocator {
         "nana.pic.DdWhEvOADv0", "nana.pic.DdWps4Cl9L5",
         "nana.pic.DdYl3lqgOFb", "nana.pic.DdZjKW2CG9S",
         "nana.pic.DdaK8LKDT4g", "nana.pic.DdefHeEDp0o"
-    ].filter { NanaAssetLibrary.image(for: $0) != nil }
+    ].filter { NanaAssetLibrary.hasImageSource(for: $0) }
 
     private static func photoLimit(for room: NanaLiveRoom) -> Int {
         switch room.seatCapacity {
@@ -361,7 +361,7 @@ enum NanaRoomPortraitAllocator {
         func assignMember(_ id: String, asset: String?, to room: NanaLiveRoom) {
             guard usedProfiles.insert(id).inserted else { return }
             guard result[room.id, default: []].count < photoLimit(for: room),
-                  let asset, !usedPhotos.contains(asset), NanaAssetLibrary.image(for: asset) != nil else { return }
+                  let asset, !usedPhotos.contains(asset), NanaAssetLibrary.hasImageSource(for: asset) else { return }
             usedPhotos.insert(asset)
             result[room.id, default: []].append(asset)
         }

@@ -3,6 +3,7 @@ import Security
 import StoreKit
 import SwiftUI
 import Network
+import UIKit
 
 struct NanaCoinPack: Identifiable, Hashable {
     let productID: String
@@ -31,12 +32,14 @@ private struct NanaCoinAccountRecord: Codable {
     var pendingOrderCodes: [String: String]? = nil
     var roomGiftReceipts: [NanaRoomGiftReceipt]? = nil
     var purchaseAccountToken: UUID? = nil
+    var processedStoreTransactionIDs: Set<String>? = nil
 }
 
 private struct NanaCoinLedger: Codable {
     var identity: UUID? = nil
     var accounts: [String: NanaCoinAccountRecord] = [:]
     var removedAccountTransactionIDs: Set<UInt64>? = nil
+    var removedStoreTransactionIDs: Set<String>? = nil
 }
 
 @MainActor
@@ -56,7 +59,7 @@ final class NanaCoinStore: ObservableObject {
 
     @Published private(set) var balance = 0
     @Published private(set) var roomGiftReceipts: [NanaRoomGiftReceipt] = []
-    @Published private(set) var products: [Product] = []
+    @Published private(set) var products: [SKProduct] = []
     @Published private(set) var isLoadingProducts = false
     @Published private(set) var purchasingProductID: String?
     @Published private(set) var purchasingAccountScope: String?
@@ -70,7 +73,14 @@ final class NanaCoinStore: ObservableObject {
     private var ledger = NanaCoinLedger()
     private var ledgerLoaded = false
     private var accountScope: String?
-    private var transactionUpdatesTask: Task<Void, Never>?
+    private var paymentObserver: NanaPaymentQueueObserver?
+    private let productRequests = NanaStoreKitRequests()
+    private let receiptRequests = NanaStoreKitRequests()
+    private var productRequestCount = 0
+    private var interactiveAttempt: UUID?
+    private var interactiveOrderID: UUID?
+    private var interactiveRevision: UUID?
+    private var receiptRefreshAttempts = Set<UUID>()
     private let authentication: NanaAuthenticationBoundary
     private let purchaseLedger = NanaPurchaseLedger()
     private let pathMonitor = NWPathMonitor()
@@ -78,8 +88,7 @@ final class NanaCoinStore: ObservableObject {
     private var legacyMigrationComplete = false
     private var purchaseSessionRevision = UUID()
     private var recoveryScan: Task<Void, Never>?
-    private var bufferedTransactions: [String: StoreKit.Transaction] = [:]
-    private var livePurchaseContexts: [String: UUID] = [:]
+    private var bufferedTransactions: [String: SKPaymentTransaction] = [:]
     private var processing: [String: Task<Bool, Never>] = [:]
     private var retryTasks: [String: Task<Void, Never>] = [:]
     private var retryAttempts: [String: Int] = [:]
@@ -88,12 +97,14 @@ final class NanaCoinStore: ObservableObject {
         self.authentication = authentication ?? NanaAuthenticationBoundary()
     }
 
-    deinit {
-        transactionUpdatesTask?.cancel()
-    }
-
     func beginSession(accountID: String?) {
         purchaseSessionRevision = UUID()
+        productRequests.cancelAll()
+        interactiveAttempt = nil
+        interactiveOrderID = nil
+        interactiveRevision = nil
+        purchasingProductID = nil
+        purchasingAccountScope = nil
         accountScope = accountID
         balance = 0
         roomGiftReceipts = []
@@ -128,6 +139,7 @@ final class NanaCoinStore: ObservableObject {
         var updated = ledger
         let removed = updated.accounts.removeValue(forKey: accountID)
         updated.removedAccountTransactionIDs = (updated.removedAccountTransactionIDs ?? []).union(removed?.processedTransactionIDs ?? [])
+        updated.removedStoreTransactionIDs = (updated.removedStoreTransactionIDs ?? []).union(removed?.processedStoreTransactionIDs ?? [])
         try persistLedger(updated)
         ledger = updated
         balance = 0
@@ -150,18 +162,23 @@ final class NanaCoinStore: ObservableObject {
 
     func loadProducts() async {
         guard !isLoadingProducts, let scope = accountScope else { return }
+        let revision = purchaseSessionRevision
+        productRequestCount += 1
         isLoadingProducts = true
-        defer { isLoadingProducts = false }
+        defer { productRequestCount -= 1; isLoadingProducts = productRequestCount > 0 }
         do {
-            let loaded = try await Product.products(for: Self.packs.map(\.productID))
-            guard accountScope == scope else { return }
-            products = loaded.filter { $0.type == .consumable }
-        } catch {
-        }
+            let loaded = try await productRequests.products(identifiers: Set(Self.packs.map(\.productID)))
+            guard accountScope == scope, purchaseSessionRevision == revision else { return }
+            products = loaded.filter { $0.subscriptionPeriod == nil }
+        } catch { }
     }
 
     func priceLabel(for pack: NanaCoinPack) -> String {
-        products.first(where: { $0.id == pack.productID })?.displayPrice ?? "View price"
+        guard let product = products.first(where: { $0.productIdentifier == pack.productID }) else { return "View price" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = product.priceLocale
+        return formatter.string(from: product.price) ?? "View price"
     }
 
     func purchase(pack: NanaCoinPack) async {
@@ -179,9 +196,13 @@ final class NanaCoinStore: ObservableObject {
     private func purchase(productID: String, source: NanaPurchaseSource, coins: Int?, confirmation: NanaPurchaseConfirmation?) async {
         guard purchasingProductID == nil, let owner = accountScope else { return }
         let revision = purchaseSessionRevision
+        let attempt = UUID()
+        interactiveAttempt = attempt
+        interactiveRevision = revision
         purchasingAccountScope = owner
         purchasingProductID = productID
-        defer { purchasingProductID = nil; purchasingAccountScope = nil }
+        var submitted = false
+        defer { if !submitted && interactiveAttempt == attempt { releaseInteraction() } }
         var orderID: UUID?
         do {
             try prepareRecoveryLedger()
@@ -197,10 +218,10 @@ final class NanaCoinStore: ObservableObject {
                     return
                 }
             }
-            guard AppStore.canMakePayments else { throw NanaCoinPurchaseError.productNotFound }
+            guard SKPaymentQueue.canMakePayments() else { throw NanaCoinPurchaseError.productNotFound }
             let product = try await product(for: productID)
-            guard accountScope == owner, purchaseSessionRevision == revision else { return }
-            guard product.type == .consumable else { throw NanaCoinPurchaseError.productNotFound }
+            guard accountScope == owner, purchaseSessionRevision == revision, !Task.isCancelled else { return }
+            guard product.subscriptionPeriod == nil else { throw NanaCoinPurchaseError.productNotFound }
             try loadLedgerIfNeeded()
             guard var account = ledger.accounts[owner], let walletID = ledger.identity else {
                 throw NanaCoinPurchaseError.storageUnavailable
@@ -222,22 +243,19 @@ final class NanaCoinStore: ObservableObject {
             let binding = NanaPurchaseBinding(id: id, source: source, productID: productID, productType: "consumable",
                 owner: owner, appAccountToken: token, bundleID: Bundle.main.bundleIdentifier ?? "",
                 version: NanaAServiceConfiguration.clientVersion, deviceID: try NanaDeviceIdentity().value(),
-                walletID: walletID, localCoins: coins, confirmation: confirmation, legacyKey: nil, legacyOrderCode: nil)
+                walletID: walletID, localCoins: coins, confirmation: confirmation, legacyKey: nil, legacyOrderCode: nil,
+                applicationUsername: id.uuidString)
             guard !binding.bundleID.isEmpty else { throw NanaCoinPurchaseError.storageUnavailable }
             let order = NanaPurchaseOrder(schemaVersion: 1, binding: binding, state: .awaitingApple, retryCount: 0)
             try purchaseLedger.save(order)
             orderID = id
-            switch try await product.purchase(options: [.appAccountToken(token)]) {
-            case .success(let verification):
-                let finished = await receive(verification, purchaseContext: id)
-                if !finished { showPurchaseNotice(owner: owner, revision: revision, pending: true) }
-            case .pending:
-                showPurchaseNotice(owner: owner, revision: revision, pending: true)
-            case .userCancelled:
-                markUnpaid(id)
-            @unknown default:
-                showPurchaseNotice(owner: owner, revision: revision, pending: true)
-            }
+            let payment = SKMutablePayment(product: product)
+            payment.quantity = 1
+            payment.applicationUsername = binding.applicationUsername
+            interactiveOrderID = id
+            start()
+            submitted = true
+            SKPaymentQueue.default().add(payment)
         } catch {
             if let orderID, var order = purchaseLedger.orders[orderID], !order.delivered {
                 order.lastFailure = "purchaseOutcomeUnresolved"
@@ -292,30 +310,30 @@ final class NanaCoinStore: ObservableObject {
         roomGiftReceipts = record.roomGiftReceipts ?? []
     }
 
-    private func product(for productID: String) async throws -> Product {
-        if let product = products.first(where: { $0.id == productID }) { return product }
+    private func product(for productID: String) async throws -> SKProduct {
+        if let product = products.first(where: { $0.productIdentifier == productID }) { return product }
+        let revision = purchaseSessionRevision
+        productRequestCount += 1
         isLoadingProducts = true
-        defer { isLoadingProducts = false }
-        let loaded = try await Product.products(for: [productID])
-        products = (products.filter { $0.id != productID } + loaded).sorted { left, right in
-            let leftIndex = Self.packs.firstIndex { $0.productID == left.id } ?? .max
-            let rightIndex = Self.packs.firstIndex { $0.productID == right.id } ?? .max
+        defer { productRequestCount -= 1; isLoadingProducts = productRequestCount > 0 }
+        let loaded = try await productRequests.products(identifiers: [productID])
+        guard revision == purchaseSessionRevision else { throw CancellationError() }
+        products = (products.filter { $0.productIdentifier != productID } + loaded).sorted { left, right in
+            let leftIndex = Self.packs.firstIndex { $0.productID == left.productIdentifier } ?? .max
+            let rightIndex = Self.packs.firstIndex { $0.productID == right.productIdentifier } ?? .max
             return leftIndex < rightIndex
         }
-        guard let product = products.first(where: { $0.id == productID }) else {
+        guard let product = loaded.first(where: { $0.productIdentifier == productID }) else {
             throw NanaCoinPurchaseError.productNotFound
         }
         return product
     }
 
     func start() {
-        guard transactionUpdatesTask == nil else { return }
-        transactionUpdatesTask = Task { [weak self] in
-            for await verification in StoreKit.Transaction.updates {
-                guard !Task.isCancelled else { return }
-                Task { @MainActor [weak self] in _ = await self?.receive(verification) }
-            }
-        }
+        guard paymentObserver == nil else { return }
+        let observer = NanaPaymentQueueObserver { [weak self] transactions in self?.receive(transactions) }
+        paymentObserver = observer
+        SKPaymentQueue.default().add(observer)
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
             Task { @MainActor [weak self] in
@@ -335,21 +353,20 @@ final class NanaCoinStore: ObservableObject {
             guard let self else { return }
             defer { self.recoveryScan = nil }
             do { try self.prepareRecoveryLedger() } catch { return }
-            for (key, transaction) in self.bufferedTransactions {
-                Task { @MainActor [weak self] in
-                    _ = await self?.receive(.verified(transaction), purchaseContext: self?.livePurchaseContexts[key])
-                }
-            }
-            for await verification in StoreKit.Transaction.unfinished {
-                guard !Task.isCancelled else { return }
-                guard let transaction = self.verifiedTransaction(from: verification) else { continue }
-                let key = self.transactionKey(transaction)
-                self.bufferedTransactions[key] = transaction
-                Task { @MainActor [weak self] in
-                    _ = await self?.receive(.verified(transaction), purchaseContext: self?.livePurchaseContexts[key])
-                }
-            }
+            self.receive(Array(self.bufferedTransactions.values) + SKPaymentQueue.default().transactions)
         }
+    }
+
+    private func releaseInteraction(orderID: UUID? = nil, pending: Bool = false) {
+        if let orderID, interactiveOrderID != orderID { return }
+        if pending, let owner = purchasingAccountScope, let revision = interactiveRevision {
+            showPurchaseNotice(owner: owner, revision: revision, pending: true)
+        }
+        purchasingProductID = nil
+        purchasingAccountScope = nil
+        interactiveOrderID = nil
+        interactiveRevision = nil
+        interactiveAttempt = nil
     }
 
     private func prepareRecoveryLedger() throws {
@@ -400,66 +417,98 @@ final class NanaCoinStore: ObservableObject {
         if migrationFailed { throw NanaCoinPurchaseError.storageUnavailable }
     }
 
-    private func environment(_ transaction: StoreKit.Transaction) -> String {
-        if transaction.environment == .production { return "production" }
-        if transaction.environment == .sandbox { return "sandbox" }
-        return "xcode"
+    private func transactionKey(_ transaction: SKPaymentTransaction) -> String? {
+        guard let id = transaction.transactionIdentifier, !id.isEmpty,
+              let bundleID = Bundle.main.bundleIdentifier else { return nil }
+        return bundleID + ":" + id
     }
 
-    private func transactionKey(_ transaction: StoreKit.Transaction) -> String {
-        transaction.appBundleID + ":" + environment(transaction) + ":" + String(transaction.id)
-    }
-
-    private func receive(_ verification: VerificationResult<StoreKit.Transaction>, purchaseContext: UUID? = nil) async -> Bool {
-        guard let transaction = verifiedTransaction(from: verification), transaction.productType == .consumable,
-              transaction.revocationDate == nil, transaction.appBundleID == Bundle.main.bundleIdentifier else { return false }
-        let key = transactionKey(transaction)
-        bufferedTransactions[key] = transaction
-        if let purchaseContext {
-            guard livePurchaseContexts[key] == nil || livePurchaseContexts[key] == purchaseContext else { return false }
-            livePurchaseContexts[key] = purchaseContext
+    private func associatedOrder(_ transaction: SKPaymentTransaction) -> NanaPurchaseOrder? {
+        let transactionID = transaction.transactionIdentifier
+        let username = transaction.payment.applicationUsername.flatMap(UUID.init(uuidString:))
+        let byID = purchaseLedger.orders.values.filter {
+            transactionID != nil && $0.transactionID == transactionID
         }
-        do {
-            try prepareRecoveryLedger()
-            let matches = purchaseLedger.orders.values.filter {
-                $0.transactionID == String(transaction.id) && ($0.environment == nil || $0.environment == environment(transaction))
+        let byUsername = purchaseLedger.orders.values.filter {
+            guard let saved = $0.binding.applicationUsername.flatMap(UUID.init(uuidString:)) else { return false }
+            return username == saved
+        }
+        let candidates = byID.isEmpty ? byUsername : byID
+        guard candidates.count == 1, let order = candidates.first,
+              byUsername.isEmpty || (byUsername.count == 1 && byUsername.first?.binding.id == order.binding.id),
+              order.binding.bundleID == Bundle.main.bundleIdentifier,
+              order.binding.productID == transaction.payment.productIdentifier,
+              order.binding.productType == "consumable", transaction.payment.quantity == 1,
+              order.transactionID == nil || order.transactionID == transactionID else { return nil }
+        if let rawUsername = transaction.payment.applicationUsername, !rawUsername.isEmpty {
+            let expected = order.binding.applicationUsername.flatMap(UUID.init(uuidString:)) ?? order.binding.appAccountToken
+            guard let username, username == expected else { return nil }
+        }
+        return order
+    }
+
+    private func receive(_ transactions: [SKPaymentTransaction]) {
+        for transaction in transactions {
+            if let key = transactionKey(transaction) { bufferedTransactions[key] = transaction }
+        }
+        do { try prepareRecoveryLedger() } catch {
+            for transaction in transactions where transaction.transactionState != .purchasing {
+                releaseUnresolvedInteraction(transaction)
             }
-            if matches.isEmpty, let purchaseContext, var order = purchaseLedger.orders[purchaseContext] {
-                guard order.transactionID == nil, order.binding.productID == transaction.productID,
-                      order.binding.appAccountToken == transaction.appAccountToken,
-                      order.binding.bundleID == transaction.appBundleID else { return false }
-                order.transactionID = String(transaction.id)
-                order.environment = environment(transaction)
-                order.state = .paid
-                try purchaseLedger.save(order)
-            } else if let purchaseContext, matches.first?.binding.id != purchaseContext {
-                livePurchaseContexts[key] = nil
-                if var refused = purchaseLedger.orders[purchaseContext], refused.transactionID == nil {
-                    refused.state = .needsReview
-                    refused.lastFailure = "transactionBelongsToAnotherOrder"
-                    _ = try? purchaseLedger.save(refused)
+            return
+        }
+        for transaction in transactions {
+            let order = associatedOrder(transaction)
+            switch transaction.transactionState {
+            case .purchasing:
+                break
+            case .deferred:
+                if let order { releaseInteraction(orderID: order.binding.id, pending: true) }
+            case .failed:
+                if let order {
+                    markUnpaid(order.binding.id)
+                    if interactiveOrderID == order.binding.id {
+                        let cancelled = (transaction.error as? SKError)?.code == .paymentCancelled
+                        if !cancelled {
+                            notice = AccountEntryNotice(title: "Purchase unavailable", explanation: "Apple couldn't complete this purchase. Please try again.")
+                        }
+                        releaseInteraction(orderID: order.binding.id)
+                    }
                 }
-                schedule(transaction, key: key)
-                return false
+                SKPaymentQueue.default().finishTransaction(transaction)
+                if let key = transactionKey(transaction) { bufferedTransactions[key] = nil }
+            case .purchased:
+                guard let key = transactionKey(transaction) else {
+                    if let order { releaseInteraction(orderID: order.binding.id, pending: true) }
+                    continue
+                }
+                if schedule(transaction, key: key) == nil { releaseUnresolvedInteraction(transaction) }
+            case .restored:
+                if let order { releaseInteraction(orderID: order.binding.id, pending: true) }
+            @unknown default:
+                if let order { releaseInteraction(orderID: order.binding.id, pending: true) }
             }
-            guard let task = schedule(transaction, key: key) else { return false }
-            return await task.value
-        } catch { return false }
+        }
+    }
+
+    private func releaseUnresolvedInteraction(_ transaction: SKPaymentTransaction) {
+        guard let id = interactiveOrderID,
+              transaction.payment.applicationUsername.flatMap(UUID.init(uuidString:)) == id else { return }
+        releaseInteraction(orderID: id, pending: true)
     }
 
     @discardableResult
-    private func schedule(_ transaction: StoreKit.Transaction, key: String) -> Task<Bool, Never>? {
+    private func schedule(_ transaction: SKPaymentTransaction, key: String) -> Task<Bool, Never>? {
         if let task = processing[key] { return task }
-        guard purchaseLedger.ready,
-              purchaseLedger.orders.values.contains(where: { $0.transactionID == String(transaction.id) }) else { return nil }
+        guard purchaseLedger.ready, let order = associatedOrder(transaction) else { return nil }
         retryTasks.removeValue(forKey: key)?.cancel()
         let task = Task { @MainActor [weak self] () -> Bool in
             guard let self else { return false }
             let completed = await self.process(transaction)
             self.processing[key] = nil
+            self.releaseInteraction(orderID: order.binding.id, pending: !completed)
             if completed {
                 self.bufferedTransactions[key] = nil
-                self.livePurchaseContexts[key] = nil
                 self.retryAttempts[key] = nil
             } else {
                 self.scheduleRetry(transaction, key: key)
@@ -470,22 +519,44 @@ final class NanaCoinStore: ObservableObject {
         return task
     }
 
-    private func process(_ transaction: StoreKit.Transaction) async -> Bool {
-        guard transaction.productType == .consumable, transaction.revocationDate == nil,
-              transaction.appBundleID == Bundle.main.bundleIdentifier else { return false }
+    private func verifiedReceipt(for order: NanaPurchaseOrder, transactionID: String) async throws -> NanaVerifiedAppReceipt {
+        func read() async throws -> NanaVerifiedAppReceipt {
+            let receipt = try await NanaAppReceiptVerifier.readAndValidate()
+            try receipt.validatePurchase(transactionID: transactionID, productID: order.binding.productID, quantity: 1)
+            return receipt
+        }
+        do { return try await read() } catch {
+            guard interactiveOrderID == order.binding.id, interactiveRevision == purchaseSessionRevision,
+                  UIApplication.shared.applicationState == .active,
+                  receiptRefreshAttempts.insert(order.binding.id).inserted else { throw error }
+            try await receiptRequests.refreshReceipt()
+            return try await read()
+        }
+    }
+
+    private func process(_ transaction: SKPaymentTransaction) async -> Bool {
+        guard transaction.transactionState == .purchased, let transactionID = transaction.transactionIdentifier else { return false }
         do {
-            let matches = purchaseLedger.orders.values.filter {
-                $0.transactionID == String(transaction.id) && ($0.environment == nil || $0.environment == environment(transaction))
+            guard var order = associatedOrder(transaction), order.binding.source != .legacyUnknown,
+                  order.state != .needsReview else { return false }
+            if order.delivered {
+                guard order.transactionID == transactionID,
+                      order.environment == "production" || order.environment == "sandbox" else { return false }
+                return try finish(transaction, order: order)
             }
-            guard matches.count == 1, var order = matches.first,
-                  order.binding.source != .legacyUnknown, order.state != .needsReview,
-                  order.binding.productID == transaction.productID,
-                  order.binding.appAccountToken == transaction.appAccountToken,
-                  order.binding.bundleID == transaction.appBundleID else { return false }
-            if order.state == .finished {
-                await transaction.finish()
-                return true
+            if order.transactionID == nil {
+                order.transactionID = transactionID
+                order.state = .paid
+                order = try purchaseLedger.save(order)
             }
+            let receipt = try await verifiedReceipt(for: order, transactionID: transactionID)
+            guard let current = purchaseLedger.orders[order.binding.id], current.binding == order.binding,
+                  current.transactionID == transactionID, current.state != .needsReview,
+                  current.environment == nil || current.environment == receipt.environment else { return false }
+            order = current
+            order.environment = receipt.environment
+            if order.state == .awaitingApple || order.state == .unpaid { order.state = .paid }
+            order = try purchaseLedger.save(order)
             if !order.delivered {
                 switch order.binding.source {
                 case .hostLocal:
@@ -497,11 +568,24 @@ final class NanaCoinStore: ObservableObject {
                         try purchaseLedger.save(order)
                         return false
                     }
-                    if !record.processedTransactionIDs.contains(transaction.id) {
+                    let deliveryKey = order.binding.bundleID + ":" + receipt.environment + ":" + transactionID
+                    let oldID = UInt64(transactionID).flatMap { String($0) == transactionID ? $0 : nil }
+                    let wasDelivered = (record.processedStoreTransactionIDs ?? []).contains(deliveryKey) ||
+                        oldID.map { record.processedTransactionIDs.contains($0) } == true
+                    guard !(ledger.removedStoreTransactionIDs ?? []).contains(deliveryKey),
+                          !(oldID.map { (ledger.removedAccountTransactionIDs ?? []).contains($0) } ?? false),
+                          !ledger.accounts.contains(where: { owner, other in
+                              owner != order.binding.owner && ((other.processedStoreTransactionIDs ?? []).contains(deliveryKey) ||
+                                  oldID.map { other.processedTransactionIDs.contains($0) } == true)
+                          }) else { return false }
+                    if !wasDelivered {
                         order.state = .deliveringLocal
                         try purchaseLedger.save(order)
-                        record.balance += coins
-                        record.processedTransactionIDs.insert(transaction.id)
+                        let (newBalance, overflow) = record.balance.addingReportingOverflow(coins)
+                        guard !overflow else { return false }
+                        record.balance = newBalance
+                        record.processedStoreTransactionIDs = (record.processedStoreTransactionIDs ?? []).union([deliveryKey])
+                        if let oldID { record.processedTransactionIDs.insert(oldID) }
                         var updated = ledger
                         updated.accounts[order.binding.owner] = record
                         try persistLedger(updated)
@@ -512,12 +596,12 @@ final class NanaCoinStore: ObservableObject {
                     order = try purchaseLedger.save(order)
                 case .ablyServer:
                     guard let confirmation = order.binding.confirmation, let version = order.binding.version,
-                          let deviceID = order.binding.deviceID, let transactionID = order.transactionID else { return false }
-                    guard let receiptURL = Bundle.main.appStoreReceiptURL,
-                          let receipt = try? Data(contentsOf: receiptURL), !receipt.isEmpty else { return false }
-                    try await authentication.confirmPurchase(transactionID: transactionID, receipt: receipt.base64EncodedString(),
+                          let deviceID = order.binding.deviceID else { return false }
+                    try await authentication.confirmPurchase(transactionID: transactionID, receipt: receipt.data.base64EncodedString(),
                         confirmation: confirmation, version: version, deviceID: deviceID)
-                    guard let current = purchaseLedger.orders[order.binding.id], current.binding == order.binding else { return false }
+                    guard let current = purchaseLedger.orders[order.binding.id], current.binding == order.binding,
+                          current.transactionID == transactionID, current.environment == receipt.environment,
+                          current.state != .needsReview else { return false }
                     order = current
                     order.state = .serverConfirmed
                     order = try purchaseLedger.save(order)
@@ -525,19 +609,24 @@ final class NanaCoinStore: ObservableObject {
                     return false
                 }
             }
-            guard order.delivered else { return false }
-            await transaction.finish()
-            order.state = .finished
-            try purchaseLedger.save(order)
-            return true
+            return try finish(transaction, order: order)
         } catch { return false }
     }
 
-    private func scheduleRetry(_ transaction: StoreKit.Transaction, key: String) {
+    private func finish(_ transaction: SKPaymentTransaction, order: NanaPurchaseOrder) throws -> Bool {
+        guard order.delivered else { return false }
+        var persisted = try purchaseLedger.save(order)
+        guard persisted.delivered else { return false }
+        SKPaymentQueue.default().finishTransaction(transaction)
+        persisted.state = .finished
+        try purchaseLedger.save(persisted)
+        return true
+    }
+
+    private func scheduleRetry(_ transaction: SKPaymentTransaction, key: String) {
         let attempts = retryAttempts[key, default: 0]
-        guard attempts < 3, let order = purchaseLedger.orders.values.first(where: {
-            $0.transactionID == String(transaction.id) && $0.binding.source != .legacyUnknown && $0.state != .needsReview
-        }) else { return }
+        guard attempts < 3, let order = associatedOrder(transaction),
+              order.binding.source != .legacyUnknown, order.state != .needsReview else { return }
         retryAttempts[key] = attempts + 1
         var pending = order
         pending.retryCount += 1
@@ -550,14 +639,6 @@ final class NanaCoinStore: ObservableObject {
             do { try self.prepareRecoveryLedger() } catch { return }
             self.schedule(transaction, key: key)
         }
-    }
-
-    private func verifiedTransaction(from verification: VerificationResult<StoreKit.Transaction>) -> StoreKit.Transaction? {
-        guard case .verified(let transaction) = verification else { return nil }
-        #if !DEBUG
-        guard transaction.environment != .xcode else { return nil }
-        #endif
-        return transaction
     }
 
     private var keychainQuery: [String: Any] {

@@ -20,7 +20,7 @@ enum NanaLoginEntryState: Equatable {
 }
 
 struct NanaAuthenticationResult {
-    let tokenRequest: [String: Any]?
+    let realtimeTicket: ConfiguredRealtimeTicket?
     let message: String
 }
 
@@ -173,19 +173,26 @@ struct NanaAuthenticationBoundary {
         body = try publicFields(pushToken: pushToken, extras: body)
         let (response, object) = try await client.request(path: IntegrationContract.entryPath, body: body, allowsAuthenticationResponse: true)
         if let data = object[ConfiguredWireFields.data] as? [String: Any], !data.isEmpty {
-            guard let token = data[ConfiguredWireFields.token] as? [String: Any], !token.isEmpty else {
-                throw NanaAServiceError.authenticationFailed("The account service returned an invalid realtime session.")
+            guard let value = data[ConfiguredWireFields.token] else {
+                throw NanaAServiceError.authenticationFailed("The account service returned an invalid connection configuration.")
             }
-            do { _ = try ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID) }
-            catch { throw NanaAServiceError.authenticationFailed("The account service returned an invalid realtime session.") }
-            return NanaAuthenticationResult(tokenRequest: token, message: object[ConfiguredWireFields.message] as? String ?? "ok")
+            let ticket: ConfiguredRealtimeTicket
+            do { ticket = try ConfiguredRealtimeTicket.parseConnectionValue(value) }
+            catch let error as ConfiguredRealtimeError {
+                #if DEBUG
+                print("[Realtime] configuration rejected: \(error.diagnosticCode)")
+                #endif
+                throw NanaAServiceError.authenticationFailed(error.localizedDescription)
+            }
+            catch { throw NanaAServiceError.authenticationFailed("The account service returned an invalid connection configuration.") }
+            return NanaAuthenticationResult(realtimeTicket: ticket, message: object[ConfiguredWireFields.message] as? String ?? "ok")
         }
         let rawData = object[ConfiguredWireFields.data]
         guard rawData == nil || rawData is NSNull || (rawData as? [String: Any])?.isEmpty == true,
               (200..<300).contains(response.statusCode), NanaAServiceClient.hasSuccessCode(object[ConfiguredWireFields.code]) else {
             throw NanaAServiceError.authenticationFailed(object[ConfiguredWireFields.message] as? String ?? "Sign-in is unavailable right now.")
         }
-        return NanaAuthenticationResult(tokenRequest: nil, message: object[ConfiguredWireFields.message] as? String ?? "ok")
+        return NanaAuthenticationResult(realtimeTicket: nil, message: object[ConfiguredWireFields.message] as? String ?? "ok")
     }
 
     func refresh() async throws -> NanaAuthenticationResult {

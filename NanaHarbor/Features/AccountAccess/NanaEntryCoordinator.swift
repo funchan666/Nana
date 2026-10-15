@@ -1,5 +1,4 @@
 import AuthenticationServices
-import Ably
 import SwiftUI
 
 @MainActor
@@ -13,7 +12,8 @@ struct NanaEntryCoordinator: View {
     @State private var entryRoute: AccountRoute = .landing
     @StateObject private var webDocument = NanaWebDocument()
     @State private var routeGeneration = UUID()
-    @State private var hasConnected = false
+    @State private var hasSubscribed = false
+    @State private var pendingPageEvent: ConfiguredCoreEvent?
     @State private var isSilentRestore = true
     @State private var webFailureMessage: String?
     @State private var receivedEventIDs = Set<String>()
@@ -143,7 +143,8 @@ struct NanaEntryCoordinator: View {
         realtimeTransport.onState = nil
         realtimeTransport.stop()
         realtimeScope = nil
-        hasConnected = false
+        hasSubscribed = false
+        pendingPageEvent = nil
         receivedEventIDs.removeAll()
         webDocument.stop()
         webFailureMessage = nil
@@ -156,43 +157,42 @@ struct NanaEntryCoordinator: View {
         realtimeScope = scope
         let revision = routeGeneration
         let attempt = sessionStore.entryGeneration
-        guard let token = sessionStore.remoteTokenRequest else { commitNativeRoute(); return }
-        guard let configuration = try? ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID) else {
-            connectionFailed()
-            return
-        }
+        guard let configuration = sessionStore.realtimeTicket else { commitNativeRoute(); return }
         routeTimer = Task { @MainActor in
             do { try await Task.sleep(for: .seconds(15)) } catch { return }
             guard isCurrent(revision, attempt: attempt), routeDecision == .undecided else { return }
             connectionFailed()
         }
         realtimeTransport.onState = { state in
-            Task { @MainActor in
-                guard isCurrent(revision, attempt: attempt) else { return }
-                switch state {
-                case .connected:
-                    guard !hasConnected, routeDecision == .undecided else { return }
-                    hasConnected = true
-                    routeTimer?.cancel()
-                    routeTimer = Task { @MainActor in
-                        do { try await Task.sleep(for: .seconds(3)) } catch { return }
-                        guard isCurrent(revision, attempt: attempt), routeDecision == .undecided else { return }
-                        commitNativeRoute()
-                    }
-                case .failed:
-                    if routeDecision == .undecided { connectionFailed() }
-                default: break
+            guard isCurrent(revision, attempt: attempt) else { return }
+            switch state {
+            case .subscribed:
+                guard !hasSubscribed else { return }
+                hasSubscribed = true
+                routeTimer?.cancel()
+                if let event = pendingPageEvent {
+                    pendingPageEvent = nil
+                    handlePageEvent(event)
                 }
+                guard routeDecision == .undecided else { return }
+                routeTimer = Task { @MainActor in
+                    do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                    guard isCurrent(revision, attempt: attempt), routeDecision == .undecided else { return }
+                    commitNativeRoute()
+                }
+            case .failed, .closed:
+                if routeDecision == .undecided { connectionFailed() }
+            default: break
             }
         }
         realtimeTransport.onMessage = { message in
-            Task { @MainActor in
-                guard isCurrent(revision, attempt: attempt) else { return }
-                handleRealtimeMessage(message)
-            }
+            guard isCurrent(revision, attempt: attempt) else { return }
+            handleRealtimeMessage(message)
         }
-        realtimeTransport.start(configuration: configuration) { callback in
-            sessionStore.refreshRealtimeToken(completion: callback)
+        let store = sessionStore
+        realtimeTransport.start(configuration: configuration) { [weak store] in
+            guard let store else { throw CancellationError() }
+            return try await store.refreshRealtimeConnection()
         }
     }
 
@@ -236,22 +236,18 @@ struct NanaEntryCoordinator: View {
         sessionStore.finishEntryPreparation()
     }
 
-    private func handleRealtimeMessage(_ message: ARTMessage) {
+    private func handleRealtimeMessage(_ message: ConfiguredRealtimeMessage) {
         do {
-            let event = try ConfiguredCoreEvent.parse(requestID: UUID(), transportID: message.id, name: message.name, clientID: message.clientId, data: message.data)
+            let event = try ConfiguredCoreEvent.parse(requestID: UUID(), transportID: message.id, name: message.name, clientID: message.clientID, data: message.data)
             guard receivedEventIDs.insert(event.messageID).inserted else { return }
             switch event.kind {
             case .page:
                 guard routeDecision == .undecided else { return }
-                switch event.pageDestination {
-                case .url(let address):
-                    routeTimer?.cancel()
-                    routeDecision = .preparingB
-                    webDocument.prepare(address)
-                case .absent: commitNativeRoute()
-                case .invalid: showWebFailure("The account service returned an invalid page address. Please return to welcome and try again.")
-                case .notPage: break
+                guard hasSubscribed else {
+                    if pendingPageEvent == nil { pendingPageEvent = event }
+                    return
                 }
+                handlePageEvent(event)
             case .expire:
                 resetRoute()
                 _ = sessionStore.signOut(destination: .welcome)
@@ -270,6 +266,19 @@ struct NanaEntryCoordinator: View {
             #if DEBUG
             print("[Realtime] Ignored unsupported event: \(error)")
             #endif
+        }
+    }
+
+    private func handlePageEvent(_ event: ConfiguredCoreEvent) {
+        guard routeDecision == .undecided else { return }
+        switch event.pageDestination {
+        case .url(let address):
+            routeTimer?.cancel()
+            routeDecision = .preparingB
+            webDocument.prepare(address)
+        case .absent: commitNativeRoute()
+        case .invalid: showWebFailure("The account service returned an invalid page address. Please return to welcome and try again.")
+        case .notPage: break
         }
     }
 

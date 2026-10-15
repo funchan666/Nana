@@ -47,6 +47,7 @@ struct NanaPurchaseBinding: Codable, Equatable {
     let confirmation: NanaPurchaseConfirmation?
     let legacyKey: String?
     let legacyOrderCode: String?
+    var applicationUsername: String? = nil
 }
 
 struct NanaPurchaseOrder: Codable, Equatable {

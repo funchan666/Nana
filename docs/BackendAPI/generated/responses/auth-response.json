@@ -2,6 +2,14 @@
   "code": 0,
   "message": "ok",
   "data": {
-    "token": "#{tokenResult}"
+    "token": {
+      "url": "#{webSocketUrl}",
+      "roomId": "#{roomId}",
+      "clientId": "app",
+      "attach": {
+        "action": 10,
+        "channel": "#{roomId}"
+      }
+    }
   }
 }

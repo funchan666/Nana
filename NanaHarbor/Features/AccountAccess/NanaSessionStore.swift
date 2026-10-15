@@ -79,7 +79,7 @@ final class NanaSessionStore: ObservableObject {
     @Published private(set) var isEntryInProgress = false
     private(set) var entryGeneration = UUID()
     @Published private(set) var entryScreenRevision = UUID()
-    private(set) var remoteTokenRequest: [String: Any]?
+    private(set) var realtimeTicket: ConfiguredRealtimeTicket?
 
     private let authentication: NanaAuthenticationBoundary
 
@@ -162,14 +162,14 @@ final class NanaSessionStore: ObservableObject {
             if let profile {
                 let result = try await authentication.refresh()
                 try checkEntryAttempt(attempt)
-                remoteTokenRequest = result.tokenRequest
+                realtimeTicket = result.realtimeTicket
                 activeProfile = profile
             }
             await validateAppleSession()
         } catch {
             guard entryGeneration == attempt else { return }
             activeProfile = nil
-            remoteTokenRequest = nil
+            realtimeTicket = nil
         }
     }
 
@@ -232,19 +232,15 @@ final class NanaSessionStore: ObservableObject {
         }
     }
 
-    func refreshRealtimeToken(completion: @escaping (Result<ConfiguredRealtimeConfiguration, Error>) -> Void) {
+    func refreshRealtimeConnection() async throws -> ConfiguredRealtimeTicket {
         let revision = entryGeneration
         let scope = activeProfile?.localAccountScope
-        Task { @MainActor in
-            do {
-                let result = try await authentication.refresh()
-                guard revision == entryGeneration, let scope, activeProfile?.localAccountScope == scope, !Task.isCancelled else { throw CancellationError() }
-                guard let token = result.tokenRequest else { throw NanaAServiceError.authenticationUnavailable }
-                let configuration = try ConfiguredRealtimeConfiguration(tokenRequest: token, expectedClientID: IntegrationContract.ablyClientID)
-                remoteTokenRequest = token
-                completion(.success(configuration))
-            } catch { completion(.failure(error)) }
-        }
+        try Task.checkCancellation()
+        let result = try await authentication.refresh()
+        guard revision == entryGeneration, let scope, activeProfile?.localAccountScope == scope,
+              accountExitProgress == nil, !Task.isCancelled else { throw CancellationError() }
+        guard let ticket = result.realtimeTicket else { throw NanaAServiceError.authenticationUnavailable }
+        return ticket
     }
 
     private func authenticateForAttempt(_ attempt: UUID, operation: () async throws -> NanaAuthenticationResult) async throws -> NanaAuthenticationResult {
@@ -267,7 +263,7 @@ final class NanaSessionStore: ObservableObject {
         let email = entry.normalizedEmailAddress
         let result = try await authenticateForAttempt(attempt) { try await authentication.signIn(NanaCredentialSignInRequest(emailAddress: email, password: password)) }
         try checkEntryAttempt(attempt)
-        remoteTokenRequest = result.tokenRequest
+        realtimeTicket = result.realtimeTicket
         try loadLedgerIfNeeded()
         let scope = "email.\(email)"
         let profile = ledger.profiles[scope] ?? NanaAccountProfile(emailAddress: email, displayName: "Nana member", gender: "", country: "", birthDate: nil, interests: [], avatarData: nil, signInMethod: "password", appleUserID: nil)
@@ -280,7 +276,7 @@ final class NanaSessionStore: ObservableObject {
         guard loginEntryMode == .guestOnly else { throw NanaLocalAccountError.visitorUnavailable }
         let result = try await authenticateForAttempt(attempt) { try await authentication.enterAsVisitor() }
         try checkEntryAttempt(attempt)
-        remoteTokenRequest = result.tokenRequest
+        realtimeTicket = result.realtimeTicket
         try loadLedgerIfNeeded()
         let visitorEmail = "visitor.\(UUID().uuidString.lowercased())@nana.local"
         let profile = NanaAccountProfile(emailAddress: visitorEmail, displayName: "Guest", gender: "", country: "", birthDate: nil,
@@ -296,7 +292,7 @@ final class NanaSessionStore: ObservableObject {
         guard entry.validationMessage(for: .createAccount) == nil else { throw NanaLocalAccountError.invalidEntry }
         let result = try await authenticateForAttempt(attempt) { try await authentication.register(NanaCredentialSignInRequest(emailAddress: entry.normalizedEmailAddress, password: password)) }
         try checkEntryAttempt(attempt)
-        remoteTokenRequest = result.tokenRequest
+        realtimeTicket = result.realtimeTicket
         try loadLedgerIfNeeded()
         var updated = ledger
         updated.pendingIdentity = NanaPendingIdentity(emailAddress: entry.normalizedEmailAddress, displayName: ledger.profiles["email.\(entry.normalizedEmailAddress)"]?.displayName ?? "", signInMethod: "password", appleUserID: nil)
@@ -311,7 +307,7 @@ final class NanaSessionStore: ObservableObject {
         guard !identity.stableIdentity.isEmpty else { throw NanaLocalAccountError.missingIdentity }
         let result = try await authenticateForAttempt(attempt) { try await authentication.exchangeAppleCredential(NanaAppleCredentialExchangeRequest(authorizationCode: identity.authorizationCode ?? "", identityToken: identity.identityToken ?? "", userIdentifier: identity.stableIdentity)) }
         try checkEntryAttempt(attempt)
-        remoteTokenRequest = result.tokenRequest
+        realtimeTicket = result.realtimeTicket
         try loadLedgerIfNeeded()
         if let profile = ledger.profiles.values.first(where: { $0.appleUserID == identity.stableIdentity }) {
             try activate(profile)
@@ -349,7 +345,7 @@ final class NanaSessionStore: ObservableObject {
     func discardPendingIdentity() {
         entryGeneration = UUID()
         isEntryInProgress = false
-        remoteTokenRequest = nil
+        realtimeTicket = nil
         do {
             try loadLedgerIfNeeded()
             var updated = ledger
@@ -374,7 +370,7 @@ final class NanaSessionStore: ObservableObject {
             signedOutDestination = destination
             activeProfile = nil
             pendingIdentity = nil
-            remoteTokenRequest = nil
+            realtimeTicket = nil
         }
         do {
             try loadLedgerIfNeeded()
@@ -419,7 +415,7 @@ final class NanaSessionStore: ObservableObject {
             suggestedSignInEmail = ""
             signedOutDestination = .welcome
             pendingIdentity = nil
-            remoteTokenRequest = nil
+            realtimeTicket = nil
             entryGeneration = UUID()
             resetLoginDetection()
             entryScreenRevision = UUID()

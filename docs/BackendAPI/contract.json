@@ -48,8 +48,10 @@
     "serverClientIds": [
       "serve"
     ],
-    "allowMissingServerClientId": true,
-    "rewind": 1
+    "allowMissingServerClientId": true
+  },
+  "realtime": {
+    "transport": "rtLink"
   },
   "eventTransport": {
     "jsonEnvelopeEventKinds": [

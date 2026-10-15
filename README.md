@@ -26,15 +26,17 @@ Nana is a SwiftUI iOS 17 live-room social prototype. The A-side follows the purp
 - `NanaContentSnapshot.sample` — development-only fixture compiled under `DEBUG` and enabled only with `-NanaDevelopmentFixtures`.
 - `NanaHarbor/Assets.xcassets/` — existing entry artwork plus selected 88-直播3 slices with semantic asset names.
 
-`project.yml` is the XcodeGen source of truth. The Bundle ID is `com.nanalantern.harbortide`. The project does not add B-side WebPortal, H5 or realtime dependencies. Coin purchases use the native StoreKit 2 framework; see [coin pack catalog](docs/coin-pack-catalog.md) for product setup.
+`project.yml` is the XcodeGen source of truth. The Bundle ID is `com.nanalantern.harbortide`. Current login, WebView, native realtime, and StoreKit 1 integration are documented in `docs/BackendAPI/README.md`. Coin purchases share the App-level StoreKit 1 coordinator; see [coin pack catalog](docs/coin-pack-catalog.md) for product setup.
 
 ## A-side read service
 
-### Bundled video collection
+### Remote photos and video collection
 
-All 17 supplied MP4 files in `videos` are included in the default home recommendation feed. Videos already represented by room cards are not added again; other bundled videos use video cards without invented room metadata. Following/category filters still apply to room content. Room refresh failures remain visible while bundled videos can be watched.
+`NanaHarbor/Shared/Components/NanaRemoteMedia.json` maps all 62 supplied photos and 17 videos to the user-provided R2 URLs: images under `photo/`, videos under `videoss/`, with their original filenames. Stable `nana.pic.*` / `nana.video.*` keys remain unchanged so saved items, creator identities, moderation, and deployed content responses continue to resolve. All 17 videos remain in the recommendation catalog; existing room/category/following rules are retained.
 
-Each card uses the matching first decoded frame from `videos/covers`, centered and cropped to fill its bounds. Covers are bundled, so scrolling does not start video players or extract frames on the main thread. Tapping a video opens a single player; dismissal or backgrounding pauses playback. Run `python3 scripts/generate_video_covers.py` after adding or replacing videos (requires FFmpeg). Original videos are preserved.
+Images load asynchronously with bounded requests, shared in-flight loads and a clearable memory cache. Feed covers use an asynchronous first-frame request from the remote video, limited to two concurrent extractions; feed cells never create video players. Leaving a cell cancels its unused request, and reused cells cannot display a previous item's image. A failed request keeps the existing placeholder; returning to the view can retry. The presented player streams the remote URL through the existing playback lifecycle.
+
+The `pics` and `videos` folders (including derived covers/portrait) and their Xcode/XcodeGen resource references have been removed. App-owned artwork, supplied UI slices, room music, and user-selected local photos remain local. CDN objects must exist with the exact names recorded in `docs/remote-media-inventory.json`; no upload, CDN probe, compilation or playback test was performed. Videos now require network access; URLSession/AVFoundation may use temporary runtime buffers, which are separate from bundled media. Historical files remain recoverable from Git; repository history size is unchanged.
 
 ### Published endpoints
 
@@ -44,7 +46,7 @@ Each card uses the matching first decoded frame from `videos/covers`, centered a
 - Requests accept JSON, include `nanaReleaseVersion`, and have bounded timeouts. There is no fabricated login Token or server authentication claim. The app's signed-in navigation gate remains independent of these fixed responses.
 - On transport, HTTP or decoding failure, the current persisted data remains available and the page exposes a retry state. The repository records a sanitized error; it never stores or prints a raw response.
 - The published snapshot persists per account under Application Support/NanaReadCache, with hidden-profile preferences and drafts kept locally. Wallet, gift, follow, moderation, chat, check-in and server profile writes remain unavailable until a real write contract exists. Local profile edits remain on the device. A read-service 401 shows a content error and does not log out the local account.
-- Images and videos resolve to bundled files only; server `bundlePath` values are not used as arbitrary filesystem paths.
+- Photos/videos use the remote catalog above; UI artwork still resolves locally. Existing `assetKey` and legacy `bundlePath` strings are preserved as compatibility identifiers, never arbitrary filesystem paths; this client-only change does not require reimporting the backend templates.
 
 ### Integration status — 2026-09-22
 

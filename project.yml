@@ -18,6 +18,10 @@ settings:
       STRIP_INSTALLED_PRODUCT: true
       COPY_PHASE_STRIP: true
       DEAD_CODE_STRIPPING: true
+packages:
+  TPInAppReceipt:
+    url: https://github.com/tikhop/TPInAppReceipt.git
+    exactVersion: 4.0.2
 schemes:
   Nana:
     build:
@@ -31,14 +35,10 @@ targets:
   Nana:
     type: application
     platform: iOS
+    dependencies:
+      - package: TPInAppReceipt
     sources:
       - path: NanaHarbor
-      - path: pics
-        type: folder
-        buildPhase: resources
-      - path: videos
-        type: folder
-        buildPhase: resources
       - path: assets/photos
         type: folder
         buildPhase: resources
