@@ -1,10 +1,16 @@
 import Foundation
 import StoreKit
+import OSLog
+
+struct NanaStoreProductResult {
+    let products: [SKProduct]
+    let invalidProductIdentifiers: Set<String>
+}
 
 @MainActor
 final class NanaStoreKitRequests: NSObject, SKProductsRequestDelegate {
     private enum Completion {
-        case products(CheckedContinuation<[SKProduct], Error>)
+        case products(CheckedContinuation<NanaStoreProductResult, Error>)
         case receipt(CheckedContinuation<Void, Error>)
     }
 
@@ -12,13 +18,14 @@ final class NanaStoreKitRequests: NSObject, SKProductsRequestDelegate {
         let request: SKRequest
         let completion: Completion
         let deadline: Task<Void, Never>
-        var products: [SKProduct]?
+        var products: NanaStoreProductResult?
         var finished = false
     }
 
     private var pending: [ObjectIdentifier: Pending] = [:]
+    private let log = Logger(subsystem: "com.nanalantern.harbortide", category: "StoreProducts")
 
-    func products(identifiers: Set<String>) async throws -> [SKProduct] {
+    func products(identifiers: Set<String>) async throws -> NanaStoreProductResult {
         let request = SKProductsRequest(productIdentifiers: identifiers)
         let key = ObjectIdentifier(request)
         return try await withTaskCancellationHandler {
@@ -79,7 +86,13 @@ final class NanaStoreKitRequests: NSObject, SKProductsRequestDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let key = ObjectIdentifier(request)
-            self.pending[key]?.products = response.products
+            guard self.pending[key] != nil else { return }
+            self.pending[key]?.products = NanaStoreProductResult(products: response.products,
+                invalidProductIdentifiers: Set(response.invalidProductIdentifiers))
+            for identifier in response.invalidProductIdentifiers {
+                self.log.error("Product rejected by App Store id=\(identifier, privacy: .public)")
+            }
+            self.log.notice("Product response valid=\(response.products.count) invalid=\(response.invalidProductIdentifiers.count)")
             self.completeProductsIfReady(key)
         }
     }
@@ -109,7 +122,7 @@ final class NanaStoreKitRequests: NSObject, SKProductsRequestDelegate {
     }
 }
 
-private enum NanaStoreRequestError: Error { case timedOut }
+enum NanaStoreRequestError: Error { case timedOut }
 
 final class NanaPaymentQueueObserver: NSObject, SKPaymentTransactionObserver {
     private let receive: @MainActor ([SKPaymentTransaction]) -> Void

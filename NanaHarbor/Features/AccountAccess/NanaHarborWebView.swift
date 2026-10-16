@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import SwiftUI
 import WebKit
+import OSLog
 
 @MainActor
 struct NanaHarborWebView: UIViewRepresentable {
@@ -23,6 +24,8 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
     private var acceptedResponse = false
     private var deadline: Task<Void, Never>?
     private var permissionReplies: [UUID: (WKPermissionDecision) -> Void] = [:]
+    private let mediaLog = Logger(subsystem: "com.nanalantern.harbortide", category: "WebMedia")
+    private var previousAudioCategory: AVAudioSession.Category?
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -44,14 +47,22 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         webView.backgroundColor = UIColor(red: 0.10, green: 0.02, blue: 0.20, alpha: 1)
         webView.scrollView.backgroundColor = webView.backgroundColor
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        #if DEBUG
+        webView.isInspectable = true
+        #endif
     }
 
     func prepare(_ address: URL) {
         stop()
         self.address = address
         phase = .loading
-        navigation = webView.load(URLRequest(url: address, timeoutInterval: 30))
+        prepareAudioPlayback()
+        let revision = generation
         armDeadline()
+        webView.setAllMediaPlaybackSuspended(false) { [weak self] in
+            guard let self, self.generation == revision, self.address == address else { return }
+            self.navigation = self.webView.load(URLRequest(url: address, timeoutInterval: 30))
+        }
     }
 
     func retry() {
@@ -69,6 +80,9 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         webView.stopLoading()
         webView.pauseAllMediaPlayback(completionHandler: nil)
         webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+        webView.setCameraCaptureState(.none, completionHandler: nil)
+        webView.setMicrophoneCaptureState(.none, completionHandler: nil)
+        restoreAudioPlayback()
         cancelPermissions()
         phase = .idle
     }
@@ -128,7 +142,6 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         guard address != nil, let current = self.navigation, current === navigation, acceptedResponse else { return }
         deadline?.cancel()
         deadline = nil
-        webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
         phase = .ready
     }
 
@@ -164,7 +177,11 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        guard isTrusted(origin, frame: frame) else { decisionHandler(.deny); return }
+        guard isTrusted(origin, frame: frame) else {
+            mediaLog.error("Capture denied: untrusted origin or inactive document")
+            decisionHandler(.deny)
+            return
+        }
         let request = UUID()
         let revision = generation
         permissionReplies[request] = decisionHandler
@@ -180,19 +197,49 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
             @unknown default: allowed = false
             }
             guard let self, let reply = self.permissionReplies.removeValue(forKey: request) else { return }
-            reply(allowed && self.generation == revision && self.isTrusted(origin, frame: frame) ? .grant : .deny)
+            let grant = allowed && self.generation == revision && self.isTrusted(origin, frame: frame)
+            self.mediaLog.notice("Capture permission type=\(type.rawValue) allowed=\(grant)")
+            reply(grant ? .grant : .deny)
         }
     }
 
     private func isTrusted(_ origin: WKSecurityOrigin, frame: WKFrameInfo) -> Bool {
         guard phase == .ready || phase == .loading else { return false }
-        guard let address, frame.isMainFrame,
+        guard let address,
               let trusted = Self.origin(address), let currentURL = webView.url,
               Self.origin(currentURL) == trusted,
-              let frameURL = frame.request.url, Self.origin(frameURL) == trusted else { return false }
+              Self.origin(frame.securityOrigin) == trusted else { return false }
+        return Self.origin(origin) == trusted
+    }
+
+    private static func origin(_ origin: WKSecurityOrigin) -> String? {
         let scheme = origin.protocol.lowercased()
+        guard ["https", "http"].contains(scheme), !origin.host.isEmpty else { return nil }
         let port = origin.port == 0 ? (scheme == "https" ? 443 : 80) : origin.port
-        return "\(scheme)://\(origin.host.lowercased()):\(port)" == trusted
+        return "\(scheme)://\(origin.host.lowercased()):\(port)"
+    }
+
+    private func prepareAudioPlayback() {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category == .ambient || session.category == .soloAmbient,
+              session.mode == .default, session.categoryOptions.isEmpty else { return }
+        let previous = session.category
+        do {
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            previousAudioCategory = previous
+        } catch {
+            mediaLog.error("Playback audio configuration failed code=\((error as NSError).code)")
+        }
+    }
+
+    private func restoreAudioPlayback() {
+        guard let previous = previousAudioCategory else { return }
+        previousAudioCategory = nil
+        let session = AVAudioSession.sharedInstance()
+        guard session.category == .playback, session.mode == .default,
+              session.categoryOptions == [.mixWithOthers] else { return }
+        do { try session.setCategory(previous, mode: .default, options: []) }
+        catch { mediaLog.error("Playback audio cleanup failed code=\((error as NSError).code)") }
     }
 
     private static func origin(_ url: URL) -> String? {

@@ -4,6 +4,7 @@ import StoreKit
 import SwiftUI
 import Network
 import UIKit
+import OSLog
 
 struct NanaCoinPack: Identifiable, Hashable {
     let productID: String
@@ -76,6 +77,7 @@ final class NanaCoinStore: ObservableObject {
     private var paymentObserver: NanaPaymentQueueObserver?
     private let productRequests = NanaStoreKitRequests()
     private let receiptRequests = NanaStoreKitRequests()
+    private let purchaseLog = Logger(subsystem: "com.nanalantern.harbortide", category: "Purchase")
     private var productRequestCount = 0
     private var interactiveAttempt: UUID?
     private var interactiveOrderID: UUID?
@@ -169,7 +171,7 @@ final class NanaCoinStore: ObservableObject {
         do {
             let loaded = try await productRequests.products(identifiers: Set(Self.packs.map(\.productID)))
             guard accountScope == scope, purchaseSessionRevision == revision else { return }
-            products = loaded.filter { $0.subscriptionPeriod == nil }
+            products = loaded.products.filter { $0.subscriptionPeriod == nil }
         } catch { }
     }
 
@@ -201,6 +203,7 @@ final class NanaCoinStore: ObservableObject {
         interactiveRevision = revision
         purchasingAccountScope = owner
         purchasingProductID = productID
+        purchaseLog.notice("Purchase requested source=\(source.rawValue, privacy: .public) product=\(productID, privacy: .public)")
         var submitted = false
         defer { if !submitted && interactiveAttempt == attempt { releaseInteraction() } }
         var orderID: UUID?
@@ -218,10 +221,10 @@ final class NanaCoinStore: ObservableObject {
                     return
                 }
             }
-            guard SKPaymentQueue.canMakePayments() else { throw NanaCoinPurchaseError.productNotFound }
+            guard SKPaymentQueue.canMakePayments() else { throw NanaCoinPurchaseError.paymentsRestricted }
             let product = try await product(for: productID)
             guard accountScope == owner, purchaseSessionRevision == revision, !Task.isCancelled else { return }
-            guard product.subscriptionPeriod == nil else { throw NanaCoinPurchaseError.productNotFound }
+            guard product.subscriptionPeriod == nil else { throw NanaCoinPurchaseError.unsupportedProduct }
             try loadLedgerIfNeeded()
             guard var account = ledger.accounts[owner], let walletID = ledger.identity else {
                 throw NanaCoinPurchaseError.storageUnavailable
@@ -262,7 +265,43 @@ final class NanaCoinStore: ObservableObject {
                 _ = try? purchaseLedger.save(order)
             }
             guard accountScope == owner, purchaseSessionRevision == revision else { return }
-            notice = AccountEntryNotice(title: "Purchase unavailable", explanation: "Nana couldn't complete this purchase. Any confirmed Apple payment is kept for recovery; please do not buy it again.")
+            if error is CancellationError { return }
+            let reason = purchaseFailureReason(error)
+            purchaseLog.error("Purchase not submitted product=\(productID, privacy: .public) reason=\(reason, privacy: .public) code=\((error as NSError).code)")
+            notice = AccountEntryNotice(title: "Purchase unavailable", explanation: purchaseFailureMessage(error))
+        }
+    }
+
+    private func purchaseFailureReason(_ error: Error) -> String {
+        if let error = error as? NanaCoinPurchaseError {
+            switch error {
+            case .productNotFound: return "product_missing"
+            case .invalidProductIdentifier: return "product_rejected"
+            case .paymentsRestricted: return "payments_restricted"
+            case .unsupportedProduct: return "unsupported_product"
+            case .storageUnavailable: return "storage_unavailable"
+            }
+        }
+        if error is NanaStoreRequestError { return "product_request_timeout" }
+        if (error as NSError).domain == NSURLErrorDomain { return "network_error" }
+        if error is SKError { return "store_error" }
+        return "purchase_preparation_failed"
+    }
+
+    private func purchaseFailureMessage(_ error: Error) -> String {
+        switch purchaseFailureReason(error) {
+        case "product_rejected", "product_missing":
+            return "This recharge option is currently unavailable in the App Store. Please choose another option. No Apple payment was started."
+        case "payments_restricted":
+            return "In-app purchases are not allowed on this device. Check your purchase restrictions and try again."
+        case "unsupported_product":
+            return "This recharge option is configured incorrectly. Please choose another option. No Apple payment was started."
+        case "product_request_timeout", "network_error":
+            return "The App Store could not be reached in time. Check your connection and try again. No Apple payment was started."
+        case "storage_unavailable":
+            return "Nana couldn't safely save this purchase. Unlock your device and try again. No Apple payment was started."
+        default:
+            return "Nana couldn't prepare this purchase. Please try again. No Apple payment was started."
         }
     }
 
@@ -318,12 +357,15 @@ final class NanaCoinStore: ObservableObject {
         defer { productRequestCount -= 1; isLoadingProducts = productRequestCount > 0 }
         let loaded = try await productRequests.products(identifiers: [productID])
         guard revision == purchaseSessionRevision else { throw CancellationError() }
-        products = (products.filter { $0.productIdentifier != productID } + loaded).sorted { left, right in
+        products = (products.filter { $0.productIdentifier != productID } + loaded.products).sorted { left, right in
             let leftIndex = Self.packs.firstIndex { $0.productID == left.productIdentifier } ?? .max
             let rightIndex = Self.packs.firstIndex { $0.productID == right.productIdentifier } ?? .max
             return leftIndex < rightIndex
         }
-        guard let product = loaded.first(where: { $0.productIdentifier == productID }) else {
+        if loaded.invalidProductIdentifiers.contains(productID) {
+            throw NanaCoinPurchaseError.invalidProductIdentifier
+        }
+        guard let product = loaded.products.first(where: { $0.productIdentifier == productID }) else {
             throw NanaCoinPurchaseError.productNotFound
         }
         return product
@@ -708,6 +750,9 @@ enum NanaRoomGiftError: LocalizedError {
 
 enum NanaCoinPurchaseError: Error {
     case productNotFound
+    case invalidProductIdentifier
+    case paymentsRestricted
+    case unsupportedProduct
     case storageUnavailable
 }
 
