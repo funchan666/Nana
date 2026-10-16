@@ -26,6 +26,8 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
     private var permissionReplies: [UUID: (WKPermissionDecision) -> Void] = [:]
     private let mediaLog = Logger(subsystem: "com.nanalantern.harbortide", category: "WebMedia")
     private var previousAudioCategory: AVAudioSession.Category?
+    private var mediaObservations: [NSKeyValueObservation] = []
+    private var ownsPlaybackSuspension = false
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -47,6 +49,14 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         webView.backgroundColor = UIColor(red: 0.10, green: 0.02, blue: 0.20, alpha: 1)
         webView.scrollView.backgroundColor = webView.backgroundColor
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        mediaObservations = [
+            webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.logMediaState("camera-changed") }
+            },
+            webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.logMediaState("microphone-changed") }
+            }
+        ]
         #if DEBUG
         webView.isInspectable = true
         #endif
@@ -59,8 +69,10 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         prepareAudioPlayback()
         let revision = generation
         armDeadline()
+        ownsPlaybackSuspension = false
         webView.setAllMediaPlaybackSuspended(false) { [weak self] in
             guard let self, self.generation == revision, self.address == address else { return }
+            self.mediaLog.notice("[WebMedia] Owned playback suspension released before load")
             self.navigation = self.webView.load(URLRequest(url: address, timeoutInterval: 30))
         }
     }
@@ -71,6 +83,7 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
     }
 
     func stop() {
+        if address != nil { mediaLog.notice("[WebMedia] Document stopped; ending capture") }
         generation = UUID()
         deadline?.cancel()
         deadline = nil
@@ -79,7 +92,10 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         address = nil
         webView.stopLoading()
         webView.pauseAllMediaPlayback(completionHandler: nil)
-        webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+        if !ownsPlaybackSuspension {
+            ownsPlaybackSuspension = true
+            webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+        }
         webView.setCameraCaptureState(.none, completionHandler: nil)
         webView.setMicrophoneCaptureState(.none, completionHandler: nil)
         restoreAudioPlayback()
@@ -143,6 +159,7 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
         deadline?.cancel()
         deadline = nil
         phase = .ready
+        logMediaState("document-ready")
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -168,6 +185,11 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard address != nil, let url = navigationAction.request.url,
               ["https", "http"].contains(url.scheme?.lowercased() ?? "") else {
+            if address != nil {
+                let mainFrame = navigationAction.targetFrame?.isMainFrame == true
+                let blankFrame = navigationAction.request.url?.absoluteString == "about:blank"
+                mediaLog.notice("[WebMedia] Navigation rejected mainFrame=\(mainFrame) aboutBlank=\(blankFrame)")
+            }
             decisionHandler(.cancel)
             return
         }
@@ -177,11 +199,13 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        guard isTrusted(origin, frame: frame) else {
-            mediaLog.error("Capture denied: untrusted origin or inactive document")
+        if let reason = captureRejectionReason(origin, frame: frame) {
+            mediaLog.error("[WebMedia] Capture denied reason=\(reason, privacy: .public) type=\(type.rawValue) mainFrame=\(frame.isMainFrame)")
             decisionHandler(.deny)
             return
         }
+        mediaLog.notice("[WebMedia] Capture requested type=\(type.rawValue) mainFrame=\(frame.isMainFrame)")
+        logMediaState("permission-requested")
         let request = UUID()
         let revision = generation
         permissionReplies[request] = decisionHandler
@@ -197,19 +221,57 @@ final class NanaWebDocument: NSObject, ObservableObject, WKNavigationDelegate, W
             @unknown default: allowed = false
             }
             guard let self, let reply = self.permissionReplies.removeValue(forKey: request) else { return }
-            let grant = allowed && self.generation == revision && self.isTrusted(origin, frame: frame)
-            self.mediaLog.notice("Capture permission type=\(type.rawValue) allowed=\(grant)")
+            let reason: String
+            if self.generation != revision { reason = "stale-document" }
+            else if !allowed { reason = "system-permission-denied" }
+            else { reason = self.captureRejectionReason(origin, frame: frame) ?? "allowed" }
+            let grant = reason == "allowed"
+            self.mediaLog.notice("[WebMedia] Capture decision type=\(type.rawValue) allowed=\(grant) reason=\(reason, privacy: .public)")
             reply(grant ? .grant : .deny)
+            self.logMediaState("permission-completed")
         }
     }
 
-    private func isTrusted(_ origin: WKSecurityOrigin, frame: WKFrameInfo) -> Bool {
-        guard phase == .ready || phase == .loading else { return false }
-        guard let address,
-              let trusted = Self.origin(address), let currentURL = webView.url,
-              Self.origin(currentURL) == trusted,
-              Self.origin(frame.securityOrigin) == trusted else { return false }
-        return Self.origin(origin) == trusted
+    private func captureRejectionReason(_ origin: WKSecurityOrigin, frame: WKFrameInfo) -> String? {
+        guard phase == .ready || phase == .loading else { return "inactive-document" }
+        guard let address, let trusted = Self.origin(address) else { return "missing-trusted-origin" }
+        guard let currentURL = webView.url, Self.origin(currentURL) == trusted else { return "top-origin-mismatch" }
+        guard Self.origin(frame.securityOrigin) == trusted else { return "frame-origin-mismatch" }
+        guard Self.origin(origin) == trusted else { return "request-origin-mismatch" }
+        return nil
+    }
+
+    private func logMediaState(_ event: String) {
+        guard address != nil else { return }
+        let camera = Self.captureStateName(webView.cameraCaptureState)
+        let microphone = Self.captureStateName(webView.microphoneCaptureState)
+        let cameraPermission = AVCaptureDevice.authorizationStatus(for: .video).rawValue
+        let microphonePermission = AVCaptureDevice.authorizationStatus(for: .audio).rawValue
+        let audio = AVAudioSession.sharedInstance()
+        mediaLog.notice("[WebMedia] event=\(event, privacy: .public) camera=\(camera, privacy: .public) microphone=\(microphone, privacy: .public) cameraPermission=\(cameraPermission) microphonePermission=\(microphonePermission) attached=\(self.isAttached)")
+        mediaLog.notice("[WebMedia] audio category=\(audio.category.rawValue, privacy: .public) mode=\(audio.mode.rawValue, privacy: .public) options=\(audio.categoryOptions.rawValue) inputCount=\(audio.currentRoute.inputs.count) outputCount=\(audio.currentRoute.outputs.count) volume=\(audio.outputVolume)")
+        let revision = generation
+        webView.requestMediaPlaybackState { [weak self] state in
+            guard let self, self.generation == revision, self.address != nil else { return }
+            let name: String
+            switch state {
+            case .none: name = "none"
+            case .playing: name = "playing"
+            case .paused: name = "paused"
+            case .suspended: name = "suspended"
+            @unknown default: name = "unknown"
+            }
+            self.mediaLog.notice("[WebMedia] event=\(event, privacy: .public) playback=\(name, privacy: .public)")
+        }
+    }
+
+    private static func captureStateName(_ state: WKMediaCaptureState) -> String {
+        switch state {
+        case .none: return "none"
+        case .active: return "active"
+        case .muted: return "muted"
+        @unknown default: return "unknown"
+        }
     }
 
     private static func origin(_ origin: WKSecurityOrigin) -> String? {
