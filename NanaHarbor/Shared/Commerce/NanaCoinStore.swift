@@ -232,6 +232,7 @@ final class NanaCoinStore: ObservableObject {
                 }) {
                     wakeRecovery()
                     purchaseLog.notice("Purchase blocked reason=existingBackendOrder state=\(previous.state.rawValue, privacy: .public)")
+                    logPendingOrder(previous)
                     if !previous.delivered { showPurchaseBlock(block(for: previous), owner: owner, revision: revision) }
                     return
                 }
@@ -516,10 +517,20 @@ final class NanaCoinStore: ObservableObject {
         let pending = unfinishedOrders(for: binding).filter { !mayProceedPastReview($0, replacement: binding) }
         guard !pending.isEmpty else { return nil }
         purchaseLog.notice("Purchase ledger pending count=\(pending.count)")
+        for order in pending.prefix(5) { logPendingOrder(order) }
         if pending.contains(where: { $0.transactionID != nil }) { return .deliveryPending }
         if pending.contains(where: { $0.state == .needsReview || $0.binding.source == .legacyUnknown }) { return .reviewRequired }
         if pending.contains(where: { $0.observedAppleStates?.contains("deferred") == true }) { return .appleApprovalPending }
         return pending.allSatisfy(\.isUnobservedLegacyPreorder) ? .legacyPreorderUnresolved : .submissionUnresolved
+    }
+
+    private func logPendingOrder(_ order: NanaPurchaseOrder) {
+        let knownReasons: Set<String> = ["legacyOriginAndBindingUnproven", "legacyProductOnlyAssociation",
+            "legacyPreorderIsolatedForReview", "purchaseOutcomeUnresolved", "lateAppleTransactionObserved",
+            "lateAppleFailureObserved", "originalWalletUnavailable", "deliveryPending"]
+        let reason = order.lastFailure.flatMap { knownReasons.contains($0) ? $0 : nil } ?? "unclassified"
+        purchaseLog.notice("Purchase record source=\(order.binding.source.rawValue, privacy: .public) state=\(order.state.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
+        purchaseLog.notice("Purchase record hasTransaction=\(order.transactionID != nil) hasConfirmation=\(order.binding.confirmation != nil) hasLegacyBinding=\(order.binding.legacyKey != nil) hasSubmissionVersion=\(order.submissionVersion != nil) hasReviewEvidence=\(order.legacyPreorderReview != nil) hasAppleObservation=\(!(order.observedAppleStates ?? []).isEmpty)")
     }
 
     private func isolateBlockingLegacyPreorder(for replacement: NanaPurchaseBinding) throws {
@@ -528,13 +539,24 @@ final class NanaCoinStore: ObservableObject {
               interactiveOrderID == nil, interactionDeadline == nil,
               purchaseLedger.ready, purchaseLedger.unreadableAccounts.isEmpty, legacyMigrationComplete else { return }
         let candidates = unfinishedOrders(for: replacement).filter { !mayProceedPastReview($0, replacement: replacement) }
-        guard candidates.count == 1, let candidate = candidates.first,
-              candidate.state == .awaitingApple, candidate.isUnobservedLegacyPreorder,
+        guard candidates.count == 1, let candidate = candidates.first else {
+            if !candidates.isEmpty { purchaseLog.notice("Legacy preorder kept reason=ambiguousCandidates count=\(candidates.count)") }
+            return
+        }
+        guard candidate.state == .awaitingApple else {
+            purchaseLog.notice("Legacy preorder kept reason=ineligibleState state=\(candidate.state.rawValue, privacy: .public)")
+            return
+        }
+        guard candidate.isUnobservedLegacyPreorder,
               candidate.legacyPreorderReview == nil,
-              candidate.binding.sharesSettlementScope(with: replacement),
+              candidate.binding.sharesSettlementScope(with: replacement) else {
+            purchaseLog.notice("Legacy preorder kept reason=formatOrScopeMismatch legacyFormat=\(candidate.isUnobservedLegacyPreorder) settlementScopeMatches=\(candidate.binding.sharesSettlementScope(with: replacement))")
+            return
+        }
+        guard
               let original = candidate.binding.confirmation, original.orderCode != incoming.orderCode,
               !original.orderCode.isEmpty, !original.messageID.isEmpty else {
-            if !candidates.isEmpty { purchaseLog.notice("Legacy preorder kept reason=ineligibleOrAmbiguous count=\(candidates.count)") }
+            purchaseLog.notice("Legacy preorder kept reason=missingOrRepeatedBusinessOrder")
             return
         }
         guard queuedTransactions(productID: replacement.productID).isEmpty,
@@ -702,6 +724,11 @@ final class NanaCoinStore: ObservableObject {
             case .deferred:
                 if let order { releaseInteraction(orderID: order.binding.id, pending: true) }
             case .failed:
+                let appleError = transaction.error as NSError?
+                let errorDomain = appleError.map { error in
+                    [SKErrorDomain, "SKInternalErrorDomain", NSURLErrorDomain].contains(error.domain) ? error.domain : "other"
+                } ?? "none"
+                purchaseLog.notice("Purchase Apple failed domain=\(errorDomain, privacy: .public) code=\(appleError?.code ?? 0) matchedOrder=\(order != nil)")
                 if let order {
                     do { try markUnpaid(order.binding.id) }
                     catch { releaseInteraction(orderID: order.binding.id, pending: true); continue }
