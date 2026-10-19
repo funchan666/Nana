@@ -43,15 +43,30 @@
     "data": "data",
     "token": "token"
   },
-  "ably": {
+  "realtime": {
+    "transport": "webSocket",
+    "connectionFields": {
+      "url": "url",
+      "attach": "attach",
+      "action": "action",
+      "channel": "channel",
+      "expiresAt": "expiresAt"
+    },
+    "deployedIdentityFields": {
+      "roomID": "roomId",
+      "clientID": "clientId"
+    },
     "clientId": "app",
     "serverClientIds": [
       "serve"
     ],
-    "allowMissingServerClientId": true
-  },
-  "realtime": {
-    "transport": "rtLink"
+    "allowMissingServerClientId": true,
+    "connectionValuePath": [
+      "data",
+      "token"
+    ],
+    "urlPlaceholder": "#{webSocketUrl}",
+    "channelPlaceholder": "#{roomId}"
   },
   "eventTransport": {
     "jsonEnvelopeEventKinds": [

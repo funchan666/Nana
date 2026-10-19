@@ -169,3 +169,18 @@ xcodebuild -project Nana.xcodeproj -scheme Nana -sdk iphonesimulator \
 - 导入步骤：选择 App ID `67746202` → “接口管理”导入 `generated/接口模板-67746202.json` → 核对 15 个接口及 tidepass 的新占位符 → 校验并保存 APP。已有“配置管理”映射不变，无需重复导入；`generated/配置模板-67746202.json` 仍作为完整配对文件交付。只有导入保存才会改变线上模板，不能把修改本地文件视为已部署。
 
 静态检查覆盖源响应/生成响应/最终 responseContent 一致性、15 个接口完整性、14 项映射、紧凑 JSON、旧占位符移除、工程 Sources 引用、URL 可选绑定、MainActor 调用边界、差异范围和 `git diff --check`。未编译、未测试、未运行 App、未请求认证接口或建立 WebSocket；真实占位符展开、订阅和刷新效果未验收。
+
+
+## 2026-10-19 Prada 增量适配（仅静态）
+
+- 起始工作区只有 `Nana.xcodeproj/project.pbxproj` 的用户未提交修改：签名改为 Automatic/Apple Development、开发团队 `JPTS6M4T5B`、Debug/Release Bundle ID `im.seex.sao2`。本轮没有编辑工程、签名、版本号或 XcodeGen 配置；未通过重生成覆盖这些修改。`project.yml` 的旧身份/版本与当前手动工程仍有既有差异，不作为当前发布配置来源。
+- 适用范围：原生 SwiftUI + Apple/邮箱/注册/游客混合登录保留，沿原身份、欢迎页、默认协议及 Keychain 会话恢复策略。新版仅纯一键认证适用的接口删除/四字段登录改造未套到此宿主。共用 contract 的迁移边界见 README；本轮不声称全部直认证模板规则已迁入。
+- 唯一传输：原 `ConfiguredRealtimeTransport` 的 socket/计时/刷新实现移除，变为 `ConfiguredRealtimeClient` 的宿主桥接。init 安装 state/ready/message/diagnostic/refresh 后 connect；通知和 NWPathMonitor 只转发给这个 owner，退出按代次清理。15 秒首次 ready 总期限和原首次 ready 后 3 秒 A/B 决议不被重连重置。
+- 接收链：4 身份/空闲信息校验后发送 10；匹配 11 后 ready；15 保留原数组索引逐条解析，坏项不吞后项，早到消息有 128 条/4 MiB 上限；帧最多 1 MiB。22 回 23，13 当前频道分离恢复，8 为终态，9 的 40140…40149 续期、其他错误终态。17/到期/前台/网络恢复合并刷新；最低 30 秒刷新间隔、60 秒刷新期限、指数退避、硬到期和旧回调隔离可追踪。整数解析不经 Double 丢失序号精度。
+- 发送链：新版 publish 的 msgSerial、ACK/NACK 范围、跳过/超时、替换连接和 stop 的 completion 所有权保留；本地 send 不假成功。Nana 当前没有新增主题上行调用者，不声称后台重放/业务回执已实现或部署。
+- 配置/解析：移除 contract 的旧 ably 段，原身份/发送方值迁入 realtime，transport=`webSocket`。显式连接字段按已部署共用协议保持；原完整 wss URL 不改写，不新增请求头/子协议或 rtLink 请求。认证、恢复、续期共用同一映射；运行常量与生成副本一致。四核心事件、退出包装、iOS 路由 JSON 前缀及签名查询参数保留；支付 requestID 改为真实 entryGeneration，非支付通用去重不再吞掉不同后台支付订单。
+- 支付防重：按服务+后台订单冻结身份；新显式业务消息 ID 与另一单冲突时拒绝。原商品列表、送礼算法、process 交付与成功 finish 函数逐字节保持。真实队列、暂存对象及同商品未收尾账本在提交前检查；90 秒仅结束当前 attempt 的 UI 等待，原 observer/账本/补单继续，取消与旧回调不清新交互。唯一 queue observer 增加 removedTransactions 回调。
+- 历史账本：固定 service、主键、schemaVersion=1、hostLocal/ablyServer/legacyUnknown 及冻结绑定不变。新增显式消息身份、submissionVersion/submissionStage/quantity/observedAppleStates 全为可缺省字段；旧 JSON 不要求新增字段。观测集合不能被旧写入覆盖；关键写仍 SecItemAdd/Update + 回读。通过原交易号/UUID/商品/数量/App 验证后才缓存强持有交易对象的关联，移出队列清理，缺证据不按 SKU 猜配。没有自动清理或解除历史待核对预单。
+- UI/媒体：支付等待只删除底框，保留主题文字、遮罩与 Apple 系统 sheet。按 AGENTS 路由评估 Taste/Design/Garden，此处采用 Design 的层级简化原则；不产生 HTML、原创资产或新设计。此前通话修复 `ownsPlaybackSuspension`、恢复完成后 load、可信 frame 授权、音频所有权与采集清理文件逐字节未改，无防截屏/录屏机制回归。
+- 导入：认证/支付/登录方式源响应、生成响应和两个导入模板均与本轮前保持；15 接口、14 配置及 App ID 不变，无需重新导入。最新纯一键生成器未运行，以免删除共用登录定义；当前生成常量按适用差异与运行副本同步。
+- 静态证据：26 个 BackendAPI JSON 格式、源/生成响应对照、双模板对照、Swift 常量副本、实际 Sources 引用、权限用途与 `$(PRODUCT_BUNDLE_IDENTIFIER)` Scheme、工程/plist/entitlements 的 plutil、git diff 空白检查。只检查源结构、状态分支和历史兼容字段；没有 Swift 编译/类型检查、测试、模拟器/设备启动、依赖解析、网络连接、购买或卸载重装，实际连接/支付/设备效果未验证。

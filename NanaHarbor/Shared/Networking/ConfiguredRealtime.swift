@@ -1,206 +1,665 @@
 import Foundation
 import CoreFoundation
-import UIKit
 import Network
+import UIKit
+import OSLog
 
-enum ConfiguredRealtimeError: LocalizedError {
-    case invalidTicket
-    case unresolvedPlaceholder
-    case invalidConnectionContainer
-    case invalidFrame
-    case legacyTokenRequest
-    case invalidConnectionURL
-    case invalidSubscription
-    case invalidIdentity
-    case invalidExpiry
-    case expiredConnection
-
+enum ConfiguredRealtimeError: String, Error, LocalizedError {
+    case unresolvedPlaceholder, invalidFieldMapping, invalidConnectionContainer, legacyTokenRequest
+    case invalidConnectionURL, invalidSubscription, invalidIdentity, invalidExpiry
+    case expiredConnection, invalidFrame, invalidMessage, unsupportedEncoding
+    case invalidAcknowledgement, serialExhausted, notReady, capacityExceeded
+    case sendFailed, acknowledgementFailed, acknowledgementSkipped, acknowledgementTimeout
+    case connectionReplaced, connectionTimeout, attemptTimeout, refreshFailed, refreshTimeout
+    case disconnected, detached, idleTimeout, serverClosed, serverRejected, stopped
     var errorDescription: String? {
         switch self {
-        case .expiredConnection:
-            return "Your sign-in connection has expired. Please try again."
-        case .invalidFrame:
-            return "The connection was interrupted. Please try again."
-        default:
-            return "Sign-in is temporarily unavailable. Please try again later."
+        case .expiredConnection: return "The sign-in connection expired. Please try again."
+        case .notReady: return "The connection is not ready. Please try again."
+        default: return "The connection is temporarily unavailable. Please try again."
         }
     }
+}
 
-    var diagnosticCode: String {
-        switch self {
-        case .invalidTicket: return "invalid_ticket"
-        case .unresolvedPlaceholder: return "unresolved_placeholder"
-        case .invalidConnectionContainer: return "invalid_connection_container"
-        case .invalidFrame: return "invalid_frame"
-        case .legacyTokenRequest: return "legacy_token_request"
-        case .invalidConnectionURL: return "invalid_connection_url"
-        case .invalidSubscription: return "invalid_subscription"
-        case .invalidIdentity: return "invalid_identity"
-        case .invalidExpiry: return "invalid_expiry"
-        case .expiredConnection: return "expired_connection"
+enum ConfiguredRealtimeJSON {
+    static let maximumBytes = 1_048_576
+    static func object(_ value: Any) throws -> [String: Any] {
+        if let object = value as? [String: Any] { return object }
+        guard let text = value as? String else { throw ConfiguredRealtimeError.invalidConnectionContainer }
+        if text.contains("#{") { throw ConfiguredRealtimeError.unresolvedPlaceholder }
+        guard let data = text.data(using: .utf8), data.count <= maximumBytes,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ConfiguredRealtimeError.invalidConnectionContainer
         }
+        return object
+    }
+    static func integer(_ value: Any?) -> Int64? {
+        guard let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
+        let type = String(cString: value.objCType)
+        guard ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type) else { return nil }
+        return Int64(value.stringValue)
+    }
+    static func number(_ value: Any?) -> Double? {
+        guard let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+              value.doubleValue.isFinite else { return nil }
+        return value.doubleValue
+    }
+    static func optionalString(_ value: Any?) throws -> String? {
+        guard let value = value, !(value is NSNull) else { return nil }
+        guard let text = value as? String else { throw ConfiguredRealtimeError.invalidMessage }
+        return text.isEmpty ? nil : text
+    }
+    static func text(_ object: [String: Any]) throws -> String {
+        guard JSONSerialization.isValidJSONObject(object),
+              let bytes = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              bytes.count <= maximumBytes, let text = String(data: bytes, encoding: .utf8) else {
+            throw ConfiguredRealtimeError.invalidFrame
+        }
+        return text
+    }
+}
+
+struct ConfiguredRealtimeFieldNames: Sendable {
+    let url: String
+    let attach: String
+    let action: String
+    let channel: String
+    let expiresAt: String?
+    let roomID: String?
+    let clientID: String?
+
+    init(url: String, attach: String, action: String, channel: String, expiresAt: String? = nil, roomID: String? = nil, clientID: String? = nil) {
+        self.roomID = roomID; self.clientID = clientID
+        self.url = url; self.attach = attach; self.action = action; self.channel = channel; self.expiresAt = expiresAt
+    }
+    fileprivate static let reserved: Set<String> = [
+        "token", "url", "attach", "action", "channel", "roomId", "clientId", "expiresAt",
+        "keyName", "nonce", "mac", "ttl", "capability", "timestamp"
+    ]
+    fileprivate func validate() throws {
+        let names = [url, attach, action, channel] + [expiresAt, roomID, clientID].compactMap { $0 }
+        guard Set(names).count == names.count,
+              names.allSatisfy({ $0.range(of: #"\A[A-Za-z_][A-Za-z0-9_.-]*\z"#, options: .regularExpression) != nil }) else { throw ConfiguredRealtimeError.invalidFieldMapping }
     }
 }
 
 struct ConfiguredRealtimeTicket {
-    let roomID: String?
-    let clientID: String?
     let url: URL
+    let channel: String
+    let expectedClientID: String
     let expiresAt: Date?
     let attachJSON: String
-    let channel: String
 
-    static func parseConnectionValue(_ value: Any, now: Date = Date()) throws -> Self {
-        let fields: [String: Any]
-        if let object = value as? [String: Any] {
-            fields = object
-        } else if let text = value as? String {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix("#{"), trimmed.hasSuffix("}") {
-                throw ConfiguredRealtimeError.unresolvedPlaceholder
-            }
-            guard let bytes = text.data(using: .utf8),
-                  let object = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] else {
-                throw ConfiguredRealtimeError.invalidConnectionContainer
-            }
-            fields = object
-        } else {
-            throw ConfiguredRealtimeError.invalidConnectionContainer
-        }
-        return try Self(connectionFields: fields, now: now)
-    }
-
-    init(connectionFields: [String: Any], now: Date = Date()) throws {
-        if let rawURL = connectionFields["url"] as? String, rawURL.contains("#{") {
-            throw ConfiguredRealtimeError.unresolvedPlaceholder
-        }
-        if connectionFields["url"] == nil,
-           connectionFields["keyName"] != nil,
-           connectionFields["mac"] != nil,
-           connectionFields["capability"] != nil {
+    static func parseConnectionValue(_ value: Any, fields: ConfiguredRealtimeFieldNames,
+                                     expectedClientID: String, now: Date = Date()) throws -> Self {
+        try fields.validate()
+        let connection = try ConfiguredRealtimeJSON.object(value)
+        if connection["keyName"] != nil, connection["mac"] != nil {
             throw ConfiguredRealtimeError.legacyTokenRequest
         }
-        guard let rawURL = connectionFields["url"] as? String,
-              !rawURL.contains(where: { $0.isWhitespace }),
-              let components = URLComponents(string: rawURL),
-              components.scheme?.lowercased() == "wss",
-              let host = components.host, !host.isEmpty,
-              components.user == nil, components.password == nil,
-              components.fragment == nil,
-              let url = URL(string: rawURL), url.absoluteString == rawURL else {
-            throw ConfiguredRealtimeError.invalidConnectionURL
-        }
-        guard let attach = connectionFields["attach"] as? [String: Any], !attach.isEmpty,
-              Self.integer(attach["action"]) == 10,
-              let channel = attach["channel"] as? String,
-              !channel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              JSONSerialization.isValidJSONObject(attach),
-              let bytes = try? JSONSerialization.data(withJSONObject: attach),
-              let json = String(data: bytes, encoding: .utf8) else {
-            throw ConfiguredRealtimeError.invalidSubscription
-        }
-        guard !json.contains("#{") else {
+        let allowed = Set([fields.url, fields.attach] + [fields.expiresAt, fields.roomID, fields.clientID].compactMap { $0 })
+        guard Set(connection.keys).isSubset(of: allowed) else { throw ConfiguredRealtimeError.invalidConnectionContainer }
+        guard !expectedClientID.isEmpty else { throw ConfiguredRealtimeError.invalidIdentity }
+        if let text = connection[fields.url] as? String, text.contains("#{") {
             throw ConfiguredRealtimeError.unresolvedPlaceholder
         }
-        var room: String?
-        if let value = connectionFields["roomId"] {
-            if let text = value as? String, text.contains("#{") {
-                throw ConfiguredRealtimeError.unresolvedPlaceholder
-            }
-            guard let text = value as? String,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  text == channel else {
-                throw ConfiguredRealtimeError.invalidIdentity
-            }
-            room = text
+        guard let text = connection[fields.url] as? String, !text.contains(where: { $0.isWhitespace }),
+              let parts = URLComponents(string: text), parts.scheme?.lowercased() == "wss",
+              let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil,
+              parts.fragment == nil, let url = URL(string: text), url.absoluteString == text else {
+            throw ConfiguredRealtimeError.invalidConnectionURL
         }
-        var client: String?
-        if let value = connectionFields["clientId"] {
-            guard let text = value as? String, text == IntegrationContract.ablyClientID else {
-                throw ConfiguredRealtimeError.invalidIdentity
-            }
-            client = text
+        guard let attach = connection[fields.attach] as? [String: Any],
+              Set(attach.keys).subtracting([fields.action, fields.channel]).isDisjoint(with: ConfiguredRealtimeFieldNames.reserved),
+              ConfiguredRealtimeJSON.integer(attach[fields.action]) == 10,
+              let channel = attach[fields.channel] as? String,
+              !channel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ConfiguredRealtimeError.invalidSubscription
         }
+        if let key = fields.roomID, let value = connection[key], (value as? String) != channel {
+            throw ConfiguredRealtimeError.invalidIdentity
+        }
+        if let key = fields.clientID, let value = connection[key], (value as? String) != expectedClientID {
+            throw ConfiguredRealtimeError.invalidIdentity
+        }
+        var protocolAttach = attach
+        protocolAttach.removeValue(forKey: fields.action)
+        protocolAttach.removeValue(forKey: fields.channel)
+        protocolAttach["action"] = 10
+        protocolAttach["channel"] = channel
+        let attachJSON = try ConfiguredRealtimeJSON.text(protocolAttach)
+        guard !attachJSON.contains("#{") else { throw ConfiguredRealtimeError.unresolvedPlaceholder }
         var expiry: Date?
-        if let value = connectionFields["expiresAt"] {
-            guard let milliseconds = Self.number(value),
-                  milliseconds <= Double(Int64.max) else {
-                throw ConfiguredRealtimeError.invalidExpiry
-            }
-            guard milliseconds / 1000 > now.timeIntervalSince1970 else {
-                throw ConfiguredRealtimeError.expiredConnection
-            }
-            expiry = Date(timeIntervalSince1970: milliseconds / 1000)
+        if let key = fields.expiresAt, let rawExpiry = connection[key] {
+            guard let milliseconds = ConfiguredRealtimeJSON.integer(rawExpiry), milliseconds > 0,
+                  milliseconds < 253_402_300_800_000 else { throw ConfiguredRealtimeError.invalidExpiry }
+            let seconds = Double(milliseconds) / 1000
+            guard seconds > now.timeIntervalSince1970 else { throw ConfiguredRealtimeError.expiredConnection }
+            expiry = Date(timeIntervalSince1970: seconds)
         }
-        roomID = room
-        clientID = client
-        self.url = url
-        expiresAt = expiry
-        attachJSON = json
-        self.channel = channel
-    }
-
-    static func number(_ value: Any?) -> Double? {
-        guard let value = value as? NSNumber,
-              CFGetTypeID(value) != CFBooleanGetTypeID(),
-              value.doubleValue.isFinite else { return nil }
-        return value.doubleValue
-    }
-
-    static func integer(_ value: Any?) -> Int? {
-        guard let value = value as? NSNumber,
-              !["f", "d"].contains(String(cString: value.objCType)),
-              let number = number(value), number.rounded() == number else { return nil }
-        return Int(exactly: number)
+        return Self(url: url, channel: channel, expectedClientID: expectedClientID,
+                    expiresAt: expiry, attachJSON: attachJSON)
     }
 }
 
 struct ConfiguredRealtimeFrame {
-    let action: Int
+    let action: Int64
     let object: [String: Any]
-
     init(json: Data) throws {
-        guard let object = try JSONSerialization.jsonObject(with: json) as? [String: Any],
-              let action = ConfiguredRealtimeTicket.integer(object["action"]) else {
+        guard json.count <= ConfiguredRealtimeJSON.maximumBytes,
+              let fields = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let action = ConfiguredRealtimeJSON.integer(fields["action"]), action >= 0 else {
             throw ConfiguredRealtimeError.invalidFrame
         }
         self.action = action
-        self.object = object
+        object = fields
     }
-
-    var errorCode: Int? {
-        let error = object["error"] as? [String: Any]
-        return ConfiguredRealtimeTicket.integer(error?["code"])
-    }
-
-    var idleTimeoutSeconds: TimeInterval? {
-        let details = object["connectionDetails"] as? [String: Any]
-        guard let milliseconds = ConfiguredRealtimeTicket.number(details?["maxIdleInterval"]),
-              milliseconds > 0, milliseconds <= Double(Int64.max) else { return nil }
+    var channel: String? { object["channel"] as? String }
+    var errorCode: Int64? { ConfiguredRealtimeJSON.integer((object["error"] as? [String: Any])?["code"]) }
+    var credentialRejected: Bool { errorCode.map { (40140...40149).contains($0) } ?? false }
+    var idleTimeout: TimeInterval? {
+        guard let details = object["connectionDetails"] as? [String: Any],
+              let milliseconds = ConfiguredRealtimeJSON.number(details["maxIdleInterval"]),
+              milliseconds > 0, milliseconds <= 86_400_000 else { return nil }
         return milliseconds / 1000 + 5
     }
-
-    var messageEntries: [Any]? { object["messages"] as? [Any] }
 }
 
 struct ConfiguredRealtimeMessage {
-    let id: String?
     let name: String?
+    let data: Any
+    let id: String?
     let clientID: String?
-    let data: Any?
+    let channel: String
 
-    init?(_ value: Any, frameID: String?, index: Int) {
-        guard let object = value as? [String: Any] else { return nil }
-        for key in ["id", "name", "clientId"] {
-            if let value = object[key], !(value is NSNull), !(value is String) { return nil }
+    static func parse(_ value: Any, channel: String, protocolID: String? = nil, index: Int = 0) throws -> Self {
+        guard let fields = value as? [String: Any] else { throw ConfiguredRealtimeError.invalidMessage }
+        let name = try ConfiguredRealtimeJSON.optionalString(fields["name"])
+        let ownID = try ConfiguredRealtimeJSON.optionalString(fields["id"])
+        let id = ownID ?? protocolID.flatMap { $0.isEmpty ? nil : "\($0):\(index)" }
+        let client = try ConfiguredRealtimeJSON.optionalString(fields["clientId"])
+        let encoding = try ConfiguredRealtimeJSON.optionalString(fields["encoding"])
+        var data: Any = fields["data"] ?? NSNull()
+        if let encoding = encoding, !["json", "utf-8", "utf8"].contains(encoding) {
+            throw ConfiguredRealtimeError.unsupportedEncoding
         }
-        if let encoding = object["encoding"], !(encoding is NSNull) {
-            guard let text = encoding as? String, ["", "json", "utf8", "utf-8"].contains(text) else { return nil }
+        if encoding == "json" {
+            guard let text = data as? String, let bytes = text.data(using: .utf8),
+                  bytes.count <= ConfiguredRealtimeJSON.maximumBytes,
+                  let decoded = try? JSONSerialization.jsonObject(with: bytes, options: [.fragmentsAllowed]) else {
+                throw ConfiguredRealtimeError.invalidMessage
+            }
+            data = decoded
         }
-        id = object["id"] as? String ?? frameID.map { "\($0):\(index)" }
-        name = object["name"] as? String
-        clientID = object["clientId"] as? String
-        data = object["data"]
+        return Self(name: name, data: data, id: id, clientID: client, channel: channel)
+    }
+}
+
+struct ConfiguredRealtimeACKLedger {
+    private(set) var nextSerial: Int64 = 0
+    private(set) var pending: Set<Int64> = []
+    mutating func reserve() throws -> Int64 {
+        guard nextSerial < Int64.max else { throw ConfiguredRealtimeError.serialExhausted }
+        let serial = nextSerial
+        nextSerial += 1
+        pending.insert(serial)
+        return serial
+    }
+    mutating func remove(_ serial: Int64) -> Bool { pending.remove(serial) != nil }
+    mutating func drain() -> [Int64] { let values = pending.sorted(); pending.removeAll(); return values }
+    mutating func apply(_ frame: ConfiguredRealtimeFrame) throws -> (confirmed: [Int64], skipped: [Int64]) {
+        guard frame.action == 1 || frame.action == 2 else { throw ConfiguredRealtimeError.invalidAcknowledgement }
+        func integerOrZero(_ key: String) throws -> Int64 {
+            guard let value = frame.object[key], !(value is NSNull) else { return 0 }
+            guard let integer = ConfiguredRealtimeJSON.integer(value), integer >= 0 else {
+                throw ConfiguredRealtimeError.invalidAcknowledgement
+            }
+            return integer
+        }
+        let start = try integerOrZero("msgSerial"), count = try integerOrZero("count")
+        let (end, overflow) = start.addingReportingOverflow(count)
+        guard !overflow, end <= nextSerial else { throw ConfiguredRealtimeError.invalidAcknowledgement }
+        guard count > 0 else { return ([], []) }
+        let skipped = pending.filter { $0 < start }.sorted()
+        let confirmed = pending.filter { $0 >= start && $0 < end }.sorted()
+        for serial in skipped + confirmed { pending.remove(serial) }
+        return (confirmed, skipped)
+    }
+}
+
+protocol ConfiguredRealtimeSocket: AnyObject, Sendable {
+    func resume()
+    func receive(_ completion: @escaping @Sendable (Result<Data, Error>) -> Void)
+    func send(_ text: String, completion: @escaping @Sendable (Error?) -> Void)
+    func cancel()
+}
+
+@available(iOS 13.0, macOS 10.15, *)
+private final class ConfiguredURLSessionSocket: NSObject, ConfiguredRealtimeSocket, URLSessionTaskDelegate, @unchecked Sendable {
+    private var session: URLSession!
+    private var task: URLSessionWebSocketTask!
+    init(url: URL) {
+        super.init()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        task = session.webSocketTask(with: url)
+        task.maximumMessageSize = ConfiguredRealtimeJSON.maximumBytes
+    }
+    func resume() { task.resume() }
+    func receive(_ completion: @escaping @Sendable (Result<Data, Error>) -> Void) {
+        task.receive { result in
+            completion(result.flatMap { message in
+                switch message {
+                case .data(let data): return .success(data)
+                case .string(let text): return .success(Data(text.utf8))
+                @unknown default: return .failure(ConfiguredRealtimeError.invalidFrame)
+                }
+            })
+        }
+    }
+    func send(_ text: String, completion: @escaping @Sendable (Error?) -> Void) { task.send(.string(text), completionHandler: completion) }
+    func cancel() { task.cancel(with: .normalClosure, reason: nil); session.invalidateAndCancel() }
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
+@available(iOS 13.0, macOS 10.15, *)
+final class ConfiguredRealtimeClient: @unchecked Sendable {
+    enum State: Equatable { case stopped, connecting, attaching, ready, refreshing, waitingToRetry, failed, closed }
+    struct Callbacks {
+        var onState: (State) -> Void = { _ in }
+        var onReady: (_ firstForAttempt: Bool) -> Void = { _ in }
+        var onMessage: (ConfiguredRealtimeMessage) -> Void = { _ in }
+        var onDiagnostic: (_ fixedReasonCode: String) -> Void = { _ in }
+    }
+    struct Limits {
+        var connectionTimeout: TimeInterval = 15
+        var initialAttemptTimeout: TimeInterval = 15
+        var refreshTimeout: TimeInterval = 60
+        var acknowledgementTimeout: TimeInterval = 15
+        var maximumPendingPublishes = 128
+        var maximumEarlyMessages = 128
+        var maximumEarlyBytes = 4_194_304
+        var minimumRefreshInterval: TimeInterval = 30
+    }
+    typealias Refresh = (@escaping (Result<ConfiguredRealtimeTicket, Error>) -> Void) -> (() -> Void)?
+    typealias SocketFactory = (URL) -> ConfiguredRealtimeSocket
+    private(set) var state: State = .stopped
+    private let callbacks: Callbacks
+    private let refresh: Refresh
+    private let limits: Limits
+    private let makeSocket: SocketFactory
+    private let jitter: () -> Double
+    private var socket: ConfiguredRealtimeSocket?
+    private var ticket: ConfiguredRealtimeTicket?
+    private var attempt = UUID()
+    private var generation = UUID()
+    private var refreshID: UUID?
+    private var cancelRefresh: (() -> Void)?
+    private var terminal = true
+    private var attached = false
+    private var firstReadyDelivered = false
+    private var reconnectAttempt = 0
+    private var idleInterval: TimeInterval?
+    private var lastReceived = ProcessInfo.processInfo.systemUptime
+    private var lastRefreshStarted: Date?
+    private var earlyMessages: [ConfiguredRealtimeMessage] = []
+    private var earlyBytes = 0
+    private var ledger = ConfiguredRealtimeACKLedger()
+    private var publishCallbacks: [Int64: (Result<Void, Error>) -> Void] = [:]
+    private var timers: [String: DispatchWorkItem] = [:]
+    private var timerIDs: [String: UUID] = [:]
+
+    init(callbacks: Callbacks, limits: Limits = Limits(), refresh: @escaping Refresh,
+         socketFactory: SocketFactory? = nil, jitter: @escaping () -> Double = { Double.random(in: 0.8...1.2) }) {
+        self.callbacks = callbacks; self.refresh = refresh; self.limits = limits; self.jitter = jitter
+        makeSocket = socketFactory ?? { ConfiguredURLSessionSocket(url: $0) }
+    }
+
+    func connect(ticket: ConfiguredRealtimeTicket) {
+        requireMain()
+        stopInternal(reason: .connectionReplaced, state: .stopped)
+        attempt = UUID(); terminal = false; firstReadyDelivered = false; reconnectAttempt = 0
+        lastRefreshStarted = nil
+        schedule("attempt", after: limits.initialAttemptTimeout) { [weak self] in
+            guard let self = self, !self.firstReadyDelivered else { return }
+            self.fail(.attemptTimeout)
+        }
+        beginConnection(ticket)
+    }
+    func stop() { requireMain(); stopInternal(reason: .stopped, state: .stopped) }
+
+    func publish(name: String?, data: Any, completion: @escaping (Result<Void, Error>) -> Void) {
+        requireMain()
+        if ticket?.expiresAt.map({ $0 <= Date() }) == true {
+            recover(.expiredConnection, immediately: true)
+            deliverCompletion(completion, .failure(ConfiguredRealtimeError.expiredConnection)); return
+        }
+        guard !terminal, attached, let ticket = ticket else { deliverCompletion(completion, .failure(ConfiguredRealtimeError.notReady)); return }
+        guard publishCallbacks.count < limits.maximumPendingPublishes else {
+            deliverCompletion(completion, .failure(ConfiguredRealtimeError.capacityExceeded)); return
+        }
+        do {
+            var message: [String: Any]
+            if let string = data as? String { message = ["data": string] }
+            else if data is [String: Any] || data is [Any] {
+                guard JSONSerialization.isValidJSONObject(data),
+                      let bytes = try? JSONSerialization.data(withJSONObject: data),
+                      bytes.count <= ConfiguredRealtimeJSON.maximumBytes,
+                      let string = String(data: bytes, encoding: .utf8) else {
+                    throw ConfiguredRealtimeError.invalidMessage
+                }
+                message = ["data": string, "encoding": "json"]
+            } else { throw ConfiguredRealtimeError.invalidMessage }
+            if let name = name { message["name"] = name }
+            _ = try ConfiguredRealtimeJSON.text(["messages": [message]])
+            let serial = ledger.nextSerial
+            let text = try ConfiguredRealtimeJSON.text(["action": 15, "channel": ticket.channel,
+                                                        "msgSerial": NSNumber(value: serial), "messages": [message]])
+            _ = try ledger.reserve()
+            publishCallbacks[serial] = completion
+            schedule("ack-\(serial)", after: limits.acknowledgementTimeout) { [weak self] in
+                self?.completePublish(serial, .failure(ConfiguredRealtimeError.acknowledgementTimeout))
+            }
+            send(text) { [weak self] error in
+                if error != nil { self?.completePublish(serial, .failure(ConfiguredRealtimeError.sendFailed)) }
+            }
+        } catch { deliverCompletion(completion, .failure(error)) }
+    }
+
+    func applicationDidBecomeActive() { requireMain(); resumeIfNeeded() }
+    func networkBecameAvailable() { requireMain(); resumeIfNeeded() }
+    func networkBecameUnavailable() {
+        requireMain()
+        guard !terminal, socket != nil else { return }
+        recover(.disconnected, immediately: false)
+    }
+
+    private func beginConnection(_ newTicket: ConfiguredRealtimeTicket) {
+        guard !terminal else { return }
+        if let expiry = newTicket.expiresAt, expiry <= Date() { fail(.expiredConnection); return }
+        invalidateSocket(reason: .connectionReplaced)
+        ticket = newTicket
+        generation = UUID(); let current = generation
+        let newSocket = makeSocket(newTicket.url)
+        socket = newSocket; attached = false; earlyMessages.removeAll(); earlyBytes = 0
+        ledger = ConfiguredRealtimeACKLedger()
+        transition(.connecting)
+        guard generation == current, !terminal else { return }
+        schedule("connection", after: limits.connectionTimeout) { [weak self] in
+            self?.recover(.connectionTimeout, immediately: false)
+        }
+        newSocket.resume()
+        receive(from: newSocket, generation: current)
+        scheduleExpiry(newTicket)
+    }
+    private func receive(from source: ConfiguredRealtimeSocket, generation current: UUID) {
+        source.receive { [weak self, weak source] result in
+            DispatchQueue.main.async {
+                guard let self = self, let source = source, !self.terminal,
+                      self.generation == current, self.socket === source else { return }
+                switch result {
+                case .failure: self.recover(.disconnected, immediately: false)
+                case .success(let bytes):
+                    if self.ticket?.expiresAt.map({ $0 <= Date() }) == true {
+                        self.recover(.expiredConnection, immediately: true); return
+                    }
+                    self.lastReceived = ProcessInfo.processInfo.systemUptime
+                    self.resetWatchdog()
+                    do { try self.handle(ConfiguredRealtimeFrame(json: bytes)) }
+                    catch { self.fail(.invalidFrame) }
+                    if self.generation == current, !self.terminal, self.socket === source {
+                        self.receive(from: source, generation: current)
+                    }
+                }
+            }
+        }
+    }
+    private func handle(_ frame: ConfiguredRealtimeFrame) throws {
+        switch frame.action {
+        case 0, 23: break
+        case 22:
+            var pong: [String: Any] = ["action": 23]
+            if let value = frame.object["id"], !(value is NSNull) {
+                guard let id = value as? String else { throw ConfiguredRealtimeError.invalidFrame }
+                pong["id"] = id
+            }
+            send(try ConfiguredRealtimeJSON.text(pong))
+        case 4:
+            guard let ticket = ticket, let idle = frame.idleTimeout else { throw ConfiguredRealtimeError.invalidFrame }
+            if let details = frame.object["connectionDetails"] as? [String: Any],
+               let client = details["clientId"], !(client is NSNull), (client as? String) != ticket.expectedClientID {
+                throw ConfiguredRealtimeError.invalidIdentity
+            }
+            idleInterval = idle; resetWatchdog()
+            guard state == .connecting else { diagnose("duplicateConnected"); return }
+            transition(.attaching)
+            send(ticket.attachJSON)
+        case 11:
+            guard frame.channel == ticket?.channel else { diagnose("foreignAttached"); return }
+            guard state == .attaching else { diagnose("unexpectedAttached"); return }
+            attached = true; reconnectAttempt = 0; cancelTimer("connection")
+            let current = generation
+            transition(.ready)
+            guard !terminal, generation == current else { return }
+            notify { [weak self] callbacks in
+                guard let self = self else { return }
+                let first = !self.firstReadyDelivered
+                self.firstReadyDelivered = true; self.cancelTimer("attempt")
+                callbacks.onReady(first)
+            }
+            let buffered = earlyMessages; earlyMessages.removeAll(); earlyBytes = 0
+            for message in buffered {
+                guard !terminal, generation == current else { break }
+                notify { $0.onMessage(message) }
+            }
+        case 15:
+            guard frame.channel == ticket?.channel else { diagnose("foreignMessage"); return }
+            guard attached || state == .attaching else { diagnose("messageBeforeAttach"); return }
+            guard let entries = frame.object["messages"] as? [Any] else { throw ConfiguredRealtimeError.invalidFrame }
+            let current = generation
+            let protocolID = try ConfiguredRealtimeJSON.optionalString(frame.object["id"])
+            for (index, entry) in entries.enumerated() {
+                guard !terminal, generation == current else { break }
+                do {
+                    let message = try ConfiguredRealtimeMessage.parse(entry, channel: frame.channel!, protocolID: protocolID, index: index)
+                    if attached { notify { $0.onMessage(message) } }
+                    else {
+                        let size = try ConfiguredRealtimeJSON.text(["entry": entry]).utf8.count
+                        guard earlyMessages.count < limits.maximumEarlyMessages,
+                              size <= limits.maximumEarlyBytes - earlyBytes else {
+                            fail(.capacityExceeded); return
+                        }
+                        earlyMessages.append(message); earlyBytes += size
+                    }
+                } catch { diagnose("messageRejected") }
+            }
+        case 1, 2:
+            let result = try ledger.apply(frame)
+            for serial in result.skipped { completePublish(serial, .failure(ConfiguredRealtimeError.acknowledgementSkipped)) }
+            for serial in result.confirmed {
+                completePublish(serial, frame.action == 1 ? .success(()) : .failure(ConfiguredRealtimeError.acknowledgementFailed))
+            }
+        case 6:
+            recover(.disconnected, immediately: frame.credentialRejected)
+        case 13:
+            guard frame.channel == ticket?.channel else { diagnose("foreignDetached"); return }
+            recover(.detached, immediately: false)
+        case 8: stopInternal(reason: .serverClosed, state: .closed)
+        case 9:
+            if let channel = frame.channel, channel != ticket?.channel { diagnose("foreignError"); return }
+            if frame.credentialRejected { recover(.expiredConnection, immediately: true) }
+            else { fail(.serverRejected) }
+        case 17: beginRefresh(preserveSocket: true)
+        default: diagnose("unknownControlAction")
+        }
+    }
+
+    private func send(_ text: String, completion: (@Sendable (Error?) -> Void)? = nil) {
+        guard let source = socket else { completion?(ConfiguredRealtimeError.notReady); return }
+        let current = generation
+        source.send(text) { [weak self, weak source] error in
+            DispatchQueue.main.async {
+                guard let self = self, let source = source, self.generation == current,
+                      !self.terminal, self.socket === source else { return }
+                completion?(error == nil ? nil : ConfiguredRealtimeError.sendFailed)
+                if error != nil { self.recover(.sendFailed, immediately: false) }
+            }
+        }
+    }
+    private func recover(_ reason: ConfiguredRealtimeError, immediately: Bool) {
+        guard !terminal else { return }
+        invalidateSocket(reason: reason)
+        diagnose(reason.rawValue)
+        if refreshID != nil { transition(.refreshing); return }
+        cancelTimer("retry")
+        if immediately { beginRefresh(preserveSocket: false); return }
+        transition(.waitingToRetry)
+        let exponent = min(reconnectAttempt, 5)
+        let base = min(pow(2, Double(exponent)), 30)
+        reconnectAttempt = min(reconnectAttempt + 1, 30)
+        schedule("retry", after: base * min(max(jitter(), 0.8), 1.2)) { [weak self] in
+            self?.beginRefresh(preserveSocket: false)
+        }
+    }
+    private func beginRefresh(preserveSocket: Bool) {
+        guard !terminal, refreshID == nil else { return }
+        cancelTimer("retry"); cancelTimer("expiry")
+        if !preserveSocket { invalidateSocket(reason: .connectionReplaced); transition(.refreshing) }
+        if let started = lastRefreshStarted {
+            let remaining = limits.minimumRefreshInterval - Date().timeIntervalSince(started)
+            if remaining > 0 {
+                if !preserveSocket { transition(.waitingToRetry) }
+                schedule("retry", after: remaining) { [weak self] in
+                    self?.beginRefresh(preserveSocket: preserveSocket)
+                }
+                return
+            }
+        }
+        let operation = UUID(), currentAttempt = attempt
+        refreshID = operation; lastRefreshStarted = Date()
+        schedule("refresh", after: limits.refreshTimeout) { [weak self] in
+            guard let self = self, self.refreshID == operation else { return }
+            self.cancelCurrentRefresh(); self.recover(.refreshTimeout, immediately: false)
+        }
+        let cancellation = refresh { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self, !self.terminal, self.attempt == currentAttempt,
+                      self.refreshID == operation else { return }
+                self.refreshID = nil; self.cancelRefresh = nil; self.cancelTimer("refresh")
+                switch result {
+                case .success(let fresh):
+                    guard fresh.channel == self.ticket?.channel,
+                          fresh.expectedClientID == self.ticket?.expectedClientID else {
+                        self.fail(.invalidIdentity); return
+                    }
+                    self.beginConnection(fresh)
+                case .failure: self.recover(.refreshFailed, immediately: false)
+                }
+            }
+        }
+        if !terminal, attempt == currentAttempt, refreshID == operation { cancelRefresh = cancellation }
+        else if let cancellation = cancellation { DispatchQueue.main.async { cancellation() } }
+    }
+    private func scheduleExpiry(_ ticket: ConfiguredRealtimeTicket) {
+        cancelTimer("expiry")
+        guard let expiry = ticket.expiresAt else { return }
+        let remaining = expiry.timeIntervalSinceNow
+        schedule("credentialExpiry", after: max(0.001, remaining)) { [weak self] in
+            self?.recover(.expiredConnection, immediately: true)
+        }
+        let desired = max(1, remaining - 60)
+        let cooldown = lastRefreshStarted.map { max(0, limits.minimumRefreshInterval - Date().timeIntervalSince($0)) } ?? 0
+        let delay = min(max(desired, cooldown), max(1, remaining))
+        schedule("expiry", after: delay) { [weak self] in
+            guard let self = self else { return }
+            self.beginRefresh(preserveSocket: expiry > Date())
+        }
+    }
+    private func resetWatchdog() {
+        guard let interval = idleInterval, socket != nil else { return }
+        schedule("watchdog", after: interval) { [weak self] in
+            guard let self = self else { return }
+            if ProcessInfo.processInfo.systemUptime - self.lastReceived >= interval {
+                self.recover(.idleTimeout, immediately: false)
+            } else { self.resetWatchdog() }
+        }
+    }
+    private func resumeIfNeeded() {
+        guard !terminal, refreshID == nil else { return }
+        if let expiry = ticket?.expiresAt, expiry <= Date() { beginRefresh(preserveSocket: false); return }
+        if let interval = idleInterval, socket != nil,
+           ProcessInfo.processInfo.systemUptime - lastReceived >= interval {
+            recover(.idleTimeout, immediately: true)
+        } else if socket == nil { cancelTimer("retry"); beginRefresh(preserveSocket: false) }
+    }
+    private func completePublish(_ serial: Int64, _ result: Result<Void, Error>) {
+        _ = ledger.remove(serial); cancelTimer("ack-\(serial)")
+        let callback = publishCallbacks.removeValue(forKey: serial)
+        if let callback = callback { deliverCompletion(callback, result) }
+    }
+    private func invalidateSocket(reason: ConfiguredRealtimeError) {
+        generation = UUID(); socket?.cancel(); socket = nil; attached = false; idleInterval = nil
+        earlyMessages.removeAll(); earlyBytes = 0
+        for key in ["connection", "watchdog", "expiry", "credentialExpiry"] { cancelTimer(key) }
+        let callbacks = publishCallbacks
+        publishCallbacks.removeAll(); _ = ledger.drain()
+        for serial in callbacks.keys { cancelTimer("ack-\(serial)") }
+        for callback in callbacks.values { deliverCompletion(callback, .failure(reason)) }
+    }
+    private func cancelCurrentRefresh() {
+        refreshID = nil; cancelTimer("refresh")
+        let cancel = cancelRefresh; cancelRefresh = nil
+        if let cancel = cancel { DispatchQueue.main.async { cancel() } }
+    }
+    private func stopInternal(reason: ConfiguredRealtimeError, state: State) {
+        terminal = true; attempt = UUID()
+        let pendingTimers = timers.values; timers.removeAll(); timerIDs.removeAll()
+        for work in pendingTimers { work.cancel() }
+        cancelCurrentRefresh(); invalidateSocket(reason: reason); ticket = nil
+        transition(state)
+    }
+    private func fail(_ reason: ConfiguredRealtimeError) { stopInternal(reason: reason, state: .failed); diagnose(reason.rawValue) }
+    private func diagnose(_ code: String) { notify { $0.onDiagnostic(code) } }
+    private func transition(_ next: State) { state = next; notify { $0.onState(next) } }
+    private func notify(_ action: @escaping (Callbacks) -> Void) {
+        let currentAttempt = attempt, currentGeneration = generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.attempt == currentAttempt, self.generation == currentGeneration else { return }
+            action(self.callbacks)
+        }
+    }
+    private func deliverCompletion(_ callback: @escaping (Result<Void, Error>) -> Void, _ result: Result<Void, Error>) {
+        DispatchQueue.main.async { callback(result) }
+    }
+    private func schedule(_ key: String, after seconds: TimeInterval, _ block: @escaping () -> Void) {
+        cancelTimer(key)
+        let currentAttempt = attempt, timerID = UUID()
+        timerIDs[key] = timerID
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self, !self.terminal, self.attempt == currentAttempt,
+                  self.timerIDs[key] == timerID else { return }
+            self.timers.removeValue(forKey: key); self.timerIDs.removeValue(forKey: key)
+            block()
+        }
+        timers[key] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.001, seconds), execute: item)
+    }
+    private func cancelTimer(_ key: String) { timers.removeValue(forKey: key)?.cancel(); timerIDs.removeValue(forKey: key) }
+    private func requireMain() { precondition(Thread.isMainThread, "ConfiguredRealtimeClient must be owned on the main thread") }
+    deinit {
+        socket?.cancel()
+        let cancellation = cancelRefresh
+        if let cancellation = cancellation { DispatchQueue.main.async { cancellation() } }
+        for timer in timers.values { timer.cancel() }
+        let callbacks = Array(publishCallbacks.values)
+        DispatchQueue.main.async { for callback in callbacks { callback(.failure(ConfiguredRealtimeError.stopped)) } }
     }
 }
 
@@ -210,315 +669,99 @@ final class ConfiguredRealtimeTransport {
     typealias Refresh = @MainActor () async throws -> ConfiguredRealtimeTicket
     var onMessage: (@MainActor (ConfiguredRealtimeMessage) -> Void)?
     var onState: (@MainActor (State) -> Void)?
-
-    private var ticket: ConfiguredRealtimeTicket?
-    private var roomID: String?
-    private var refresh: Refresh?
-    private var session: URLSession?
-    private var socket: URLSessionWebSocketTask?
-    private var receiveTask: Task<Void, Never>?
-    private var attachTask: Task<Void, Never>?
-    private var deadlineTask: Task<Void, Never>?
-    private var idleTask: Task<Void, Never>?
-    private var expiryTask: Task<Void, Never>?
-    private var renewalTask: Task<Void, Never>?
-    private var renewalID = UUID()
-    private var isRefreshing = false
-    private var attempt = UUID()
+    private var client: ConfiguredRealtimeClient?
     private var generation = UUID()
-    private var running = false
-    private var attachStarted = false
-    private var ready = false
-    private var retryCount = 0
-    private var idleInterval: TimeInterval?
-    private var lastFrameAt = ProcessInfo.processInfo.systemUptime
-    private var connectionDeadline: TimeInterval?
-    private var lastRefreshAt: TimeInterval = 0
+    private var pathMonitor: NWPathMonitor?
     private var activeObserver: NSObjectProtocol?
-    private var networkMonitor: NWPathMonitor?
-    private var networkAvailable: Bool?
-
-    deinit {
-        receiveTask?.cancel()
-        attachTask?.cancel()
-        deadlineTask?.cancel()
-        idleTask?.cancel()
-        expiryTask?.cancel()
-        renewalTask?.cancel()
-        socket?.cancel(with: .goingAway, reason: nil)
-        session?.invalidateAndCancel()
-        networkMonitor?.cancel()
-        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
-    }
+    private var wasOnline: Bool?
+    private let log = Logger(subsystem: "com.nanalantern.harbortide", category: "Realtime")
 
     func start(configuration: ConfiguredRealtimeTicket, refresh: @escaping Refresh) {
         stop()
-        running = true
-        ticket = configuration
-        roomID = configuration.roomID
-        self.refresh = refresh
-        let currentAttempt = attempt
-        activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.attempt == currentAttempt else { return }
-                self.resumeIfNeeded()
+        let current = generation
+        let callbacks = ConfiguredRealtimeClient.Callbacks(
+            onState: { [weak self] state in
+                MainActor.assumeIsolated {
+                    guard let self, self.generation == current else { return }
+                    switch state {
+                    case .connecting: self.onState?(.connecting)
+                    case .attaching: self.onState?(.connected)
+                    case .refreshing, .waitingToRetry: self.onState?(.reconnecting)
+                    case .failed: self.onState?(.failed)
+                    case .closed: self.onState?(.closed)
+                    case .stopped: self.onState?(.stopped)
+                    case .ready: break
+                    }
+                }
+            },
+            onReady: { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.generation == current else { return }
+                    self.onState?(.subscribed)
+                }
+            },
+            onMessage: { [weak self] message in
+                MainActor.assumeIsolated {
+                    guard let self, self.generation == current else { return }
+                    self.onMessage?(message)
+                }
+            },
+            onDiagnostic: { [weak self] code in
+                MainActor.assumeIsolated {
+                    guard let self, self.generation == current else { return }
+                    self.log.notice("Transport reason=\(code, privacy: .public)")
+                }
+            })
+        let connection = ConfiguredRealtimeClient(callbacks: callbacks, refresh: { completion in
+            MainActor.assumeIsolated {
+                let task = Task { @MainActor in
+                    do {
+                        let ticket = try await refresh()
+                        try Task.checkCancellation()
+                        completion(.success(ticket))
+                    } catch { completion(.failure(error)) }
+                }
+                return { task.cancel() }
+            }
+        })
+        client = connection
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == current else { return }
+                self.client?.applicationDidBecomeActive()
             }
         }
         let monitor = NWPathMonitor()
+        pathMonitor = monitor
         monitor.pathUpdateHandler = { [weak self] path in
-            let available = path.status == .satisfied
+            let online = path.status == .satisfied
             Task { @MainActor [weak self] in
-                guard let self, self.attempt == currentAttempt, self.running else { return }
-                let recovered = self.networkAvailable == false && available
-                self.networkAvailable = available
-                if recovered { self.resumeIfNeeded() }
+                guard let self, self.generation == current else { return }
+                defer { self.wasOnline = online }
+                guard self.wasOnline != online else { return }
+                if online { self.client?.networkBecameAvailable() }
+                else { self.client?.networkBecameUnavailable() }
             }
         }
-        networkMonitor = monitor
-        monitor.start(queue: DispatchQueue(label: "com.nanalantern.realtime.network"))
-        connect(configuration)
+        connection.connect(ticket: configuration)
+        monitor.start(queue: DispatchQueue(label: "com.nanalantern.realtime-path"))
     }
 
     func stop() {
-        running = false
-        attempt = UUID()
-        cancelRenewal()
-        closeSocket()
-        networkMonitor?.cancel()
-        networkMonitor = nil
-        networkAvailable = nil
+        generation = UUID()
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        wasOnline = nil
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
         activeObserver = nil
-        ticket = nil
-        roomID = nil
-        refresh = nil
-        retryCount = 0
-        onState?(.stopped)
+        client?.stop()
+        client = nil
     }
 
-    private func closeSocket() {
-        generation = UUID()
-        receiveTask?.cancel(); receiveTask = nil
-        attachTask?.cancel(); attachTask = nil
-        deadlineTask?.cancel(); deadlineTask = nil
-        idleTask?.cancel(); idleTask = nil
-        expiryTask?.cancel(); expiryTask = nil
-        socket?.cancel(with: .goingAway, reason: nil); socket = nil
-        session?.invalidateAndCancel(); session = nil
-        attachStarted = false
-        ready = false
-        idleInterval = nil
-        connectionDeadline = nil
-    }
-
-    private func cancelRenewal() {
-        renewalID = UUID()
-        renewalTask?.cancel()
-        renewalTask = nil
-        isRefreshing = false
-    }
-
-    private func connect(_ configuration: ConfiguredRealtimeTicket) {
-        guard running else { return }
-        closeSocket()
-        ticket = configuration
-        if let expiry = configuration.expiresAt, expiry <= Date() {
-            scheduleRenewal(immediate: false, disconnect: true)
-            return
-        }
-        let id = generation
-        let settings = URLSessionConfiguration.ephemeral
-        settings.httpCookieStorage = nil
-        settings.urlCredentialStorage = nil
-        settings.urlCache = nil
-        settings.timeoutIntervalForRequest = 15
-        let session = URLSession(configuration: settings, delegate: ConfiguredRealtimeRedirectPolicy(), delegateQueue: nil)
-        let socket = session.webSocketTask(with: configuration.url)
-        self.session = session
-        self.socket = socket
-        lastFrameAt = ProcessInfo.processInfo.systemUptime
-        connectionDeadline = lastFrameAt + 15
-        onState?(.connecting)
-        guard isCurrent(id) else { return }
-        socket.resume()
-        receiveTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                do {
-                    let message = try await socket.receive()
-                    guard !Task.isCancelled, self?.isCurrent(id) == true else { return }
-                    self?.receive(message, generation: id)
-                } catch {
-                    guard !Task.isCancelled, self?.isCurrent(id) == true else { return }
-                    self?.scheduleRenewal(immediate: false, disconnect: true)
-                    return
-                }
-            }
-        }
-        deadlineTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .seconds(15)) } catch { return }
-            guard !Task.isCancelled, let self, self.isCurrent(id), !self.ready else { return }
-            self.scheduleRenewal(immediate: false, disconnect: true)
-        }
-        if let expiry = configuration.expiresAt {
-            let remaining = expiry.timeIntervalSinceNow
-            let delay = remaining > 60 ? remaining - 60 : max(1, remaining * 0.8)
-            expiryTask = Task { @MainActor [weak self] in
-                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-                guard !Task.isCancelled, let self, self.isCurrent(id) else { return }
-                self.scheduleRenewal(immediate: true, disconnect: false)
-            }
-        }
-    }
-
-    private func isCurrent(_ id: UUID) -> Bool { running && generation == id && socket != nil }
-
-    private func receive(_ message: URLSessionWebSocketTask.Message, generation id: UUID) {
-        guard isCurrent(id) else { return }
-        lastFrameAt = ProcessInfo.processInfo.systemUptime
-        armIdleTimer(id)
-        let bytes: Data
-        switch message {
-        case .string(let text): bytes = Data(text.utf8)
-        case .data(let data): bytes = data
-        @unknown default: return
-        }
-        guard let frame = try? ConfiguredRealtimeFrame(json: bytes) else {
-            debugLog("ignored invalid frame")
-            return
-        }
-        switch frame.action {
-        case 4:
-            guard !attachStarted else { return }
-            guard let idle = frame.idleTimeoutSeconds, let socket, let ticket else {
-                scheduleRenewal(immediate: false, disconnect: true)
-                return
-            }
-            idleInterval = idle
-            armIdleTimer(id)
-            attachStarted = true
-            onState?(.connected)
-            guard isCurrent(id) else { return }
-            attachTask = Task { @MainActor [weak self] in
-                guard !Task.isCancelled, self?.isCurrent(id) == true else { return }
-                do { try await socket.send(.string(ticket.attachJSON)) }
-                catch {
-                    guard !Task.isCancelled, self?.isCurrent(id) == true else { return }
-                    self?.scheduleRenewal(immediate: false, disconnect: true)
-                }
-            }
-        case 11:
-            guard attachStarted, !ready, frame.object["channel"] as? String == ticket?.channel else { return }
-            ready = true
-            retryCount = 0
-            connectionDeadline = nil
-            deadlineTask?.cancel(); deadlineTask = nil
-            onState?(.subscribed)
-        case 15:
-            guard attachStarted, frame.object["channel"] as? String == ticket?.channel,
-                  let entries = frame.messageEntries else { return }
-            let frameID = (frame.object["id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            for (index, entry) in entries.enumerated() {
-                guard isCurrent(id) else { return }
-                guard let message = ConfiguredRealtimeMessage(entry, frameID: frameID, index: index) else {
-                    debugLog("ignored invalid message")
-                    continue
-                }
-                onMessage?(message)
-            }
-        case 9:
-            let expired = frame.errorCode.map { (40140...40143).contains($0) } ?? false
-            scheduleRenewal(immediate: expired, disconnect: true)
-        case 6:
-            scheduleRenewal(immediate: false, disconnect: true)
-        case 8:
-            running = false
-            cancelRenewal()
-            closeSocket()
-            onState?(.closed)
-        case 17:
-            scheduleRenewal(immediate: true, disconnect: false)
-        default: break
-        }
-    }
-
-    private func armIdleTimer(_ id: UUID) {
-        idleTask?.cancel()
-        guard let idleInterval else { return }
-        let delay = max(0, lastFrameAt + idleInterval - ProcessInfo.processInfo.systemUptime)
-        idleTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-            guard !Task.isCancelled, let self, self.isCurrent(id) else { return }
-            self.scheduleRenewal(immediate: false, disconnect: true)
-        }
-    }
-
-    private func scheduleRenewal(immediate: Bool, disconnect: Bool, expedite: Bool = false) {
-        guard running else { return }
-        if disconnect { closeSocket() }
-        guard renewalTask == nil else { return }
-        guard refresh != nil else {
-            running = false
-            closeSocket()
-            onState?(.failed)
-            return
-        }
-        expiryTask?.cancel(); expiryTask = nil
-        let delay = immediate && (retryCount == 0 || expedite) ? 0 : min(30, pow(2, Double(min(retryCount, 5)))) * Double.random(in: 0.8...1.2)
-        retryCount = min(retryCount + 1, 6)
-        let cooldown = max(0, lastRefreshAt + 1 - ProcessInfo.processInfo.systemUptime)
-        let currentAttempt = attempt
-        let job = UUID()
-        renewalID = job
-        onState?(.reconnecting)
-        guard running, attempt == currentAttempt else { return }
-        renewalTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .seconds(max(delay, cooldown))) } catch { return }
-            guard let provider = self?.refresh,
-                  self?.running == true, self?.attempt == currentAttempt, self?.renewalID == job else { return }
-            self?.isRefreshing = true
-            self?.lastRefreshAt = ProcessInfo.processInfo.systemUptime
-            do {
-                let renewed = try await provider()
-                guard !Task.isCancelled, let self, self.running,
-                      self.attempt == currentAttempt, self.renewalID == job else { return }
-                if let room = self.roomID, let newRoom = renewed.roomID, room != newRoom {
-                    throw ConfiguredRealtimeError.invalidTicket
-                }
-                guard renewed.channel == self.ticket?.channel else { throw ConfiguredRealtimeError.invalidTicket }
-                if self.roomID == nil { self.roomID = renewed.roomID }
-                self.renewalTask = nil
-                self.isRefreshing = false
-                self.connect(renewed)
-            } catch {
-                guard !Task.isCancelled, let self, self.running,
-                      self.attempt == currentAttempt, self.renewalID == job else { return }
-                self.renewalTask = nil
-                self.isRefreshing = false
-                self.scheduleRenewal(immediate: false, disconnect: true)
-            }
-        }
-    }
-
-    private func resumeIfNeeded() {
-        guard running, !isRefreshing else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        let expired = ticket?.expiresAt.map { $0 <= Date() } ?? false
-        let idle = idleInterval.map { now >= lastFrameAt + $0 } ?? false
-        let overdue = connectionDeadline.map { now >= $0 } ?? false
-        guard socket == nil || expired || idle || overdue else { return }
-        cancelRenewal()
-        scheduleRenewal(immediate: true, disconnect: true, expedite: true)
-    }
-
-    private func debugLog(_ reason: String) {
-        #if DEBUG
-        print("[Realtime] \(reason)")
-        #endif
-    }
-}
-
-private final class ConfiguredRealtimeRedirectPolicy: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
+    deinit {
+        pathMonitor?.cancel()
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
     }
 }

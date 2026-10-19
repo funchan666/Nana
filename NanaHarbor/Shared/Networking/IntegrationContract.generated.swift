@@ -1,10 +1,13 @@
 import Foundation
 
 enum IntegrationContract {
-    static let realtimeTransport: String = "rtLink"
+    static let realtimeTransport: String = "webSocket"
+    static let connectionFields = ConfiguredRealtimeFieldNames(
+        url: "url", attach: "attach", action: "action", channel: "channel",
+        expiresAt: "expiresAt", roomID: "roomId", clientID: "clientId")
     static let namespace: String = "nana"
     static let baseURLString: String? = "https://lantern.nanacc.top"
-    static let ablyClientID: String = "app"
+    static let realtimeClientID: String = "app"
     static let serverClientIDs: [String] = ["serve"]
     static let allowsMissingSender: Bool = true
     static let acceptsSerializedExpiry: Bool = true

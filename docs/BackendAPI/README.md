@@ -4,7 +4,7 @@
 
 客户端使用生成的 `IntegrationContract.generated.swift`、`ConfiguredEventDecoder.swift` 和 `ConfiguredRealtime.swift`。内容响应来自 Nana 原始 Swift fixture 的完整离线导出；本地 Asset/Bundle 媒体保持资源名，未把远程下载缓存写入响应。
 
-当前增量更新需要在 App ID `67746202` 的“接口管理”重新导入 `generated/接口模板-67746202.json`，核对 `/nana/harbor/tidepass` 后校验并保存。配置模板的 14 项映射未变，已配置项目无需重复导入；完整配对文件仍保留在 `generated/`。
+2026-10-19 本轮增量更新没有改变线上响应或两个导入模板，已完成此前 WebSocket 占位符导入的项目无需重新导入。完整配对文件仍保留在 `generated/`；下方 10-12、10-15 的导入说明是历史变更记录。
 
 认证响应保留 `data.token` 容器，内容改为下方对象；它也可由客户端读取为一层 JSON 对象字符串。地址与房间由平台在响应时展开，不提前替换或固定会话地址：
 
@@ -31,7 +31,7 @@
 
 ## 2026-10-15 原生 WebSocket 增量同步
 
-此次占位符修正取代之前“模板不变、无需重导”的传输迁移说明。仅 `/nana/harbor/tidepass` 的认证响应变化，其他 14 个接口、请求字段和四个事件保持原值。`contract.realtime.transport = "rtLink"` 仅保留兼容标记，不代表 HTTP 请求；客户端不使用 Ably SDK、不调用 rtLink、不解析 TokenRequest 换票。
+此次占位符修正取代之前“模板不变、无需重导”的传输迁移说明。仅 `/nana/harbor/tidepass` 的认证响应变化，其他 14 个接口、请求字段和四个事件保持原值。当时 `contract.realtime.transport = "rtLink"` 仅是兼容标记（10-19 已改为 `webSocket`）；客户端不使用 Ably SDK、不调用 rtLink、不解析 TokenRequest 换票。
 
 `ConfiguredRealtimeTicket.parseConnectionValue` 核对完整原样 wss URL、未展开占位符、attach action/channel、房间一致性、可选身份及到期信息。认证/静默恢复使用同一解析器，旧票据或错误配置不降级为 A 登录成功；Debug 仅记录固定原因码，不输出地址或凭证。既有单连接、续期、空闲检测、取消代次和 3 秒路由决议保持，现有 StoreKit 1 与历史补单逻辑未改。
 
@@ -42,3 +42,18 @@
 用户现已明确授权 A/B 统一 StoreKit 1，取代上一节保留 StoreKit 2 的阶段性说明。商品查询、价格、付款、唯一交易观察者和未完成队列全部改为 SK1；保留原商品、余额/赠币算法、历史 Keychain 命名空间及 A 本地交付/B 五字段确认两种模式。新单另存逐单 applicationUsername UUID，旧账号 token 与历史账本不重写；无法证明归属的旧单继续待核对。
 
 本地收据验证使用固定版本 TPInAppReceipt 4.0.2 和 Apple 官方根证书，完成签名/证书、创建时间、设备哈希、Bundle/版本及交易字段检查。已交付订单只补收尾，不重复加币。配置与双模板不变，无需重新导入。工程引用与源码静态核对见 `ACCEPTANCE.md` 最新节；未编译、未测试、未解析依赖或进行真实支付/重装验证。Xcode 后续打开工程需解析新增收据组件及其依赖，SK1 的系统废弃提示未被屏蔽。
+
+
+## 2026-10-19 最新 Prada 适用差异同步
+
+沿原 SwiftUI、混合登录和 StoreKit 1 接点更新，没有重新接入。App ID、两个域名、现有接口/入参/事件、商品、支付确认响应、历史账本与业务算法保持。`ConfiguredRealtimeTransport` 现在只负责宿主生命周期转发，唯一实际连接为新版 `ConfiguredRealtimeClient`；没有并行旧 socket、Ably SDK 或 rtLink 请求。
+
+传输补齐连接总期限、早到消息缓冲、逐条 JSON 解码、原批次消息 ID、控制帧/心跳、凭据更新、网络/前台恢复、终态及取消代次；传输 ACK/NACK 只表示发布结果，不替代订单确认。当前四核心事件没有新增上行业务回执，保留已部署事件及解析器的 iOS 平台地址和退出包装兼容。
+
+购买仍由原 App 级 SK1 owner 按原模式交付。修正通用消息去重提前吞掉不同后台订单的风险；显式业务 ID 冲突拒绝，后台订单身份仍持久防重。90 秒只结束本次交互等待，不取消系统付款、不标成功、不重新购买。新增可缺省的提交版本/阶段、数量及 Apple 状态观测，旧记录仍按 schemaVersion 1 读取；经 UUID/交易号验证的对象关联只在本进程保留，移出队列时释放。已付款待确认和实际在途的同商品订单继续防重，其他商品及独立补单可处理。支付等待移除面板底框，保留现有文字和遮罩。
+
+**共用登录契约边界**：Nana 的 Apple/邮箱/注册与游客连接共用 `/nana/harbor/tidepass`，并仍使用 `/nana/harbor/doorway` 和 `additionalLoginFields`。按新版技能“保留非一键宿主的契约”，本轮不套用纯一键生成器覆盖现有 15 个接口。`realtime` 增加显式映射并承接原发送方配置，但已部署 `data.token/url/attach/action/channel/roomId/clientId` 保留且只按本项目配置解析，没有猜测式旧键回退。本轮并未迁移到纯一键版的全新别名/双接口契约，也没有新增主题业务协议或空 handler。今后若独立迁移认证字段，须先确认共用接口的合并边界，再同步源响应、实际客户端与导入模板；不要直接运行最新版纯一键生成器覆盖此共用 contract。
+
+**历史订单边界**：没有设备记录证明存在技能所述“旧无号 submitted 阻断”的窄范围故障，也未获准专项清理旧预单；因此不把旧 pending/needsReview 批量释放、删除或标已取消。新观测字段只补充证据，不改冻结归属/服务/订单号及交付终态。已有用户签名与 Bundle ID 修改保留，旧订单 service 不随 Bundle ID 改名；跨 App 身份/访问组的历史记录可读性不在静态检查保证内。
+
+本轮仅静态检查，未编译、测试、启动 App、请求认证/支付接口或建立连接。详细检查与未验证边界见 `ACCEPTANCE.md` 最新节。

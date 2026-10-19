@@ -13,7 +13,7 @@ struct ConfiguredCoreEvent {
         let bytes: Data?
         if let text = raw as? String { bytes = text.data(using: .utf8) }
         else { bytes = raw as? Data }
-        guard let bytes else { return nil }
+        guard let bytes, bytes.count <= ConfiguredRealtimeJSON.maximumBytes else { return nil }
         return (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any]
     }
 
@@ -69,11 +69,12 @@ struct ConfiguredCoreEvent {
 
     static func parse(requestID: UUID, transportID: String?, name: String?, clientID: String?, data: Any?) throws -> Self {
         let sender = clientID ?? ""
-        guard sender != IntegrationContract.ablyClientID,
+        guard sender != IntegrationContract.realtimeClientID,
               sender.isEmpty ? IntegrationContract.allowsMissingSender : IntegrationContract.serverClientIDs.contains(sender) else {
             throw Failure.sender
         }
         guard let fields = normalizedObject(data) else { throw Failure.invalidData }
+        if let rawID = fields["msgId"], !(rawID is String) { throw Failure.messageID }
         let messageID = (fields["msgId"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? transportID
         guard let messageID, !messageID.isEmpty else { throw Failure.messageID }
 

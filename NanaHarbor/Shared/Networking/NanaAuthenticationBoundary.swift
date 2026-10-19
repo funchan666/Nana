@@ -177,10 +177,14 @@ struct NanaAuthenticationBoundary {
                 throw NanaAServiceError.authenticationFailed("The account service returned an invalid connection configuration.")
             }
             let ticket: ConfiguredRealtimeTicket
-            do { ticket = try ConfiguredRealtimeTicket.parseConnectionValue(value) }
+            do {
+                ticket = try ConfiguredRealtimeTicket.parseConnectionValue(
+                    value, fields: IntegrationContract.connectionFields,
+                    expectedClientID: IntegrationContract.realtimeClientID)
+            }
             catch let error as ConfiguredRealtimeError {
                 #if DEBUG
-                print("[Realtime] configuration rejected: \(error.diagnosticCode)")
+                print("[Realtime] configuration rejected: \(error.rawValue)")
                 #endif
                 throw NanaAServiceError.authenticationFailed(error.localizedDescription)
             }

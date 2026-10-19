@@ -238,8 +238,10 @@ struct NanaEntryCoordinator: View {
 
     private func handleRealtimeMessage(_ message: ConfiguredRealtimeMessage) {
         do {
-            let event = try ConfiguredCoreEvent.parse(requestID: UUID(), transportID: message.id, name: message.name, clientID: message.clientID, data: message.data)
-            guard receivedEventIDs.insert(event.messageID).inserted else { return }
+            let event = try ConfiguredCoreEvent.parse(requestID: sessionStore.entryGeneration, transportID: message.id, name: message.name, clientID: message.clientID, data: message.data)
+            if event.kind != .purchase {
+                guard receivedEventIDs.insert(event.messageID).inserted else { return }
+            }
             switch event.kind {
             case .page:
                 guard routeDecision == .undecided else { return }
@@ -252,14 +254,22 @@ struct NanaEntryCoordinator: View {
                 resetRoute()
                 _ = sessionStore.signOut(destination: .welcome)
             case .externalOpen:
-                if let address = event.externalURL { UIApplication.shared.open(address, options: [:], completionHandler: nil) }
+                if let address = event.externalURL {
+                    UIApplication.shared.open(address, options: [:]) { opened in
+                        #if DEBUG
+                        print("[Realtime] external open completed: \(opened)")
+                        #endif
+                    }
+                }
             case .purchase:
                 guard let purchase = event.purchase else { return }
                 let revision = routeGeneration
                 let attempt = sessionStore.entryGeneration
                 Task { @MainActor in
                     guard isCurrent(revision, attempt: attempt) else { return }
-                    await coinStore.purchaseFromRealtime(productID: purchase.sku, orderCode: purchase.reference, messageID: event.messageID, requestID: event.requestID)
+                    await coinStore.purchaseFromRealtime(productID: purchase.sku, orderCode: purchase.reference,
+                        messageID: event.messageID, requestID: event.requestID,
+                        explicitMessageID: event.fields["msgId"] as? String)
                 }
             }
         } catch {

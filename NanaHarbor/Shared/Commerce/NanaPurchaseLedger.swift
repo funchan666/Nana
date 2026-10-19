@@ -13,8 +13,9 @@ struct NanaPurchaseConfirmation: Codable, Equatable {
     let orderCode: String
     let messageID: String
     let requestID: UUID
+    var explicitMessageID: String? = nil
 
-    static func current(orderCode: String, messageID: String, requestID: UUID) -> Self {
+    static func current(orderCode: String, messageID: String, requestID: UUID, explicitMessageID: String? = nil) -> Self {
         Self(origin: NanaAServiceConfiguration.interfaceBaseURL.absoluteString,
              path: IntegrationContract.settlementPath,
              versionField: ConfiguredWireFields.release_tag,
@@ -23,7 +24,8 @@ struct NanaPurchaseConfirmation: Codable, Equatable {
              receiptField: ConfiguredWireFields.receipt_blob,
              orderField: ConfiguredWireFields.order_reference,
              successField: ConfiguredWireFields.code,
-             orderCode: orderCode, messageID: messageID, requestID: requestID)
+             orderCode: orderCode, messageID: messageID, requestID: requestID,
+             explicitMessageID: explicitMessageID)
     }
 }
 
@@ -58,6 +60,10 @@ struct NanaPurchaseOrder: Codable, Equatable {
     var state: NanaPurchaseState
     var retryCount: Int
     var lastFailure: String?
+    var submissionVersion: Int? = nil
+    var submissionStage: String? = nil
+    var observedAppleStates: Set<String>? = nil
+    var quantity: Int? = nil
 
     var delivered: Bool {
         (binding.source == .hostLocal && state == .localDelivered) ||
@@ -140,6 +146,9 @@ final class NanaPurchaseLedger {
         if let existingData {
             let existing = try JSONDecoder().decode(NanaPurchaseOrder.self, from: existingData)
             guard existing.binding == proposed.binding,
+                  existing.submissionVersion == nil || existing.submissionVersion == proposed.submissionVersion,
+                  existing.quantity == nil || existing.quantity == proposed.quantity,
+                  (existing.observedAppleStates ?? []).isSubset(of: proposed.observedAppleStates ?? []),
                   existing.transactionID == nil || existing.transactionID == proposed.transactionID,
                   existing.environment == nil || existing.environment == proposed.environment else {
                 throw NanaCoinPurchaseError.storageUnavailable

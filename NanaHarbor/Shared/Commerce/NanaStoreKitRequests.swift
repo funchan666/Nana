@@ -126,13 +126,20 @@ enum NanaStoreRequestError: Error { case timedOut }
 
 final class NanaPaymentQueueObserver: NSObject, SKPaymentTransactionObserver {
     private let receive: @MainActor ([SKPaymentTransaction]) -> Void
+    private let removed: @MainActor ([SKPaymentTransaction]) -> Void
 
-    init(receive: @escaping @MainActor ([SKPaymentTransaction]) -> Void) {
+    init(receive: @escaping @MainActor ([SKPaymentTransaction]) -> Void,
+         removed: @escaping @MainActor ([SKPaymentTransaction]) -> Void) {
         self.receive = receive
+        self.removed = removed
     }
 
     func paymentQueue(_ queue: SKPaymentQueue, updatedTransactions transactions: [SKPaymentTransaction]) {
         Task { @MainActor [receive] in receive(transactions) }
+    }
+
+    func paymentQueue(_ queue: SKPaymentQueue, removedTransactions transactions: [SKPaymentTransaction]) {
+        Task { @MainActor [removed] in removed(transactions) }
     }
 
     func paymentQueue(_ queue: SKPaymentQueue, shouldAddStorePayment payment: SKPayment, for product: SKProduct) -> Bool {
