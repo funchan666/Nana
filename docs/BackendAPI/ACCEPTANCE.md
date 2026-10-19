@@ -184,3 +184,21 @@ xcodebuild -project Nana.xcodeproj -scheme Nana -sdk iphonesimulator \
 - UI/媒体：支付等待只删除底框，保留主题文字、遮罩与 Apple 系统 sheet。按 AGENTS 路由评估 Taste/Design/Garden，此处采用 Design 的层级简化原则；不产生 HTML、原创资产或新设计。此前通话修复 `ownsPlaybackSuspension`、恢复完成后 load、可信 frame 授权、音频所有权与采集清理文件逐字节未改，无防截屏/录屏机制回归。
 - 导入：认证/支付/登录方式源响应、生成响应和两个导入模板均与本轮前保持；15 接口、14 配置及 App ID 不变，无需重新导入。最新纯一键生成器未运行，以免删除共用登录定义；当前生成常量按适用差异与运行副本同步。
 - 静态证据：26 个 BackendAPI JSON 格式、源/生成响应对照、双模板对照、Swift 常量副本、实际 Sources 引用、权限用途与 `$(PRODUCT_BUNDLE_IDENTIFIER)` Scheme、工程/plist/entitlements 的 plutil、git diff 空白检查。只检查源结构、状态分支和历史兼容字段；没有 Swift 编译/类型检查、测试、模拟器/设备启动、依赖解析、网络连接、购买或卸载重装，实际连接/支付/设备效果未验证。
+
+
+## 2026-10-19 旧预单阻断专项修复（仅静态）
+
+用户明确反馈未弹 Apple 付款窗口，并要求按 Prada 修复旧订单阻断。本节取代前一节“未获准专项处理旧预单”的状态；不代表已读取设备 Keychain 或确认了截图中的具体阻断订单。
+
+- 源码定位：`NanaCoinStore.purchase` 在 `add(payment)` 前，原 `hasUnfinishedPurchase` 对同商品所有非 finished/unpaid 记录统一拦截；同一后台旧单回放也显示同一 pending 文案。这能造成旧无号预单长期阻断，但截图不能区分设备上实际属于哪条分支。
+- 新购买仍先按服务和后台订单去重。同一旧单（含取消、失败、待核对或已交付单）不自动重新购买；接到不同后台订单才评估遗留恢复。先把当前 Apple 队列及暂存对象交原恢复入口，再于商品查询结束后等待已有扫描结束并重新枚举账本。
+- 隔离只适用于前台有效账号、同设备/App/账号/钱包/商品/结算字段范围、逐单 applicationUsername UUID 与原主键一致的已知 SK1 旧格式 `awaitingApple` 预单。须无交易号、无环境、无 submissionVersion/stage、无已观测 Apple 状态，非未知来源/旧产品级关联。当前代码原商品数量固定 1，旧 quantity 缺省按这一已识别的旧实现判断；新格式记录及真实在途单不参加。
+- 同范围必须只有一条尚待处理的候选；同商品实际队列、暂存交易、可信对象关联均为空，确认/处理/重试/恢复扫描任务已结束。仅冷启动队列为空或等待超时不能解除。还必须有同范围 `ablyServer`、有效环境、非空交易号、已交付且 finished 的其他持久订单。候选与依据都从原 Keychain 单独重新读取对照一致。
+- `NanaPurchaseLedger.isolateLegacyPreorder` 使用原 UUID 写入并回读 `needsReview`，附带可缺省 `legacyPreorderReview`（完成记录主键及隔离时间），保留全部冻结绑定和原订单号。写失败继续阻断。该依据限定适用范围，**不表示成功订单和旧预单是同一笔，也不能证明旧预单没有扣款**。
+- 只有这种明确标记且仍无 Apple 观测的待核对记录，才允许同一结算范围、不同后台订单的前台新购买继续；A 面、同一旧单、新格式 pending、歧义/坏记录和普通 needsReview 不获得豁免。最终提交前再次检查实际队列/账本，原单不会被重新 add 或分配成功交易号。新单是独立购买，可能与后来到达的旧交易分别存在。
+- 迟到回调仍通过原 UUID/交易号/可信对象缓存关联：purchasing/deferred 恢复 awaitingApple 阻断；purchased 有真实交易号时写入原单 paid，再由既有验签/服务器确认/幂等交付链处理；缺号保持待核对，后续有号仍可恢复；failed 保存真实失败后收尾。只为此专用隔离标记开放 needsReview 的对应观测转换，其他待核对单不放宽；失败状态写入失败不直接 finish。
+- 反馈沿用现有弹窗，仅按实际阻断分支改文案与固定诊断码，区分 Apple 队列、等待批准、已收到交易待处理、旧预单缺依据、新版请求缺结果和旧取消单；不把 pending 统一说成已扣款。没有布局、样式或素材改动。
+- 记录的固定诊断包括 `existingBackendOrder`、`legacyPreorderUnresolved`、`submissionUnresolved`、`ineligibleOrAmbiguous`、`queueOrRecoveryActive`、`missingCompletedOrderEvidence` 和 `preservedForReviewWithCompletedOrderEvidence`；不输出完整订单号、账号、收据或连接凭据。若新包仍拒绝，可据这些原因继续定位，不能凭文案强制放行。
+- 本轮未编辑认证、WebSocket、模板、商品、历史 schemaVersion/service、SKU/钱包规则及原成功交付/finish 函数，后台无需重新导入。须安装包含本次修改的新包后，运行时才会按实际记录判断是否符合隔离条件。
+
+静态检查：针对本轮起点 `ec2e033` 检查源文件差异、旧 JSON 可缺省字段、Swift 可选绑定/主线程串行调用、候选与完成证据范围、Keychain 写入/回读及迟到五状态分支；核对原 process/finish、商品、支付确认、恢复重试与两个导入模板保持。未编译、未类型检查、未测试、未启动 App/模拟器、未读取设备订单或调用支付服务；不声称已在设备解除本次阻断或恢复付款窗口。
