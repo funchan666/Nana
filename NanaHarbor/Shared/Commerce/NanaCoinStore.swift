@@ -256,6 +256,7 @@ final class NanaCoinStore: ObservableObject {
                 walletID: walletID, localCoins: coins, confirmation: confirmation, legacyKey: nil, legacyOrderCode: nil,
                 applicationUsername: id.uuidString)
             guard !binding.bundleID.isEmpty else { throw NanaCoinPurchaseError.storageUnavailable }
+            try isolateBlockingLegacyProductReference(for: binding)
             try isolateBlockingLegacyPreorder(for: binding)
             if let block = purchaseBlock(for: binding) {
                 showPurchaseBlock(block, owner: owner, revision: revision)
@@ -500,10 +501,43 @@ final class NanaCoinStore: ObservableObject {
     }
 
     private func mayProceedPastReview(_ order: NanaPurchaseOrder, replacement: NanaPurchaseBinding) -> Bool {
+        if order.legacyProductReferenceIsolatedAt != nil,
+           matchesLegacyProductReference(order, replacement: replacement) { return true }
         guard order.isIsolatedLegacyPreorder, replacement.source == .ablyServer,
               UIApplication.shared.applicationState == .active, accountScope == replacement.owner,
               let original = order.binding.confirmation, let incoming = replacement.confirmation else { return false }
         return original.orderCode != incoming.orderCode && order.binding.sharesSettlementScope(with: replacement)
+    }
+
+    private func matchesLegacyProductReference(_ order: NanaPurchaseOrder, replacement: NanaPurchaseBinding) -> Bool {
+        guard order.isLegacyProductReference, replacement.source == .ablyServer,
+              UIApplication.shared.applicationState == .active, accountScope == replacement.owner,
+              let incoming = replacement.confirmation, !incoming.orderCode.isEmpty,
+              let oldCode = order.binding.legacyOrderCode, oldCode != incoming.orderCode,
+              order.binding.bundleID == replacement.bundleID, order.binding.owner == replacement.owner,
+              order.binding.productID == replacement.productID, replacement.productType == "consumable",
+              let walletID = order.binding.walletID, walletID == replacement.walletID, walletID == ledger.identity,
+              order.binding.appAccountToken == replacement.appAccountToken,
+              let account = ledger.accounts[order.binding.owner],
+              account.pendingOrderCodes?[order.binding.productID] == oldCode,
+              !(account.pendingPurchases ?? [:]).values.contains(where: {
+                  $0.productID == order.binding.productID || $0.orderCode == oldCode
+              }) else { return false }
+        return replacement.applicationUsername.flatMap(UUID.init(uuidString:)) == replacement.id &&
+            replacement.id != order.binding.id && replacement.id != order.binding.appAccountToken
+    }
+
+    private func isolateBlockingLegacyProductReference(for replacement: NanaPurchaseBinding) throws {
+        guard purchaseLedger.ready, purchaseLedger.unreadableAccounts.isEmpty, legacyMigrationComplete,
+              interactiveOrderID == nil, interactionDeadline == nil,
+              processing.isEmpty, retryTasks.isEmpty, recoveryScan == nil,
+              queuedTransactions(productID: replacement.productID).isEmpty else { return }
+        let candidates = unfinishedOrders(for: replacement).filter { !mayProceedPastReview($0, replacement: replacement) }
+        guard candidates.count == 1, let candidate = candidates.first,
+              matchesLegacyProductReference(candidate, replacement: replacement),
+              !transactionOrders.values.contains(candidate.binding.id) else { return }
+        try purchaseLedger.isolateLegacyProductReference(candidate)
+        purchaseLog.notice("Legacy product reference isolated reason=historicalProductCachePreservedForReview")
     }
 
     private func purchaseBlock(for binding: NanaPurchaseBinding) -> NanaPurchaseBlock? {
@@ -530,6 +564,7 @@ final class NanaCoinStore: ObservableObject {
             "lateAppleFailureObserved", "originalWalletUnavailable", "deliveryPending"]
         let reason = order.lastFailure.flatMap { knownReasons.contains($0) ? $0 : nil } ?? "unclassified"
         purchaseLog.notice("Purchase record source=\(order.binding.source.rawValue, privacy: .public) state=\(order.state.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
+        purchaseLog.notice("Purchase record productReferenceIsolated=\(order.legacyProductReferenceIsolatedAt != nil)")
         purchaseLog.notice("Purchase record hasTransaction=\(order.transactionID != nil) hasConfirmation=\(order.binding.confirmation != nil) hasLegacyBinding=\(order.binding.legacyKey != nil) hasSubmissionVersion=\(order.submissionVersion != nil) hasReviewEvidence=\(order.legacyPreorderReview != nil) hasAppleObservation=\(!(order.observedAppleStates ?? []).isEmpty)")
     }
 

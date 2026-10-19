@@ -86,6 +86,18 @@ struct NanaPurchaseOrder: Codable, Equatable {
     var observedAppleStates: Set<String>? = nil
     var quantity: Int? = nil
     var legacyPreorderReview: NanaLegacyPreorderReview? = nil
+    var legacyProductReferenceIsolatedAt: Date? = nil
+
+    var isLegacyProductReference: Bool {
+        guard let code = binding.legacyOrderCode, !code.isEmpty else { return false }
+        return binding.source == .legacyUnknown && state == .needsReview &&
+            lastFailure == "legacyProductOnlyAssociation" && binding.productType == "consumable" &&
+            binding.legacyKey == binding.owner + ":product:" + binding.productID + ":" + code &&
+            binding.confirmation == nil && binding.applicationUsername == nil &&
+            transactionID == nil && environment == nil && quantity == nil &&
+            submissionVersion == nil && submissionStage == nil &&
+            (observedAppleStates ?? []).isEmpty && legacyPreorderReview == nil
+    }
 
     var isUnobservedLegacyPreorder: Bool {
         binding.source == .ablyServer && binding.productType == "consumable" &&
@@ -207,6 +219,17 @@ final class NanaPurchaseLedger {
         }
     }
 
+    func isolateLegacyProductReference(_ candidate: NanaPurchaseOrder) throws {
+        guard candidate.isLegacyProductReference else { throw NanaCoinPurchaseError.storageUnavailable }
+        try verifyStored(candidate)
+        var isolated = candidate
+        isolated.legacyProductReferenceIsolatedAt = candidate.legacyProductReferenceIsolatedAt ?? Date()
+        let saved = try save(isolated)
+        guard saved.isLegacyProductReference, saved.legacyProductReferenceIsolatedAt != nil else {
+            throw NanaCoinPurchaseError.storageUnavailable
+        }
+    }
+
     private func save(_ proposed: NanaPurchaseOrder, mayMergeDuplicate: Bool) throws -> NanaPurchaseOrder {
         guard ready else { throw NanaCoinPurchaseError.storageUnavailable }
         let account = proposed.binding.id.uuidString
@@ -214,6 +237,7 @@ final class NanaPurchaseLedger {
         if let existingData {
             let existing = try JSONDecoder().decode(NanaPurchaseOrder.self, from: existingData)
             guard existing.binding == proposed.binding,
+                  existing.legacyProductReferenceIsolatedAt == nil || existing.legacyProductReferenceIsolatedAt == proposed.legacyProductReferenceIsolatedAt,
                   existing.legacyPreorderReview == nil || existing.legacyPreorderReview == proposed.legacyPreorderReview,
                   existing.submissionVersion == nil || existing.submissionVersion == proposed.submissionVersion,
                   existing.quantity == nil || existing.quantity == proposed.quantity,
