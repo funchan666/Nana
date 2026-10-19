@@ -330,7 +330,34 @@ final class NanaCoinStore: ObservableObject {
 
     private func showPurchaseNotice(owner: String, revision: UUID, pending: Bool) {
         guard pending, accountScope == owner, purchaseSessionRevision == revision else { return }
-        notice = AccountEntryNotice(title: "Purchase pending", explanation: "This purchase is awaiting confirmation. Please do not purchase it again; Nana will retry when its original order and receipt are available.")
+        let reason = interactiveOrderID.flatMap { purchaseLedger.orders[$0] }.map { block(for: $0) } ?? .reviewRequired
+        showPurchaseBlock(reason, owner: owner, revision: revision)
+    }
+
+    private func block(for order: NanaPurchaseOrder) -> NanaPurchaseBlock {
+        if order.state == .unpaid { return .previousUnpaid }
+        if order.state == .needsReview || order.binding.source == .legacyUnknown { return .reviewRequired }
+        if order.transactionID != nil { return .deliveryPending }
+        if order.observedAppleStates?.contains("deferred") == true { return .appleApprovalPending }
+        if order.isUnobservedLegacyPreorder { return .legacyPreorderUnresolved }
+        return .appleQueuePending
+    }
+
+    private func showPurchaseBlock(_ reason: NanaPurchaseBlock, owner: String, revision: UUID) {
+        guard accountScope == owner, purchaseSessionRevision == revision else { return }
+        purchaseLog.notice("Purchase blocked reason=\(reason.rawValue, privacy: .public)")
+        switch reason {
+        case .appleQueuePending:
+            notice = AccountEntryNotice(title: "Waiting for Apple", explanation: "An earlier purchase is still being processed by Apple. Please wait for its result before trying this option again.")
+        case .appleApprovalPending:
+            notice = AccountEntryNotice(title: "Approval pending", explanation: "An earlier purchase is waiting for approval. Nana will continue when Apple provides the result.")
+        case .deliveryPending:
+            notice = AccountEntryNotice(title: "Purchase pending", explanation: "An earlier Apple transaction still needs verification or completion. Nana will continue processing the original order; please do not purchase it again.")
+        case .legacyPreorderUnresolved, .reviewRequired:
+            notice = AccountEntryNotice(title: "Earlier order needs review", explanation: "An earlier order record is preventing this purchase. Its payment status has not been confirmed, and this message does not mean you were charged. No new Apple payment was started.")
+        case .previousUnpaid:
+            notice = AccountEntryNotice(title: "Previous order ended", explanation: "Apple cancelled or declined this order. Start a new recharge to request a new order; this old order will not be submitted again.")
+        }
     }
 
     private func markUnpaid(_ id: UUID) {
@@ -453,18 +480,80 @@ final class NanaCoinStore: ObservableObject {
         }
     }
 
-    private func hasUnfinishedPurchase(productID: String) -> Bool {
-        let queued = SKPaymentQueue.default().transactions + Array(observedTransactions.values) + Array(bufferedTransactions.values)
-        if queued.contains(where: { $0.payment.productIdentifier == productID }) {
-            purchaseLog.notice("Purchase blocked reason=appleQueuePending queueCount=\(queued.count)")
-            return true
+    private func queuedTransactions(productID: String) -> [SKPaymentTransaction] {
+        var unique: [ObjectIdentifier: SKPaymentTransaction] = [:]
+        for transaction in SKPaymentQueue.default().transactions + Array(observedTransactions.values) + Array(bufferedTransactions.values)
+            where transaction.payment.productIdentifier == productID {
+            unique[ObjectIdentifier(transaction)] = transaction
         }
-        let pending = purchaseLedger.orders.values.contains {
-            $0.binding.bundleID == Bundle.main.bundleIdentifier && $0.binding.productID == productID &&
+        return Array(unique.values)
+    }
+
+    private func unfinishedOrders(for binding: NanaPurchaseBinding) -> [NanaPurchaseOrder] {
+        purchaseLedger.orders.values.filter {
+            $0.binding.bundleID == binding.bundleID && $0.binding.productID == binding.productID &&
                 $0.state != .finished && $0.state != .unpaid
         }
-        if pending { purchaseLog.notice("Purchase blocked reason=durableOrderPending") }
-        return pending
+    }
+
+    private func mayProceedPastReview(_ order: NanaPurchaseOrder, replacement: NanaPurchaseBinding) -> Bool {
+        guard order.isIsolatedLegacyPreorder, replacement.source == .ablyServer,
+              let original = order.binding.confirmation, let incoming = replacement.confirmation else { return false }
+        return original.orderCode != incoming.orderCode && order.binding.sharesSettlementScope(with: replacement)
+    }
+
+    private func purchaseBlock(for binding: NanaPurchaseBinding) -> NanaPurchaseBlock? {
+        let queued = queuedTransactions(productID: binding.productID)
+        if !queued.isEmpty {
+            purchaseLog.notice("Purchase queue pending count=\(queued.count)")
+            if queued.contains(where: { $0.transactionState == .deferred }) { return .appleApprovalPending }
+            if queued.contains(where: { $0.transactionState == .purchased || $0.transactionState == .restored }) { return .deliveryPending }
+            return .appleQueuePending
+        }
+        let pending = unfinishedOrders(for: binding).filter { !mayProceedPastReview($0, replacement: binding) }
+        guard !pending.isEmpty else { return nil }
+        purchaseLog.notice("Purchase ledger pending count=\(pending.count)")
+        if pending.contains(where: { $0.transactionID != nil }) { return .deliveryPending }
+        if pending.contains(where: { $0.state == .needsReview || $0.binding.source == .legacyUnknown }) { return .reviewRequired }
+        if pending.contains(where: { $0.observedAppleStates?.contains("deferred") == true }) { return .appleApprovalPending }
+        return pending.allSatisfy(\.isUnobservedLegacyPreorder) ? .legacyPreorderUnresolved : .appleQueuePending
+    }
+
+    private func isolateBlockingLegacyPreorder(for replacement: NanaPurchaseBinding) throws {
+        guard replacement.source == .ablyServer, let incoming = replacement.confirmation,
+              UIApplication.shared.applicationState == .active, accountScope == replacement.owner,
+              interactiveOrderID == nil, interactionDeadline == nil,
+              purchaseLedger.ready, purchaseLedger.unreadableAccounts.isEmpty, legacyMigrationComplete else { return }
+        let candidates = unfinishedOrders(for: replacement).filter { !mayProceedPastReview($0, replacement: replacement) }
+        guard candidates.count == 1, let candidate = candidates.first,
+              candidate.state == .awaitingApple, candidate.isUnobservedLegacyPreorder,
+              candidate.legacyPreorderReview == nil,
+              candidate.binding.sharesSettlementScope(with: replacement),
+              let original = candidate.binding.confirmation, original.orderCode != incoming.orderCode,
+              !original.orderCode.isEmpty, !original.messageID.isEmpty else {
+            if !candidates.isEmpty { purchaseLog.notice("Legacy preorder kept reason=ineligibleOrAmbiguous count=\(candidates.count)") }
+            return
+        }
+        guard queuedTransactions(productID: replacement.productID).isEmpty,
+              !transactionOrders.values.contains(candidate.binding.id),
+              processing.isEmpty, retryTasks.isEmpty, recoveryScan == nil else {
+            purchaseLog.notice("Legacy preorder kept reason=queueOrRecoveryActive")
+            return
+        }
+        let completed = purchaseLedger.orders.values.filter {
+            $0.binding.id != candidate.binding.id && $0.binding.sharesSettlementScope(with: candidate.binding) &&
+                $0.state == .finished && $0.delivered && $0.transactionID?.isEmpty == false &&
+                ($0.environment == "sandbox" || $0.environment == "production") &&
+                ($0.quantity == nil || $0.quantity == 1) &&
+                $0.binding.confirmation?.orderCode != original.orderCode &&
+                $0.binding.confirmation?.orderCode != incoming.orderCode
+        }.sorted { $0.binding.id.uuidString < $1.binding.id.uuidString }
+        guard let evidence = completed.first else {
+            purchaseLog.notice("Legacy preorder kept reason=missingCompletedOrderEvidence")
+            return
+        }
+        try purchaseLedger.isolateLegacyPreorder(candidate, completedOrder: evidence)
+        purchaseLog.notice("Legacy preorder isolated reason=preservedForReviewWithCompletedOrderEvidence")
     }
 
     private func removeObservedTransactions(_ transactions: [SKPaymentTransaction]) {
