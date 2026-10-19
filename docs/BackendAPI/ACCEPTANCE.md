@@ -202,3 +202,18 @@ xcodebuild -project Nana.xcodeproj -scheme Nana -sdk iphonesimulator \
 - 本轮未编辑认证、WebSocket、模板、商品、历史 schemaVersion/service、SKU/钱包规则及原成功交付/finish 函数，后台无需重新导入。须安装包含本次修改的新包后，运行时才会按实际记录判断是否符合隔离条件。
 
 静态检查：针对本轮起点 `ec2e033` 检查源文件差异、旧 JSON 可缺省字段、Swift 可选绑定/主线程串行调用、候选与完成证据范围、Keychain 写入/回读及迟到五状态分支；核对原 process/finish、商品、支付确认、恢复重试与两个导入模板保持。未编译、未类型检查、未测试、未启动 App/模拟器、未读取设备订单或调用支付服务；不声称已在设备解除本次阻断或恢复付款窗口。
+
+
+## 2026-10-19 旧商品级订单缓存阻断（仅静态）
+
+本次用户日志确认 4.99 的阻断记录为 `legacyUnknown / needsReview / legacyProductOnlyAssociation`，无交易号、确认绑定和 Apple 观测。旧源码 `7f6fd60^` 的 purchase 在 Apple 调用前保存 pendingOrderCodes，userCancelled/throw 未清理；当前迁移把该商品级缓存保存成待核对记录，不能据此认定存在逐笔 Apple 在途交易或证明旧单未扣款。
+
+新增独立缓存隔离：匹配原 App/账号/钱包/账号 token/商品/旧缓存键值，排除真实待确认记录、队列/缓冲/关联及处理任务，并仅在有效前台收到不同后台订单时，用原 Keychain UUID 写入并回读可选 legacyProductReferenceIsolatedAt。原模式、needsReview、旧订单和源缓存保留；仅此缓存引用不再独占同商品的新购买。原有 submitted 预单迁移门槛保持。相同旧后台订单仍防重，新单使用独立 UUID 付款前落盘；实际队列在途及其他 pending 仍阻断，迟到未知旧交易不猜配给新单。该规则也适用于已经迁移的旧缓存记录，无需删除 App/Keychain 或重导后台模板。
+
+只核对源码分支、历史兼容字段、关键写入/回读、差异与静态格式；未编译、未测试、未启动 App 或读取设备 Keychain。日志中的 Sandbox noAccount 属另一个环境问题，本次缓存隔离不代表已恢复沙盒账号或验证 Apple 弹窗/到账。
+
+### 同日补充：游客账号变化与完整拒绝分支
+
+用户新日志确认运行了隔离代码，但 `productReferenceIsolated=false`，旧缓存仍阻断。源码核对发现 `signInAsVisitor` 每次生成新本地账号，而上一版缓存隔离强制旧 owner/token 等于新 owner/token，可能阻止已核实缓存解除商品锁。现在分别校验：旧缓存与原账户的缓存键值、已有 token、同钱包身份一致；新单与当前有效会话及独立逐单 UUID 一致。不搬迁旧账号/订单或权益。旧可选 token 缺失只保持缺失；已知冲突仍拒绝。跨账号真实待确认旧记录、实际 Apple 队列和普通未知记录继续阻断。
+
+每项隔离拒绝路径均输出固定脱敏原因，包括格式、会话、原缓存、钱包、原 token、实际待恢复记录、任务和独立新绑定；不再静默 return 后只输出 reviewRequired。日志尚不能证明此次设备确切失败条件是账号变化；本次修复静态发现的该缺口，Apple 弹窗及最终充值结果仍待用户验证。未编译、未测试。

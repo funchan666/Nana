@@ -510,34 +510,67 @@ final class NanaCoinStore: ObservableObject {
     }
 
     private func matchesLegacyProductReference(_ order: NanaPurchaseOrder, replacement: NanaPurchaseBinding) -> Bool {
-        guard order.isLegacyProductReference, replacement.source == .ablyServer,
-              UIApplication.shared.applicationState == .active, accountScope == replacement.owner,
-              let incoming = replacement.confirmation, !incoming.orderCode.isEmpty,
-              let oldCode = order.binding.legacyOrderCode, oldCode != incoming.orderCode,
-              order.binding.bundleID == replacement.bundleID, order.binding.owner == replacement.owner,
-              order.binding.productID == replacement.productID, replacement.productType == "consumable",
-              let walletID = order.binding.walletID, walletID == replacement.walletID, walletID == ledger.identity,
-              order.binding.appAccountToken == replacement.appAccountToken,
-              let account = ledger.accounts[order.binding.owner],
-              account.pendingOrderCodes?[order.binding.productID] == oldCode,
-              !(account.pendingPurchases ?? [:]).values.contains(where: {
-                  $0.productID == order.binding.productID || $0.orderCode == oldCode
-              }) else { return false }
-        return replacement.applicationUsername.flatMap(UUID.init(uuidString:)) == replacement.id &&
-            replacement.id != order.binding.id && replacement.id != order.binding.appAccountToken
+        legacyProductReferenceRejection(order, replacement: replacement) == nil
+    }
+
+    private func legacyProductReferenceRejection(_ order: NanaPurchaseOrder, replacement: NanaPurchaseBinding) -> String? {
+        guard order.isLegacyProductReference else { return "notHistoricalProductReference" }
+        guard replacement.source == .ablyServer else { return "notServerPurchase" }
+        guard UIApplication.shared.applicationState == .active, accountScope == replacement.owner else { return "inactivePurchaseSession" }
+        guard let incoming = replacement.confirmation, !incoming.orderCode.isEmpty,
+              let oldCode = order.binding.legacyOrderCode, oldCode != incoming.orderCode else { return "missingOrRepeatedBusinessOrder" }
+        guard order.binding.bundleID == replacement.bundleID,
+              order.binding.productID == replacement.productID, replacement.productType == "consumable" else { return "appOrProductMismatch" }
+        guard let walletID = order.binding.walletID, walletID == ledger.identity,
+              replacement.walletID == ledger.identity else { return "walletIdentityMismatch" }
+        guard let originalAccount = ledger.accounts[order.binding.owner],
+              originalAccount.pendingOrderCodes?[order.binding.productID] == oldCode else { return "originalCacheUnavailable" }
+        guard order.binding.appAccountToken == nil || order.binding.appAccountToken == originalAccount.purchaseAccountToken else { return "originalAccountTokenMismatch" }
+        guard ledger.accounts[replacement.owner] != nil else { return "currentAccountUnavailable" }
+        guard !ledger.accounts.values.contains(where: { account in
+            (account.pendingPurchases ?? [:]).values.contains(where: {
+                $0.productID == order.binding.productID || $0.orderCode == oldCode
+            })
+        }) else { return "legacyTransactionRequiresRecovery" }
+        guard replacement.applicationUsername.flatMap(UUID.init(uuidString:)) == replacement.id,
+              replacement.id != order.binding.id, replacement.id != order.binding.appAccountToken,
+              replacement.id != replacement.appAccountToken else { return "newPurchaseBindingNotIndependent" }
+        return nil
     }
 
     private func isolateBlockingLegacyProductReference(for replacement: NanaPurchaseBinding) throws {
-        guard purchaseLedger.ready, purchaseLedger.unreadableAccounts.isEmpty, legacyMigrationComplete,
-              interactiveOrderID == nil, interactionDeadline == nil,
-              processing.isEmpty, retryTasks.isEmpty, recoveryScan == nil,
-              queuedTransactions(productID: replacement.productID).isEmpty else { return }
         let candidates = unfinishedOrders(for: replacement).filter { !mayProceedPastReview($0, replacement: replacement) }
-        guard candidates.count == 1, let candidate = candidates.first,
-              matchesLegacyProductReference(candidate, replacement: replacement),
-              !transactionOrders.values.contains(candidate.binding.id) else { return }
+        guard !candidates.isEmpty else { return }
+        guard purchaseLedger.ready, purchaseLedger.unreadableAccounts.isEmpty, legacyMigrationComplete else {
+            purchaseLog.notice("Legacy product reference kept reason=ledgerUnavailable")
+            return
+        }
+        guard interactiveOrderID == nil, interactionDeadline == nil else {
+            purchaseLog.notice("Legacy product reference kept reason=interactionActive")
+            return
+        }
+        guard processing.isEmpty, retryTasks.isEmpty, recoveryScan == nil else {
+            purchaseLog.notice("Legacy product reference kept reason=recoveryActive processing=\(self.processing.count) retries=\(self.retryTasks.count) scan=\(self.recoveryScan != nil)")
+            return
+        }
+        guard queuedTransactions(productID: replacement.productID).isEmpty else {
+            purchaseLog.notice("Legacy product reference kept reason=appleQueueActive")
+            return
+        }
+        guard candidates.count == 1, let candidate = candidates.first else {
+            purchaseLog.notice("Legacy product reference kept reason=ambiguousCandidates count=\(candidates.count)")
+            return
+        }
+        if let reason = legacyProductReferenceRejection(candidate, replacement: replacement) {
+            purchaseLog.notice("Legacy product reference kept reason=\(reason, privacy: .public)")
+            return
+        }
+        guard !transactionOrders.values.contains(candidate.binding.id) else {
+            purchaseLog.notice("Legacy product reference kept reason=trustedAppleAssociation")
+            return
+        }
         try purchaseLedger.isolateLegacyProductReference(candidate)
-        purchaseLog.notice("Legacy product reference isolated reason=historicalProductCachePreservedForReview")
+        purchaseLog.notice("Legacy product reference isolated reason=historicalProductCachePreservedForReview sameOwner=\(candidate.binding.owner == replacement.owner)")
     }
 
     private func purchaseBlock(for binding: NanaPurchaseBinding) -> NanaPurchaseBlock? {
