@@ -50,6 +50,27 @@ struct NanaPurchaseBinding: Codable, Equatable {
     let legacyKey: String?
     let legacyOrderCode: String?
     var applicationUsername: String? = nil
+
+    func sharesSettlementScope(with other: Self) -> Bool {
+        guard source == .ablyServer, other.source == .ablyServer,
+              let deviceID, !deviceID.isEmpty, deviceID == other.deviceID,
+              let confirmation, let otherConfirmation = other.confirmation else { return false }
+        return bundleID == other.bundleID && owner == other.owner && productID == other.productID &&
+            productType == "consumable" && productType == other.productType &&
+            walletID == other.walletID && appAccountToken == other.appAccountToken &&
+            confirmation.origin == otherConfirmation.origin && confirmation.path == otherConfirmation.path &&
+            confirmation.versionField == otherConfirmation.versionField &&
+            confirmation.deviceField == otherConfirmation.deviceField &&
+            confirmation.transactionField == otherConfirmation.transactionField &&
+            confirmation.receiptField == otherConfirmation.receiptField &&
+            confirmation.orderField == otherConfirmation.orderField &&
+            confirmation.successField == otherConfirmation.successField
+    }
+}
+
+struct NanaLegacyPreorderReview: Codable, Equatable {
+    let completedOrderID: UUID
+    let recordedAt: Date
 }
 
 struct NanaPurchaseOrder: Codable, Equatable {
@@ -64,6 +85,20 @@ struct NanaPurchaseOrder: Codable, Equatable {
     var submissionStage: String? = nil
     var observedAppleStates: Set<String>? = nil
     var quantity: Int? = nil
+    var legacyPreorderReview: NanaLegacyPreorderReview? = nil
+
+    var isUnobservedLegacyPreorder: Bool {
+        binding.source == .ablyServer && binding.productType == "consumable" &&
+            binding.applicationUsername.flatMap(UUID.init(uuidString:)) == binding.id &&
+            binding.legacyKey == nil && binding.legacyOrderCode == nil &&
+            transactionID == nil && environment == nil && submissionVersion == nil && submissionStage == nil &&
+            (observedAppleStates ?? []).isEmpty && (quantity == nil || quantity == 1)
+    }
+
+    var isIsolatedLegacyPreorder: Bool {
+        isUnobservedLegacyPreorder && state == .needsReview && legacyPreorderReview != nil &&
+            lastFailure == "legacyPreorderIsolatedForReview"
+    }
 
     var delivered: Bool {
         (binding.source == .hostLocal && state == .localDelivered) ||
@@ -139,6 +174,34 @@ final class NanaPurchaseLedger {
         try save(proposed, mayMergeDuplicate: true)
     }
 
+    func isolateLegacyPreorder(_ candidate: NanaPurchaseOrder, completedOrder: NanaPurchaseOrder) throws {
+        guard candidate.state == .awaitingApple, candidate.isUnobservedLegacyPreorder,
+              candidate.legacyPreorderReview == nil, candidate.binding.id != completedOrder.binding.id,
+              candidate.binding.sharesSettlementScope(with: completedOrder.binding),
+              candidate.binding.confirmation?.orderCode != completedOrder.binding.confirmation?.orderCode,
+              completedOrder.state == .finished, completedOrder.delivered,
+              completedOrder.transactionID?.isEmpty == false,
+              completedOrder.environment == "production" || completedOrder.environment == "sandbox",
+              completedOrder.quantity == nil || completedOrder.quantity == 1 else {
+            throw NanaCoinPurchaseError.storageUnavailable
+        }
+        try verifyStored(candidate)
+        try verifyStored(completedOrder)
+        var isolated = candidate
+        isolated.state = .needsReview
+        isolated.lastFailure = "legacyPreorderIsolatedForReview"
+        isolated.legacyPreorderReview = NanaLegacyPreorderReview(completedOrderID: completedOrder.binding.id, recordedAt: Date())
+        let saved = try save(isolated)
+        guard saved.isIsolatedLegacyPreorder else { throw NanaCoinPurchaseError.storageUnavailable }
+    }
+
+    private func verifyStored(_ expected: NanaPurchaseOrder) throws {
+        guard ready, let data = try readData(expected.binding.id.uuidString),
+              let stored = try? JSONDecoder().decode(NanaPurchaseOrder.self, from: data), stored == expected else {
+            throw NanaCoinPurchaseError.storageUnavailable
+        }
+    }
+
     private func save(_ proposed: NanaPurchaseOrder, mayMergeDuplicate: Bool) throws -> NanaPurchaseOrder {
         guard ready else { throw NanaCoinPurchaseError.storageUnavailable }
         let account = proposed.binding.id.uuidString
@@ -146,6 +209,7 @@ final class NanaPurchaseLedger {
         if let existingData {
             let existing = try JSONDecoder().decode(NanaPurchaseOrder.self, from: existingData)
             guard existing.binding == proposed.binding,
+                  existing.legacyPreorderReview == nil || existing.legacyPreorderReview == proposed.legacyPreorderReview,
                   existing.submissionVersion == nil || existing.submissionVersion == proposed.submissionVersion,
                   existing.quantity == nil || existing.quantity == proposed.quantity,
                   (existing.observedAppleStates ?? []).isSubset(of: proposed.observedAppleStates ?? []),
@@ -161,7 +225,11 @@ final class NanaPurchaseLedger {
             }
             if (existing.state == .paid || existing.state == .deliveringLocal || existing.state == .needsReview),
                proposed.state == .awaitingApple || proposed.state == .unpaid {
-                throw NanaCoinPurchaseError.storageUnavailable
+                let observation = proposed.observedAppleStates ?? []
+                let resumedIsolatedOrder = existing.isIsolatedLegacyPreorder && proposed.submissionStage == "observedByApple" &&
+                    ((proposed.state == .awaitingApple && !observation.isDisjoint(with: ["purchasing", "deferred"])) ||
+                     (proposed.state == .unpaid && observation.contains("failed")))
+                guard resumedIsolatedOrder else { throw NanaCoinPurchaseError.storageUnavailable }
             }
         }
         if let transactionID = proposed.transactionID {

@@ -43,6 +43,10 @@ private struct NanaCoinLedger: Codable {
     var removedStoreTransactionIDs: Set<String>? = nil
 }
 
+private enum NanaPurchaseBlock: String {
+    case appleQueuePending, appleApprovalPending, deliveryPending, legacyPreorderUnresolved, reviewRequired, previousUnpaid
+}
+
 @MainActor
 final class NanaCoinStore: ObservableObject {
     static let shared = NanaCoinStore()
@@ -209,6 +213,7 @@ final class NanaCoinStore: ObservableObject {
         var orderID: UUID?
         do {
             try prepareRecoveryLedger()
+            receive(SKPaymentQueue.default().transactions + Array(observedTransactions.values) + Array(bufferedTransactions.values))
             if let confirmation {
                 guard legacyMigrationComplete, purchaseLedger.unreadableAccounts.isEmpty else { throw NanaCoinPurchaseError.storageUnavailable }
                 if let messageID = confirmation.explicitMessageID,
@@ -226,29 +231,23 @@ final class NanaCoinStore: ObservableObject {
                     } ?? ($0.binding.legacyOrderCode == confirmation.orderCode)
                 }) {
                     wakeRecovery()
-                    showPurchaseNotice(owner: owner, revision: revision, pending: !previous.delivered)
+                    purchaseLog.notice("Purchase blocked reason=existingBackendOrder state=\(previous.state.rawValue, privacy: .public)")
+                    if !previous.delivered { showPurchaseBlock(block(for: previous), owner: owner, revision: revision) }
                     return
                 }
             }
             guard SKPaymentQueue.canMakePayments() else { throw NanaCoinPurchaseError.paymentsRestricted }
             let product = try await product(for: productID)
+            if let recoveryScan { await recoveryScan.value }
             guard accountScope == owner, purchaseSessionRevision == revision, interactiveAttempt == attempt,
                   !Task.isCancelled else { return }
             guard product.subscriptionPeriod == nil else { throw NanaCoinPurchaseError.unsupportedProduct }
+            try prepareRecoveryLedger()
             try loadLedgerIfNeeded()
             guard var account = ledger.accounts[owner], let walletID = ledger.identity else {
                 throw NanaCoinPurchaseError.storageUnavailable
             }
             let token = account.purchaseAccountToken ?? UUID()
-            guard !hasUnfinishedPurchase(productID: productID) else {
-                showPurchaseNotice(owner: owner, revision: revision, pending: true)
-                return
-            }
-            account.purchaseAccountToken = token
-            var updated = ledger
-            updated.accounts[owner] = account
-            try persistLedger(updated)
-            ledger = updated
             let id = UUID()
             let binding = NanaPurchaseBinding(id: id, source: source, productID: productID, productType: "consumable",
                 owner: owner, appAccountToken: token, bundleID: Bundle.main.bundleIdentifier ?? "",
@@ -256,7 +255,21 @@ final class NanaCoinStore: ObservableObject {
                 walletID: walletID, localCoins: coins, confirmation: confirmation, legacyKey: nil, legacyOrderCode: nil,
                 applicationUsername: id.uuidString)
             guard !binding.bundleID.isEmpty else { throw NanaCoinPurchaseError.storageUnavailable }
+            try isolateBlockingLegacyPreorder(for: binding)
+            if let block = purchaseBlock(for: binding) {
+                showPurchaseBlock(block, owner: owner, revision: revision)
+                return
+            }
+            account.purchaseAccountToken = token
+            var updated = ledger
+            updated.accounts[owner] = account
+            try persistLedger(updated)
+            ledger = updated
             guard SKPaymentQueue.canMakePayments() else { throw NanaCoinPurchaseError.paymentsRestricted }
+            if let block = purchaseBlock(for: binding) {
+                showPurchaseBlock(block, owner: owner, revision: revision)
+                return
+            }
             let order = NanaPurchaseOrder(schemaVersion: 1, binding: binding, state: .awaitingApple, retryCount: 0,
                 submissionVersion: 1, submissionStage: "preparedForApple", observedAppleStates: [], quantity: 1)
             try purchaseLedger.save(order)
