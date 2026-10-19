@@ -44,7 +44,7 @@ private struct NanaCoinLedger: Codable {
 }
 
 private enum NanaPurchaseBlock: String {
-    case appleQueuePending, appleApprovalPending, deliveryPending, legacyPreorderUnresolved, reviewRequired, previousUnpaid
+    case appleQueuePending, appleApprovalPending, deliveryPending, legacyPreorderUnresolved, submissionUnresolved, reviewRequired, previousUnpaid
 }
 
 @MainActor
@@ -340,7 +340,7 @@ final class NanaCoinStore: ObservableObject {
         if order.transactionID != nil { return .deliveryPending }
         if order.observedAppleStates?.contains("deferred") == true { return .appleApprovalPending }
         if order.isUnobservedLegacyPreorder { return .legacyPreorderUnresolved }
-        return .appleQueuePending
+        return .submissionUnresolved
     }
 
     private func showPurchaseBlock(_ reason: NanaPurchaseBlock, owner: String, revision: UUID) {
@@ -355,15 +355,17 @@ final class NanaCoinStore: ObservableObject {
             notice = AccountEntryNotice(title: "Purchase pending", explanation: "An earlier Apple transaction still needs verification or completion. Nana will continue processing the original order; please do not purchase it again.")
         case .legacyPreorderUnresolved, .reviewRequired:
             notice = AccountEntryNotice(title: "Earlier order needs review", explanation: "An earlier order record is preventing this purchase. Its payment status has not been confirmed, and this message does not mean you were charged. No new Apple payment was started.")
+        case .submissionUnresolved:
+            notice = AccountEntryNotice(title: "Purchase result unavailable", explanation: "An earlier payment request has no final Apple result. Its status must be checked before this option can be submitted again. This message does not confirm a charge.")
         case .previousUnpaid:
             notice = AccountEntryNotice(title: "Previous order ended", explanation: "Apple cancelled or declined this order. Start a new recharge to request a new order; this old order will not be submitted again.")
         }
     }
 
-    private func markUnpaid(_ id: UUID) {
+    private func markUnpaid(_ id: UUID) throws {
         guard var order = purchaseLedger.orders[id], order.state == .awaitingApple, order.transactionID == nil else { return }
         order.state = .unpaid
-        _ = try? purchaseLedger.save(order)
+        try purchaseLedger.save(order)
     }
 
     func dismissNotice() {
@@ -516,7 +518,7 @@ final class NanaCoinStore: ObservableObject {
         if pending.contains(where: { $0.transactionID != nil }) { return .deliveryPending }
         if pending.contains(where: { $0.state == .needsReview || $0.binding.source == .legacyUnknown }) { return .reviewRequired }
         if pending.contains(where: { $0.observedAppleStates?.contains("deferred") == true }) { return .appleApprovalPending }
-        return pending.allSatisfy(\.isUnobservedLegacyPreorder) ? .legacyPreorderUnresolved : .appleQueuePending
+        return pending.allSatisfy(\.isUnobservedLegacyPreorder) ? .legacyPreorderUnresolved : .submissionUnresolved
     }
 
     private func isolateBlockingLegacyPreorder(for replacement: NanaPurchaseBinding) throws {
@@ -661,6 +663,24 @@ final class NanaCoinStore: ObservableObject {
         for transaction in transactions {
             var order = associatedOrder(transaction)
             if var observed = order {
+                if observed.mayResumeIsolatedLegacyPreorder {
+                    switch transaction.transactionState {
+                    case .purchasing, .deferred:
+                        observed.state = .awaitingApple
+                        observed.lastFailure = "lateAppleTransactionObserved"
+                    case .purchased:
+                        if let transactionID = transaction.transactionIdentifier, !transactionID.isEmpty {
+                            observed.transactionID = transactionID
+                            observed.state = .paid
+                            observed.lastFailure = "lateAppleTransactionObserved"
+                        }
+                    case .failed:
+                        observed.state = .unpaid
+                        observed.lastFailure = "lateAppleFailureObserved"
+                    case .restored: break
+                    @unknown default: break
+                    }
+                }
                 let state: String
                 switch transaction.transactionState {
                 case .purchasing: state = "purchasing"
@@ -682,7 +702,8 @@ final class NanaCoinStore: ObservableObject {
                 if let order { releaseInteraction(orderID: order.binding.id, pending: true) }
             case .failed:
                 if let order {
-                    markUnpaid(order.binding.id)
+                    do { try markUnpaid(order.binding.id) }
+                    catch { releaseInteraction(orderID: order.binding.id, pending: true); continue }
                     if interactiveOrderID == order.binding.id {
                         let cancelled = (transaction.error as? SKError)?.code == .paymentCancelled
                         if !cancelled {

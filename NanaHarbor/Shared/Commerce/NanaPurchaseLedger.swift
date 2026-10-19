@@ -100,6 +100,11 @@ struct NanaPurchaseOrder: Codable, Equatable {
             lastFailure == "legacyPreorderIsolatedForReview"
     }
 
+    var mayResumeIsolatedLegacyPreorder: Bool {
+        binding.source == .ablyServer && state == .needsReview && legacyPreorderReview != nil &&
+            transactionID == nil && submissionVersion == nil && lastFailure == "legacyPreorderIsolatedForReview"
+    }
+
     var delivered: Bool {
         (binding.source == .hostLocal && state == .localDelivered) ||
         (binding.source == .ablyServer && state == .serverConfirmed) || state == .finished
@@ -226,7 +231,7 @@ final class NanaPurchaseLedger {
             if (existing.state == .paid || existing.state == .deliveringLocal || existing.state == .needsReview),
                proposed.state == .awaitingApple || proposed.state == .unpaid {
                 let observation = proposed.observedAppleStates ?? []
-                let resumedIsolatedOrder = existing.isIsolatedLegacyPreorder && proposed.submissionStage == "observedByApple" &&
+                let resumedIsolatedOrder = existing.mayResumeIsolatedLegacyPreorder && proposed.submissionStage == "observedByApple" &&
                     ((proposed.state == .awaitingApple && !observation.isDisjoint(with: ["purchasing", "deferred"])) ||
                      (proposed.state == .unpaid && observation.contains("failed")))
                 guard resumedIsolatedOrder else { throw NanaCoinPurchaseError.storageUnavailable }
