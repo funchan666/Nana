@@ -500,6 +500,7 @@ final class NanaCoinStore: ObservableObject {
 
     private func mayProceedPastReview(_ order: NanaPurchaseOrder, replacement: NanaPurchaseBinding) -> Bool {
         guard order.isIsolatedLegacyPreorder, replacement.source == .ablyServer,
+              UIApplication.shared.applicationState == .active, accountScope == replacement.owner,
               let original = order.binding.confirmation, let incoming = replacement.confirmation else { return false }
         return original.orderCode != incoming.orderCode && order.binding.sharesSettlementScope(with: replacement)
     }
